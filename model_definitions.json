@@ -1,0 +1,186 @@
+[
+  {
+    "name": "ExampleModel",
+    "fields": [
+      {
+        "name": "title",
+        "type": "CharField",
+        "options": "max_length=255, default='Default Title', blank=True"
+      },
+      {
+        "name": "status",
+        "type": "CharField",
+        "options": "max_length=20",
+        "choices": [["draft", "Draft"], ["published", "Published"]]
+      },
+      {
+        "name": "dynamic_status",
+        "type": "ForeignKey",
+        "related_model": "lookup.Lookup",
+        "options": "on_delete=models.CASCADE, limit_choices_to={'parent_lookup__code': '02'}"
+      },
+      {
+        "name": "created_at",
+        "type": "DateTimeField",
+        "options": "auto_now_add=True"
+      },
+      {
+        "name": "updated_at",
+        "type": "DateTimeField",
+        "options": "auto_now=True"
+      },
+      {
+        "name": "is_active",
+        "type": "BooleanField",
+        "options": "default=True"
+      }
+    ],
+    "relationships": [
+      {
+        "name": "author",
+        "type": "ForeignKey",
+        "related_model": "authentication.CustomUser",
+        "options": "on_delete=models.CASCADE"
+      },
+      {
+        "name": "category",
+        "type": "ForeignKey",
+        "related_model": "lookup.Lookup",
+        "options": "on_delete=models.SET_NULL, null=True, blank=True"
+      }
+    ],
+    "meta": {
+      "verbose_name": "'Example Model'",
+      "verbose_name_plural": "'Example Models'",
+      "ordering": "['-id']"
+    }
+  },
+  {
+    "name": "ChildModel",
+    "fields": [
+      {
+        "name": "name",
+        "type": "CharField",
+        "options": "max_length=100"
+      },
+      {
+        "name": "lookup_value",
+        "type": "ForeignKey",
+        "related_model": "lookup.Lookup",
+        "options": "on_delete=models.CASCADE"
+      },
+      {
+        "name": "description",
+        "type": "TextField",
+        "options": "blank=True, null=True"
+      }
+    ],
+    "relationships": [
+      {
+        "name": "parent_model",
+        "type": "ForeignKey",
+        "related_model": "my_dynamic_app.ExampleModel",
+        "options": "on_delete=models.CASCADE"
+      }
+    ],
+    "meta": {
+      "verbose_name": "'Child Model'",
+      "ordering": "['name']"
+    }
+  },
+  {
+    "name": "DeepRelationshipModel",
+    "fields": [
+      {
+        "name": "name",
+        "type": "CharField",
+        "options": "max_length=100"
+      }
+    ],
+    "relationships": [
+      {
+        "name": "related_child",
+        "type": "ForeignKey",
+        "related_model": "my_dynamic_app.ChildModel",
+        "options": "on_delete=models.CASCADE"
+      }
+    ],
+    "meta": {
+      "verbose_name": "'Deep Relationship Model'",
+      "ordering": "['name']"
+    }
+  },
+  {
+    "name": "MetaOptionsModel",
+    "fields": [
+      {
+        "name": "code",
+        "type": "CharField",
+        "options": "max_length=50, unique=True"
+      },
+      {
+        "name": "flag",
+        "type": "BooleanField",
+        "options": "default=False"
+      }
+    ],
+    "meta": {
+      "db_table": "'meta_options_model'",
+      "indexes": "[models.Index(fields=['code'], name='code_idx')]"
+    }
+  },
+  {
+    "name": "LookupBasedModel",
+    "fields": [
+      {
+        "name": "lookup_field",
+        "type": "ForeignKey",
+        "related_model": "lookup.Lookup",
+        "options": "on_delete=models.CASCADE"
+      },
+      {
+        "name": "simple_field",
+        "type": "CharField",
+        "options": "max_length=50"
+      },
+      {
+        "name": "description",
+        "type": "TextField",
+        "options": "blank=True"
+      }
+    ],
+    "relationships": [
+      {
+        "name": "related_lookup",
+        "type": "ForeignKey",
+        "related_model": "lookup.Lookup",
+        "options": "on_delete=models.PROTECT"
+      }
+    ]
+  },
+  {
+    "name": "EdgeCaseModel",
+    "fields": [
+      {
+        "name": "non_standard_field",
+        "type": "JSONField",
+        "options": "null=True, blank=True"
+      },
+      {
+        "name": "decimal_field",
+        "type": "DecimalField",
+        "options": "max_digits=10, decimal_places=2"
+      },
+      {
+        "name": "positive_int_field",
+        "type": "PositiveIntegerField",
+        "options": "default=1"
+      }
+    ],
+    "meta": {
+      "db_table": "'edge_case_model'",
+      "verbose_name": "'Edge Case Model'",
+      "verbose_name_plural": "'Edge Case Models'"
+    }
+  }
+]

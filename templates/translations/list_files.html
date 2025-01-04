@@ -1,0 +1,43 @@
+{% extends 'translations/base_generic.html' %}
+
+{% block title %}Translation Files{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h1 class="mb-4">Translation Files</h1>
+
+    <form method="get" action="" class="mb-4">
+        <div class="input-group">
+            <input type="text" name="search" class="form-control" placeholder="Search files..." value="{{ request.GET.search }}">
+            <button class="btn btn-primary" type="submit">Search</button>
+        </div>
+    </form>
+
+    <div class="card">
+        <div class="card-body">
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>Filename</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for filename in json_files %}
+                        <tr>
+                            <td>{{ filename }}</td>
+                            <td>
+                                <a href="{% url 'edit_translation' filename %}" class="btn btn-primary btn-sm">Edit</a>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="2">No translation files found.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

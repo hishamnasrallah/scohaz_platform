@@ -1,0 +1,140 @@
+{% extends 'translations/base_generic.html' %}
+
+{% block title %}Edit Translation File - {{ filename }}{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h1 class="mb-4">Edit Translation File - {{ filename }}</h1>
+
+    <!-- Search Form for filtering translations -->
+    <form method="GET" class="mb-4" id="search-form">
+        {% csrf_token %}
+        <div class="input-group">
+            <input type="text" class="form-control" name="search" placeholder="Search by key or value" value="{{ request.GET.search }}">
+            <button type="submit" class="btn btn-primary">Search</button>
+        </div>
+    </form>
+
+    <!-- Edit Form -->
+    <form method="post" id="edit-form" class="mb-4">
+        {% csrf_token %}
+        
+        <div class="form-group mb-3">
+            <label for="key" class="form-label">Translation Key</label>
+            <input type="text" class="form-control" id="key" name="key" value="{{ form.key.value|default:'' }}" required>
+        </div>
+
+        <div class="form-group mb-3">
+            <label for="value" class="form-label">Translation Value</label>
+            <textarea class="form-control" id="value" name="value" rows="4" required>{{ form.value.value|default:'' }}</textarea>
+        </div>
+
+        <div class="form-group mb-3">
+            <button type="submit" class="btn btn-success" id="save-btn">Save Changes</button>
+            <a href="{% url 'list_files' %}" class="btn btn-secondary">Back to Files</a>
+        </div>
+    </form>
+
+    <!-- List of Current Translations -->
+    <div class="card shadow-lg">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">Current Translations</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover">
+                    <thead>
+                        <tr>
+                            <th>Translation Key</th>
+                            <th>Translation Value</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="translations-table-body">
+                        {% for key, value in filtered_translations.items %}
+                            <tr>
+                                <td class="fw-bold text-muted">{{ key }}</td>
+                                <td>{{ value }}</td>
+                                <td>
+                                    <button type="button" class="btn btn-primary btn-sm copy-btn" 
+                                            data-key="{{ key }}" data-value="{{ value }}">
+                                        Copy to Form
+                                    </button>
+                                    <form method="post" action="{% url 'delete_translation' filename=filename key=key %}" style="display:inline;">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this translation?')">
+                                            Delete
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="3" class="text-center text-muted">No translations available.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// JavaScript for handling form submission via AJAX
+document.getElementById('edit-form').addEventListener('submit', function(event) {
+    event.preventDefault();  // Prevent form from submitting the traditional way
+
+    const formData = new FormData(this);  // Get the form data
+
+    fetch("{% url 'edit_translation' filename=filename %}", {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Update the translation values in the table without refreshing the page
+            const tableBody = document.getElementById('translations-table-body');
+            tableBody.innerHTML = '';  // Clear the existing table content
+
+            data.translations.forEach(translation => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td class="fw-bold text-muted">${translation.key}</td>
+                    <td>${translation.value}</td>
+                    <td>
+                        <button type="button" class="btn btn-primary btn-sm copy-btn" 
+                                data-key="${translation.key}" data-value="${translation.value}">
+                            Copy to Form
+                        </button>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+
+            // Reset the form fields after successful submission
+            document.getElementById('edit-form').reset();  // Clear the form fields
+        }
+    })
+    .catch(error => {
+        console.error("There was an error processing your request.");
+        console.error(error);
+    });
+});
+
+// Copy button functionality to auto-fill form
+document.querySelectorAll('.copy-btn').forEach(button => {
+    button.addEventListener('click', function() {
+        const key = this.getAttribute('data-key');
+        const value = this.getAttribute('data-value');
+        document.getElementById('key').value = key;
+        document.getElementById('value').value = value;
+    });
+});
+</script> 
+
+{% endblock %}
