@@ -43,6 +43,7 @@ class Command(BaseCommand):
 
         self.create_app_files(app_name, app_path)
         self.generate_mixins_file(app_path, app_name)
+        self.generate_common_mixin_file(app_path, app_name)
         self.generate_models_file(app_path, models, app_name)
         self.generate_signals_file(app_path, models, app_name)
         self.generate_utils_folder(app_path, app_name)
@@ -133,16 +134,91 @@ class Command(BaseCommand):
     #
     #     with open(os.path.join(app_path, 'models.py'), 'w') as f:
     #         f.write(models_code)
+    def generate_common_mixin_file(self, app_path, app_name):
+        """
+        Generate the model_common mixin dynamically, which includes fields like created_at, created_by, updated_at, updated_by,
+        and a custom save method for validation.
+        """
+        mixin_code = f"""
+from django.db import models
+from django.core.exceptions import ValidationError
+from django.utils import timezone
+
+class ModelCommonMixin(models.Model):
+    from django.apps import apps
+
+    \"\"\" 
+    A mixin to add common fields (created_at, created_by, updated_at, updated_by)
+    and a custom save method to ensure user context validation before saving the instance.
+    \"\"\"
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        'authentication.CustomUser', on_delete=models.SET_NULL, null=True, blank=True, related_name=f"{app_name}_created_%(class)s_set"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        'authentication.CustomUser', on_delete=models.SET_NULL, null=True, blank=True, related_name=f"{app_name}_updated_%(class)s_set"
+    )
+
+    class Meta:
+        abstract = True  # Make this an abstract model, so it doesn't create a table in the database
+
+    def save(self, *args, **kwargs):
+        \"\"\"
+        Override save method to ensure the user is set for validation and handle user role checks.
+        \"\"\"
+        from django.apps import apps
+        current_user = get_current_user()
+
+        if not current_user:
+            raise ValidationError("Cannot determine the current user.")  # Ensure the current user is set
+
+        # Set the user context for validation
+        self.set_validation_user(current_user)
+
+        # Fetch validation rules associated with the model instance
+        ValidationRule = apps.get_model({app_name}, 'ValidationRule')
+        validation_rules = ValidationRule.objects.filter(model_name=self.__class__.__name__)
+
+        for rule in validation_rules:
+            # Ensure the rule has user_roles and compare them with current user's roles
+            if rule.user_roles:
+                user_roles = set(current_user.groups.values_list('name', flat=True))
+                allowed_roles = set(rule.user_roles)
+
+                if not user_roles.intersection(allowed_roles):
+                    return ValidationError("You do not have permission to save this model.")  # Raise ValidationError
+                else:
+                    super().save(*args, **kwargs)
+
+    # def __str__(self):
+    #     return f"{{self.model_name}}.{{self.field_name}}: {{self.rule_type}}"
+        
+    def set_validation_user(self, user):
+        \"\"\" 
+        Method to set the user for context-sensitive validation.
+        \"\"\"
+        setattr(self, '_validation_user', user)
+        print(f"User set for validation: {{user.username}}")  # Debugging statement
+
+    def __str__(self):
+        return f"{self.__class__.__name__} (Common Mixin)"
+"""
+
+        # Write the common mixin to the mixins.py file
+        with open(os.path.join(app_path, 'mixins.py'), 'a') as f:
+            f.write(mixin_code)
 
     def generate_models_file(self, app_path, models, app_name):
         """
-        Generate models.py with dynamic model definitions.
+        Generate models.py with dynamic model definitions, validation rules, and condition logic.
+        Ensures that validation is integrated dynamically using the ValidationRule model and other enhancements.
         """
         # Start adding necessary imports
         models_code = "from django.db import models\n"
         models_code += "from django.db.models.signals import post_save\n"
         models_code += "from django.dispatch import receiver\n"
-        models_code += "from .mixins import DynamicValidationMixin\n\n"
+        models_code += "from .mixins import DynamicValidationMixin, ModelCommonMixin\n\n"  # Include ModelCommonMixin
 
         # Add IntegrationConfig model for API integrations
         models_code += """
@@ -151,12 +227,7 @@ class IntegrationConfig(models.Model):
     base_url = models.URLField()
     method = models.CharField(
         max_length=10,
-        choices=[
-            ('GET', 'GET'),
-            ('POST', 'POST'),
-            ('PUT', 'PUT'),
-            ('DELETE', 'DELETE')
-        ]
+        choices=[('GET', 'GET'), ('POST', 'POST'), ('PUT', 'PUT'), ('DELETE', 'DELETE')]
     )
     headers = models.JSONField(blank=True, null=True)
     body = models.JSONField(blank=True, null=True)
@@ -170,17 +241,18 @@ class IntegrationConfig(models.Model):
         return self.name\n\n
 """
 
-        # Add ValidationRule model
+        # Add ValidationRule model for dynamic validation rules
         models_code += """
 class ValidationRule(models.Model):
     model_name = models.CharField(max_length=255)
     field_name = models.CharField(max_length=255)
-    rule_type = models.CharField(max_length=50, choices=[('regex', 'Regex'), ('custom', 'Custom')])
-    rule_value = models.TextField()
+    rule_type = models.CharField(blank=True, null=True, max_length=50, choices=[('regex', 'Regex'), ('custom', 'Custom'), ('range', 'Range'), ('choice', 'Choice')])
+    rule_value = models.TextField(blank=True, null=True)  # JSON logic or function path
     error_message = models.TextField()
-    user_roles = models.JSONField(blank=True, null=True)
-    global_rule = models.BooleanField(default=True)
-
+    user_roles = models.JSONField(blank=True, null=True)  # Optional roles for context-specific validation
+    global_rule = models.BooleanField(default=True)  # Whether the rule applies globally
+    condition_logic = models.JSONField(blank=True, null=True)  # Conditions in JSON format
+    
     def __str__(self):
         return f"{self.model_name}.{self.field_name}: {self.rule_type}"
 """
@@ -188,7 +260,7 @@ class ValidationRule(models.Model):
         # Iterate over models to generate model classes
         for model in models:
             model_name = model["name"]
-            models_code += f"class {model_name}(DynamicValidationMixin, models.Model):\n"
+            models_code += f"class {model_name}(DynamicValidationMixin, ModelCommonMixin, models.Model):\n"  # Added ModelCommonMixin
 
             # Add fields to the model
             for field in model["fields"]:
@@ -445,22 +517,31 @@ router.register(r'validation-rules', ValidationRuleViewSet)
 
     def generate_admin_file(self, app_path, models, app_name):
         """
-        Generate admin.py with dynamic registration and configuration.
+        Generate admin.py with dynamic registration and configuration,
+        including the handling of common fields like created_by and updated_by.
         """
         admin_code = "from django.contrib import admin\n"
-        admin_code += f"from {app_name}.models import *\n\n"
+        admin_code += f"from {app_name}.models import *\n"
+        admin_code += "from .mixins import AdminUserContextMixin\n\n"
+
         admin_code += """
+# Register the IntegrationConfig model with dynamic admin configuration
 @admin.register(IntegrationConfig)
 class IntegrationConfigAdmin(admin.ModelAdmin):
     list_display = ('name', 'base_url', 'method')
-    search_fields = ('name', 'base_url')\n\n
+    search_fields = ('name', 'base_url')
+\n
 """
+
         admin_code += """
+# Register the ValidationRule model with dynamic admin configuration
 @admin.register(ValidationRule)
 class ValidationRuleAdmin(admin.ModelAdmin):
     list_display = ('model_name', 'field_name', 'rule_type', 'error_message')
-    search_fields = ('model_name', 'field_name', 'rule_type')\n\n
+    search_fields = ('model_name', 'field_name', 'rule_type')
+\n
 """
+
         for model in models:
             model_name = model["name"]
 
@@ -474,7 +555,7 @@ class ValidationRuleAdmin(admin.ModelAdmin):
                 if field["type"] in ["BooleanField", "DateField", "DateTimeField"]
             ]
 
-            admin_code += f"class {admin_class_name}(admin.ModelAdmin):\n"
+            admin_code += f"class {admin_class_name}(AdminUserContextMixin, admin.ModelAdmin):\n"
             admin_code += f"    list_display = {list_display}\n"
             admin_code += f"    search_fields = {search_fields}\n"
             admin_code += f"    list_filter = {list_filter}\n\n"
@@ -491,7 +572,33 @@ class ValidationRuleAdmin(admin.ModelAdmin):
         """
         middleware_code = f"""
 from django.utils.deprecation import MiddlewareMixin
-from {app_name}.models import IntegrationConfig
+# from {app_name}.models import IntegrationConfig
+# In your utils or middleware.py file
+import threading
+
+        
+def get_current_user():
+    \"\"\"
+    Retrieve the current user from thread-local storage.
+    \"\"\"
+    return getattr(thread_local, 'current_user', None)
+
+# Thread-local storage to capture the current user
+thread_local = threading.local()
+class CurrentUserMiddleware(MiddlewareMixin):
+    \"\"\"
+    Middleware to store the current user in thread-local storage.
+    \"\"\"
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        thread_local.current_user = request.user
+        print(f"User in middleware: {{request.user.username}}")  # Debugging line
+        response = self.get_response(request)
+        return response
+
+        
 
 class DynamicModelMiddleware(MiddlewareMixin):
     def process_request(self, request):
@@ -520,22 +627,59 @@ class DynamicModelMiddleware(MiddlewareMixin):
         if not os.path.exists(settings_file_path):
             raise CommandError("Could not find settings.py to register middleware.")
 
+        dynamic_model_middleware = f"    '{app_name}.middleware.DynamicModelMiddleware',\n"
+        current_user_middleware = f"    '{app_name}.middleware.CurrentUserMiddleware',\n"
+
         with open(settings_file_path, "r") as f:
-            settings_content = f.read()
+            settings_content = f.readlines()
 
-        middleware_entry = f"    '{app_name}.middleware.DynamicModelMiddleware',"
+        # Clean up APPS_CURRENT_USER_MIDDLEWARE
+        in_apps_middleware = False
+        cleaned_apps_middleware = []
+        for line in settings_content:
+            if line.strip().startswith("APPS_CURRENT_USER_MIDDLEWARE = ["):
+                in_apps_middleware = True
+            if in_apps_middleware:
+                if dynamic_model_middleware.strip() in line:  # Remove misplaced DynamicModelMiddleware
+                    continue
+                if line.strip() == "]":
+                    in_apps_middleware = False
+            cleaned_apps_middleware.append(line)
 
-        # Check if the middleware is already present
-        if middleware_entry not in settings_content:
-            updated_content = settings_content.replace(
-                "MIDDLEWARE = [",
-                f"MIDDLEWARE = [\n{middleware_entry}"
-            )
-            with open(settings_file_path, "w") as f:
-                f.write(updated_content)
-            self.stdout.write(self.style.SUCCESS(f"Middleware for '{app_name}' added to MIDDLEWARE in settings.py."))
-        else:
-            self.stdout.write(self.style.WARNING(f"Middleware for '{app_name}' is already registered."))
+        # Add CurrentUserMiddleware if not already present
+        if current_user_middleware.strip() not in ''.join(cleaned_apps_middleware):
+            cleaned_apps_middleware = [
+                line if not line.strip().startswith("APPS_CURRENT_USER_MIDDLEWARE = [") else
+                f"{line.strip()}\n{current_user_middleware}"
+                for line in cleaned_apps_middleware
+            ]
+
+        # Clean up MIDDLEWARE
+        in_middleware = False
+        cleaned_middleware = []
+        for line in cleaned_apps_middleware:
+            if line.strip().startswith("MIDDLEWARE = ["):
+                in_middleware = True
+            if in_middleware:
+                if current_user_middleware.strip() in line:  # Remove misplaced CurrentUserMiddleware
+                    continue
+                if line.strip() == "]":
+                    in_middleware = False
+            cleaned_middleware.append(line)
+
+        # Add DynamicModelMiddleware if not already present
+        if dynamic_model_middleware.strip() not in ''.join(cleaned_middleware):
+            cleaned_middleware = [
+                line if not line.strip().startswith("MIDDLEWARE = [") else
+                f"{line.strip()}\n{dynamic_model_middleware}"
+                for line in cleaned_middleware
+            ]
+
+        # Write back to settings.py
+        with open(settings_file_path, "w") as f:
+            f.writelines(cleaned_middleware)
+
+        self.stdout.write(self.style.SUCCESS("Settings updated successfully."))
 
     def generate_tests_file(self, app_path, models, app_name):
         """
@@ -977,41 +1121,71 @@ class Command(BaseCommand):
 
     def generate_mixins_file(self, app_path, app_name):
         """
-        Generate mixins.py with dynamic validation logic using VALIDATOR_REGISTRY.
+        Generate mixins.py with dynamic validation logic using VALIDATOR_REGISTRY and condition evaluation.
+        Ensures that validation rules for user roles, condition logic, and dynamic validation are applied.
+        Follows the 'code style' with full comments and scalability.
         """
         mixin_code = f"""
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied
 from .utils.validators import VALIDATOR_REGISTRY
-
+from .utils.conditions import ConditionEvaluator
+import re
+from datetime import datetime
+from {app_name}.middleware import get_current_user
 
 class DynamicValidationMixin:
+    def save(self, *args, **kwargs):
+        \"\"\"
+        Override save method to ensure the user is set for validation and ensure validation is handled before saving.
+        \"\"\"
+        # Get the current user from thread-local storage using middleware function
+        user = get_current_user()
+        if not user:
+            raise ValidationError("User context is missing.")  # Ensure user context is provided
+
+        # Set the user context for validation
+        self.set_validation_user(user)
+        super().save(*args, **kwargs)
+
+
     def clean(self):
         super().clean()
+
+        # Get the current user from thread-local storage using middleware function
+        user = get_current_user()
+        if not user:
+            raise ValidationError("User context is missing.")  # Ensure user context is set before validation
+
+        # Set the user context for validation
+        self.set_validation_user(user)
 
         # Import ValidationRule dynamically to avoid circular import
         from django.apps import apps
         ValidationRule = apps.get_model('{app_name}', 'ValidationRule')
 
-        # Get the model name
+        # Get the model name dynamically
         model_name = self.__class__.__name__
 
         # Fetch validation rules for this model
         rules = ValidationRule.objects.filter(model_name=model_name)
-
-        # Get the user from the instance's context
-        user = getattr(self, '_validation_user', None)
 
         for rule in rules:
             # Skip rule if it's not a global rule and user-specific context is missing
             if not rule.global_rule and not user:
                 continue
 
-            # Role-Based Validation (handle JSONField 'user_roles')
+            # Role-Based Validation (handle JSONField 'user_roles') with user-specific context
             if rule.user_roles and user:
-                user_groups = set(user.groups.values_list('name', flat=True))
-                required_roles = set(rule.user_roles)
+                user_groups = set(user.groups.values_list('name', flat=True))  # Fetch user roles
+                required_roles = set(rule.user_roles)  # Get roles from the validation rule
                 if not user_groups.intersection(required_roles):
                     continue  # Skip rules that don't match the user's roles
+
+            # Condition-Based Validation using condition_logic (JSON logic)
+            conditions = rule.condition_logic or []
+            condition_evaluator = ConditionEvaluator(self.__dict__)
+            if conditions and not condition_evaluator.evaluate(conditions):
+                continue  # Skip validation if conditions aren't met
 
             # Fetch the validator dynamically from the registry
             validator = VALIDATOR_REGISTRY.get(rule.rule_type)
@@ -1020,10 +1194,37 @@ class DynamicValidationMixin:
                     "__all__": f"Unknown validation rule type: {{rule.rule_type}}"
                 }})
 
+            # Initialize params to ensure it's always defined before applying validation
+            params = []
+
             # Parse rule_value dynamically for specific validations
             try:
                 if rule.rule_type == 'range':
-                    params = [float(p) for p in rule.rule_value.split(',')]
+                    # Handle range validation for dates
+                    if ',' in rule.rule_value:
+                        start_date_str, end_date_str = rule.rule_value.split(',')
+                        start_date = datetime.strptime(start_date_str.strip(), '%Y-%m-%d').date()  # Convert to date
+                        end_date = datetime.strptime(end_date_str.strip(), '%Y-%m-%d').date()  # Convert to date
+
+                        # Get the actual value (e.g., due_date) from the model instance
+                        field_value = getattr(self, rule.field_name, None)
+
+                        # Ensure the value is of type `datetime.date` (convert if it's `datetime`)
+                        if isinstance(field_value, datetime):
+                            field_value = field_value.date()
+
+                        # Validate if the field_value is within the range
+                        if not (start_date <= field_value <= end_date):
+                            raise ValidationError({{
+    rule.field_name: f"Validation error: {{rule.error_message}}"
+                            }})
+
+                        # Set params with start and end date for potential future use
+                        params = [start_date, end_date]
+                elif rule.rule_type == 'regex':
+                    params = [rule.rule_value]  # The regex pattern to apply
+                elif rule.rule_type == 'custom':
+                    params = [rule.rule_value]  # The function path for custom validation
                 elif rule.rule_type == 'choice':
                     params = [eval(rule.rule_value)]  # Safely parse the choices
                 else:
@@ -1043,11 +1244,82 @@ class DynamicValidationMixin:
                 }})
 
     def set_validation_user(self, user):
-        \"\"\"Method to set the user for context-sensitive validation.\"\"\" 
+        \"\"\"
+        Method to set the user for context-sensitive validation.
+        \"\"\"
         setattr(self, '_validation_user', user)
+        print(f"User context set for validation: {{user.username}}")  # Debugging statement
+
+    def _evaluate_single_condition(self, field_value, operation, value):
+        \"\"\"
+    Evaluate a single condition based on the operation.
+    :param field_value: The current value of the field being validated.
+    :param operation: The comparison operation.
+    :param value: The value to compare against.
+    :return: True if the condition is satisfied, False otherwise.
+    \"\"\"
+        # Convert both field_value and value to comparable types
+        if isinstance(field_value, datetime):
+            field_value = field_value.date()  # Convert to date if it's a datetime object
+        elif isinstance(value, str) and '-' in value:  # Check if it's a date string (yyyy-mm-dd)
+            try:
+                value = datetime.strptime(value, '%Y-%m-%d').date()
+            except ValueError:
+                pass  # Not a date, continue with string comparison
+    
+        operations = {{
+            "=": lambda a, b: a == b,
+            "!=": lambda a, b: a != b,
+            ">": lambda a, b: a > b,
+            "<": lambda a, b: a < b,
+            ">=": lambda a, b: a >= b,
+            "<=": lambda a, b: a <= b,
+            "contains": lambda a, b: str(b) in str(a),
+            "startswith": lambda a, b: str(a).startswith(str(b)),
+            "endswith": lambda a, b: str(a).endswith(str(b)),
+            "matches": lambda a, b: bool(re.match(b, str(a))),
+            "in": lambda a, b: a in b,
+            "not in": lambda a, b: a not in b,
+        }}
+    
+        # Apply the comparison operation
+        return operations.get(operation, lambda a, b: False)(field_value, value)\n\n
 """
+        mixin_code += """
+        # In mixins.py, add the following mixin:
+
+class AdminUserContextMixin:
+    \"\"\"
+    Mixin to ensure that `created_by` and `updated_by` fields are automatically populated
+    in the admin interface.
+    \"\"\"
+    def save_model(self, request, obj, form, change):
+        \"\"\"
+        Override save_model to automatically populate created_by and updated_by fields
+        in the admin interface based on the logged-in user.
+        \"\"\"
+        # Automatically set the `created_by` and `updated_by` fields
+        if not obj.created_by:
+            obj.created_by = request.user  # Set the created_by field when creating a new object
+
+        obj.updated_by = request.user  # Always update updated_by field on create/update
+        obj.set_validation_user(request.user)  # Pass the user context explicitly to the instance
+    
+        # Save the instance
+        obj.save()
+
+
+def get_readonly_fields(self, request, obj=None):
+    \"\"\"
+    Optionally make created_by and updated_by fields readonly in the admin.
+    \"\"\"
+    readonly_fields = super().get_readonly_fields(request, obj)
+    return readonly_fields + ('created_by', 'updated_by')
+
+    """
         with open(os.path.join(app_path, 'mixins.py'), 'w') as f:
             f.write(mixin_code)
+
 
 
 #     def generate_mixins_file(self, app_path, app_name):
@@ -1161,7 +1433,7 @@ class DynamicValidationMixin:
 
     def generate_utils_folder(self, app_path, app_name):
         """
-        Generate a utils folder with modular validation and API call logic.
+        Generate a utils folder with modular validation, condition evaluation, and API call logic.
         Automatically adapts to the app context.
         """
         utils_folder_path = os.path.join(app_path, 'utils')
@@ -1171,7 +1443,7 @@ class DynamicValidationMixin:
         with open(os.path.join(utils_folder_path, '__init__.py'), 'w') as init_file:
             init_file.write("# utils package\n")
 
-        # Generate validators.py
+        # Generate validators.py with dynamic validators and support for multiple validation types
         validators_code = f"""
 import re
 from datetime import datetime
@@ -1238,11 +1510,21 @@ def validate_custom_function(value, function_path, error_message="Custom validat
         func(value, instance=instance, user=user)
     except Exception as e:
         raise ValidationError(f"{{error_message}}: {{str(e)}}")
+
+@register_validator('range')
+def validate_range(value, min_value, max_value, error_message="Value out of range", **kwargs):
+    if value < min_value or value > max_value:
+        raise ValidationError(error_message)
+
+@register_validator('choice')
+def validate_choice(value, choices, error_message="Invalid choice", **kwargs):
+    if value not in choices:
+        raise ValidationError(error_message)
 """
         with open(os.path.join(utils_folder_path, 'validators.py'), 'w') as validators_file:
             validators_file.write(validators_code)
 
-        # Generate api.py
+        # Generate api.py for API call logic
         api_code = """
 import requests
 from requests.exceptions import RequestException
@@ -1263,6 +1545,51 @@ def make_api_call(base_url, method, headers=None, body=None, timeout=30):
 """
         with open(os.path.join(utils_folder_path, 'api.py'), 'w') as api_file:
             api_file.write(api_code)
+
+        # Generate conditions.py with dynamic condition evaluator logic
+        conditions_code = f"""
+import re
+from datetime import datetime
+from urllib.parse import urlparse
+
+class ConditionEvaluator:
+    def __init__(self, data):
+        self.data = data
+
+    def evaluate(self, condition_logic):
+        # Process condition logic recursively
+        for condition in condition_logic:
+            if not self._evaluate_single_condition(condition):
+                return False
+        return True
+
+    def _evaluate_single_condition(self, condition):
+        field_value = self.data.get(condition['field'])
+        operation = condition['operation']
+        value = condition['value']
+        
+        operations = {{
+            "=": lambda a, b: a == b,
+            "!=": lambda a, b: a != b,
+            ">": lambda a, b: a > b,
+            "<": lambda a, b: a < b,
+            ">=": lambda a, b: a >= b,
+            "<=": lambda a, b: a <= b,
+            "contains": lambda a, b: str(b) in str(a),
+            "startswith": lambda a, b: str(a).startswith(str(b)),
+            "endswith": lambda a, b: str(a).endswith(str(b)),
+            "matches": lambda a, b: bool(re.match(b, str(a))),
+            "in": lambda a, b: a in b,
+            "not in": lambda a, b: a not in b,
+        }}
+        
+        if operation not in operations:
+            raise ValueError(f"Unsupported operation: {{operation}}")
+
+        return operations[operation](field_value, value)
+"""
+        with open(os.path.join(utils_folder_path, 'conditions.py'), 'w') as conditions_file:
+            conditions_file.write(conditions_code)
 
 def validate_model_schema(schema):
     """

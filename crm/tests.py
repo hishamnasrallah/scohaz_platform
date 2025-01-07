@@ -2,9 +2,9 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 from rest_framework import status
 from crm.models import Activity, Customer, Invoice, Lead, Payment, Product, IntegrationConfig, ValidationRule
-from crm.models import Invoice
 from crm.models import Lead
 from crm.models import Customer
+from crm.models import Invoice
 from authentication.models import CustomUser
 from crm.utils.api import make_api_call
 

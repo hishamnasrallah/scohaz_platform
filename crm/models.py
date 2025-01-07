@@ -32,12 +32,13 @@ class IntegrationConfig(models.Model):
 class ValidationRule(models.Model):
     model_name = models.CharField(max_length=255)
     field_name = models.CharField(max_length=255)
-    rule_type = models.CharField(max_length=50, choices=[('regex', 'Regex'), ('custom', 'Custom')])
-    rule_value = models.TextField()
+    rule_type = models.CharField(max_length=50, choices=[('regex', 'Regex'), ('custom', 'Custom'), ('range', 'Range'), ('choice', 'Choice')])
+    rule_value = models.TextField()  # JSON logic or function path
     error_message = models.TextField()
-    user_roles = models.JSONField(blank=True, null=True)
-    global_rule = models.BooleanField(default=True)
-
+    user_roles = models.JSONField(blank=True, null=True)  # Optional roles for context-specific validation
+    global_rule = models.BooleanField(default=True)  # Whether the rule applies globally
+    condition_logic = models.JSONField(blank=True, null=True)  # Conditions in JSON format
+    
     def __str__(self):
         return f"{self.model_name}.{self.field_name}: {self.rule_type}"
 class Customer(DynamicValidationMixin, models.Model):
@@ -65,11 +66,11 @@ class Lead(DynamicValidationMixin, models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     customer = models.ForeignKey(
         to='crm.Customer',
-        on_delete=models.CASCADE, related_name='lead_customer_set'
+        on_delete=models.CASCADE, related_name='crm_lead_customer_set'
     )
     assigned_to = models.ForeignKey(
         to='authentication.CustomUser',
-        on_delete=models.SET_NULL, null=True, blank=True, related_name='lead_assigned_to_set'
+        on_delete=models.SET_NULL, null=True, blank=True, related_name='crm_lead_assigned_to_set'
     )
     class Meta:
         verbose_name = 'Lead'
@@ -84,11 +85,11 @@ class Activity(DynamicValidationMixin, models.Model):
     is_completed = models.BooleanField(default=False)
     lead = models.ForeignKey(
         to='crm.Lead',
-        on_delete=models.CASCADE, related_name='activity_lead_set'
+        on_delete=models.CASCADE, related_name='crm_activity_lead_set'
     )
     assigned_to = models.ForeignKey(
         to='authentication.CustomUser',
-        on_delete=models.SET_NULL, null=True, blank=True, related_name='activity_assigned_to_set'
+        on_delete=models.SET_NULL, null=True, blank=True, related_name='crm_activity_assigned_to_set'
     )
     class Meta:
         verbose_name = 'Activity'
@@ -115,11 +116,11 @@ class Invoice(DynamicValidationMixin, models.Model):
     discount = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
     customer = models.ForeignKey(
         to='crm.Customer',
-        on_delete=models.CASCADE, related_name='invoice_customer_set'
+        on_delete=models.CASCADE, related_name='crm_invoice_customer_set'
     )
     created_by = models.ForeignKey(
         to='authentication.CustomUser',
-        on_delete=models.SET_NULL, null=True, blank=True, related_name='invoice_created_by_set'
+        on_delete=models.SET_NULL, null=True, blank=True, related_name='crm_invoice_created_by_set'
     )
     class Meta:
         verbose_name = 'Invoice'
@@ -131,11 +132,11 @@ class Payment(DynamicValidationMixin, models.Model):
     payment_date = models.DateTimeField(auto_now_add=True)
     invoice = models.ForeignKey(
         to='crm.Invoice',
-        on_delete=models.CASCADE, related_name='payment_invoice_set'
+        on_delete=models.CASCADE, related_name='crm_payment_invoice_set'
     )
     received_by = models.ForeignKey(
         to='authentication.CustomUser',
-        on_delete=models.SET_NULL, null=True, blank=True, related_name='payment_received_by_set'
+        on_delete=models.SET_NULL, null=True, blank=True, related_name='crm_payment_received_by_set'
     )
     class Meta:
         verbose_name = 'Payment'

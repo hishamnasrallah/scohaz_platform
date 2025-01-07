@@ -50,6 +50,7 @@ INSTALLED_APPS += [
 
 ]
 CUSTOM_APPS = [
+    'testcrm2',
     'testcrm',
     'crm',
 
@@ -70,8 +71,16 @@ INSTALLED_APPS += CUSTOM_APPS + [
     # "lowcode",
 ]
 
+APPS_CURRENT_USER_MIDDLEWARE = [
+    'testcrm2.middleware.CurrentUserMiddleware',
+    'testcrm.middleware.CurrentUserMiddleware',
+]
 
+APPS_MIDDLEWARE = [
+
+]
 MIDDLEWARE = [
+    'testcrm2.middleware.DynamicModelMiddleware',
     'testcrm.middleware.DynamicModelMiddleware',
     'crm.middleware.DynamicModelMiddleware',
     "corsheaders.middleware.CorsMiddleware",
@@ -81,6 +90,7 @@ MIDDLEWARE = [
     "debug_toolbar.middleware.DebugToolbarMiddleware",
     "silk.middleware.SilkyMiddleware",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
+    *APPS_CURRENT_USER_MIDDLEWARE,
 ]
 
 
