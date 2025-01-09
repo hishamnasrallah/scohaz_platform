@@ -50,6 +50,12 @@ INSTALLED_APPS += [
 
 ]
 CUSTOM_APPS = [
+    'testcrm8',
+    'testcrm7',
+    'testcrm6',
+    'testcrm5',
+    'testcrm4',
+    'testcrm3',
     'testcrm2',
     'testcrm',
     'crm',
@@ -72,16 +78,28 @@ INSTALLED_APPS += CUSTOM_APPS + [
 ]
 
 APPS_CURRENT_USER_MIDDLEWARE = [
-    'testcrm2.middleware.CurrentUserMiddleware',
-    'testcrm.middleware.CurrentUserMiddleware',
+    'testcrm8.middleware.CurrentUserMiddleware',
+    'testcrm7.middleware.CurrentUserMiddleware',
+    'testcrm6.middleware.CurrentUserMiddleware',
+    # 'testcrm5.middleware.CurrentUserMiddleware',
+    # 'testcrm4.middleware.CurrentUserMiddleware',
+    # 'testcrm3.middleware.CurrentUserMiddleware',
+    # 'testcrm2.middleware.CurrentUserMiddleware',
+    # 'testcrm.middleware.CurrentUserMiddleware',
 ]
 
 APPS_MIDDLEWARE = [
 
 ]
 MIDDLEWARE = [
-    'testcrm2.middleware.DynamicModelMiddleware',
-    'testcrm.middleware.DynamicModelMiddleware',
+    'testcrm8.middleware.DynamicModelMiddleware',
+    'testcrm7.middleware.DynamicModelMiddleware',
+    'testcrm6.middleware.DynamicModelMiddleware',
+    # 'testcrm5.middleware.DynamicModelMiddleware',
+    # 'testcrm4.middleware.DynamicModelMiddleware',
+    # 'testcrm3.middleware.DynamicModelMiddleware',
+    # 'testcrm2.middleware.DynamicModelMiddleware',
+    # 'testcrm.middleware.DynamicModelMiddleware',
     'crm.middleware.DynamicModelMiddleware',
     "corsheaders.middleware.CorsMiddleware",
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
@@ -111,7 +129,10 @@ SITE_ID = int(os.environ.get("SITE_ID", None)) if os.environ.get("SITE_ID") else
 
 
 REST_FRAMEWORK = {
-    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
+    'DEFAULT_PERMISSION_CLASSES': [
+        "testcrm5.crud.api_permission.CRUDPermissionDRF",
+        'rest_framework.permissions.IsAuthenticated'
+    ],
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.TokenAuthentication',

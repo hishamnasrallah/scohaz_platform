@@ -4,6 +4,8 @@ from datetime import datetime
 import pytz
 import requests
 from django.contrib.auth.models import AbstractUser, Permission, Group
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.core.validators import RegexValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -37,6 +39,47 @@ class UserPreference(models.Model):
     def __str__(self):
         return f"Preferences for {self.user.username}"
 
+# authentication/models.py (or authentication/crud/models.py)
+
+
+class CRUDPermission(models.Model):
+    """
+    Stores permission settings for a specific (group, model, context) tuple.
+    E.g. group=Editors can (create, read, update) but not (delete)
+    on BlogPost model when in 'api' context.
+    """
+    group = models.ForeignKey(Group, on_delete=models.CASCADE)
+
+    # which model is this permission for?
+    content_type = models.ForeignKey(
+        ContentType, on_delete=models.CASCADE,
+        help_text="Which model do these permissions apply to?"
+    )
+    # optional: If you need to differentiate between
+    # specific objects, you could have an object_id and a GenericForeignKey
+    object_id = models.PositiveIntegerField(null=True, blank=True)
+    content_object = GenericForeignKey('content_type', 'object_id')
+
+    # in your use-case, you also have context-specific perms:
+    # e.g., "api", "admin", "form"
+    # or you can store them in separate boolean fields
+    context = models.CharField(
+        max_length=50,
+        help_text="Identifier for context (e.g. api, admin, form_view, etc.)"
+    )
+
+    can_create = models.BooleanField(default=False)
+    can_read = models.BooleanField(default=False)
+    can_update = models.BooleanField(default=False)
+    can_delete = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ('group', 'content_type', 'context', 'object_id')
+        verbose_name = "CRUD Permission"
+        verbose_name_plural = "CRUD Permissions"
+
+    def __str__(self):
+        return f"{self.group.name} -> {self.content_type} ({self.context})"
 
 class CustomUser(AbstractUser):
     second_name = models.CharField(_('second name'), max_length=150, blank=True)
@@ -184,3 +227,50 @@ class PhoneNumber(models.Model):
     )
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     main = models.BooleanField(default=False)
+
+
+class ValidationRule(models.Model):
+    """
+    Represents a dynamic validation rule for a specific field in a specific model.
+    """
+    # The model + field we apply this validation to
+    model_name = models.CharField(max_length=100)
+    field_name = models.CharField(max_length=100)
+
+    # The 'validator_type' might be "regex", "function", etc.
+    validator_type = models.CharField(
+        max_length=50,
+        choices=[
+            ('regex', 'Regex Validation'),
+            ('function', 'Function Validation'),
+            ('condition', 'Conditional Validation'),
+        ]
+    )
+
+    # For regex validations
+    regex_pattern = models.CharField(max_length=255, blank=True, null=True)
+
+    # For function-based validations
+    # e.g. "my_custom_validator" or "another_validator"
+    function_name = models.CharField(max_length=255, blank=True, null=True)
+
+    # We might store JSON or text for any additional parameters
+    function_params = models.JSONField(blank=True, null=True)
+
+    # If you want environment control, you can store
+    environment = models.CharField(
+        max_length=50, blank=True, null=True,
+        help_text="Which environment does this rule apply to? (dev, stage, prod, etc.)"
+    )
+
+    # For conditional validations, you might store more logic or references here
+    # Or store it in another table
+
+    # optional: limit usage to certain groups/roles
+    groups_only = models.ManyToManyField(
+        'auth.Group', blank=True,
+        help_text="Only these groups can edit the field, for instance."
+    )
+
+    def __str__(self):
+        return f"{self.model_name}.{self.field_name} - {self.validator_type}"

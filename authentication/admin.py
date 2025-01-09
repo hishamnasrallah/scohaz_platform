@@ -5,8 +5,49 @@ from django.utils.translation import gettext_lazy as _
 
 # Register your models here.
 
-from authentication.models import CustomUser, UserPreference, UserType, PhoneNumber
+from authentication.models import CustomUser, UserPreference, UserType, PhoneNumber, CRUDPermission
 
+
+from .crud.managers import user_can  # your permission-checking function
+
+class PermissionAwareAdmin(admin.ModelAdmin):
+    """
+    Base admin that overrides built-in admin permission methods
+    and calls user_can(...) for create, read, update, delete.
+    """
+    context_name = "admin"
+
+    def has_view_permission(self, request, obj=None):
+        # If you want superusers to bypass everything, keep this check:
+        if request.user.is_superuser:
+            return True
+
+        # For object-level checks, pass obj.pk. For read, do "read".
+        object_id = obj.pk if obj else None
+        return user_can(request.user, "read", self.model, self.context_name, object_id)
+
+    def has_add_permission(self, request):
+        if request.user.is_superuser:
+            return True
+
+        # "create" permission
+        return user_can(request.user, "create", self.model, self.context_name)
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+
+        # "update" permission
+        object_id = obj.pk if obj else None
+        return user_can(request.user, "update", self.model, self.context_name, object_id)
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+
+        # "delete" permission
+        object_id = obj.pk if obj else None
+        return user_can(request.user, "delete", self.model, self.context_name, object_id)
 
 @admin.register(CustomUser)
 class UserAdmin(DjangoUserAdmin):
@@ -76,7 +117,7 @@ class UserAdmin(DjangoUserAdmin):
 
 
 @admin.register(UserPreference)
-class UserPreferenceAdmin(admin.ModelAdmin):
+class UserPreferenceAdmin(PermissionAwareAdmin):
     """
     Custom admin interface for UserPreference.
     """
@@ -86,6 +127,7 @@ class UserPreferenceAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'lang')
     list_filter = ('lang',)  # Filter by language
     ordering = ('user',)  # Default ordering by user
+
 
     def get_readonly_fields(self, request, obj=None):
         """
@@ -124,4 +166,10 @@ class UserTypeAdmin(admin.ModelAdmin):
 @admin.register(PhoneNumber)
 class PhoneNumberAdmin(admin.ModelAdmin):
     list_display = ['id', 'user']
+    search_fields = ["user__username", "user__first_name", "phone_number"]
+
+
+@admin.register(CRUDPermission)
+class CRUDPermissionAdmin(admin.ModelAdmin):
+    list_display = ['id', 'content_type__model']
     search_fields = ["user__username", "user__first_name", "phone_number"]
