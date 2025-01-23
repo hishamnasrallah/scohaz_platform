@@ -1,0 +1,53 @@
+[
+  {
+    "name": "ResPartner",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "email", "type": "EmailField", "options": "unique=True, null=True, blank=True" },
+      { "name": "phone", "type": "CharField", "options": "max_length=15, null=True, blank=True" },
+      { "name": "customer_rank", "type": "IntegerField", "options": "default=0" },
+      { "name": "supplier_rank", "type": "IntegerField", "options": "default=0" },
+      { "name": "company_type", "type": "CharField", "options": "max_length=20, null=True, blank=True", "choices":[["individual", "Individual"], ["company", "Company"]] }
+    ],
+    "relationships": [],
+    "meta": {
+      "verbose_name": "Partner",
+      "verbose_name_plural": "Partners",
+      "ordering": ["name"]
+    }
+  },
+  {
+    "name": "SaleOrder",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, unique=True, null=False" },
+      { "name": "date_order", "type": "DateTimeField", "options": "auto_now_add=True, null=False" },
+      { "name": "state", "type": "CharField", "options": "max_length=50, null=False", "choices":[["draft", "Quotation"], ["sent", "Quotation Sent"], ["sale", "Sales Order"], ["done", "Locked"], ["cancel", "Cancelled"]] },
+      { "name": "amount_total", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00, null=False" }
+    ],
+    "relationships": [
+      { "name": "partner", "type": "ForeignKey", "related_model": "sales.ResPartner", "options": "on_delete=models.CASCADE, null=False" },
+      { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Sales Order",
+      "verbose_name_plural": "Sales Orders",
+      "ordering": ["-date_order"]
+    }
+  },
+  {
+    "name": "SaleOrderLine",
+    "fields": [
+      { "name": "product_uom_qty", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=1.00, null=False" },
+      { "name": "price_unit", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, null=False" },
+      { "name": "price_total", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, null=False" }
+    ],
+    "relationships": [
+      { "name": "order", "type": "ForeignKey", "related_model": "sales.SaleOrder", "options": "on_delete=models.CASCADE, null=False" },
+      { "name": "product", "type": "ForeignKey", "related_model": "product.ProductProduct", "options": "on_delete=models.CASCADE, null=False" }
+    ],
+    "meta": {
+      "verbose_name": "Sales Order Line",
+      "verbose_name_plural": "Sales Order Lines"
+    }
+  }
+]

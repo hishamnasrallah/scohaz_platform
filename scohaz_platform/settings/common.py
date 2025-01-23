@@ -22,10 +22,10 @@ print(BASE_DIR)
 SECRET_KEY = 'django-insecure-ei4z7#l_5z^ff)3dam7lc!6vv*byrq(xtp&mwt&g0zs@wl-q2n'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False') == 'False'
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 print(DEBUG)
 ALLOWED_HOSTS = ['localhost', '127.0.0.1',
-                 '1456-185-51-214-156.ngrok-free.app',
+                 '8364-185-51-214-156.ngrok-free.app',
                  'http://localhost:5173',
                  'https://startling-taffy-c99aff.netlify.app']
 

@@ -36,6 +36,8 @@ class Command(BaseCommand):
         parser.add_argument('--skip-urls', action='store_true', help='Skip URL generation')
 
     def handle(self, *args, **kwargs):
+        logger.info(f"Arguments: {args}, Options: {kwargs}")
+
         app_name = kwargs['app_name']
         models_definition = kwargs.get('models')
         models_file = kwargs.get('models_file')
@@ -256,6 +258,27 @@ class Command(BaseCommand):
 
         # Add IntegrationConfig model for API integrations
         models_code += """
+class AutoComputeRule(ModelCommonMixin):
+    \"\"\"
+    Dynamically applies computations/updates to fields across models when certain
+    conditions are met.
+
+    Fields:
+    - model_name: Fully qualified model path, e.g., "billing.Bill"
+    - trigger_fields: List of field names that, when changed, trigger the rule
+    - condition_logic: JSON defining the conditions
+    - action_logic: JSON defining the actions to perform
+    \"\"\"
+    model_name = models.CharField(max_length=100)  # e.g., "billing.Bill"
+    trigger_fields = models.JSONField(default=list)  # e.g., ["amount"]
+    condition_logic = models.JSONField(blank=True, null=True)
+    action_logic = models.JSONField(blank=True, null=True)
+    priority = models.IntegerField(default=100)  # Lower number = higher priority
+
+    def __str__(self):
+        return f"AutoComputeRule for {self.model_name}"
+        
+        
 class IntegrationConfig(models.Model):
     name = models.CharField(max_length=255)
     base_url = models.URLField()
@@ -325,9 +348,12 @@ class ValidationRule(models.Model):
             models_code += f"\nclass {model_name}(ModelCommonMixin, models.Model):\n"
 
             # Add fields to the model
-            for field in model["fields"]:
+            all_fields = model.get("fields", []) + model.get("relationships", [])
+            for field in all_fields:
+            # for field in model["fields"]:
                 field_name = field["name"]
                 field_type = field["type"]
+                print(field_type)
                 options = field.get("options", "")
                 related_model = field.get("related_model", "")
                 lookup = field.get("_lookup", "")
@@ -348,8 +374,10 @@ class ValidationRule(models.Model):
                         f"    )\n"
                     )
                 elif field_type in ["ForeignKey", "OneToOneField", "ManyToManyField"]:
+                    print("inside foreign key")
                     related_name = f"{app_name.lower()}_{model_name.lower()}_{field_name}_set"
-                    models_code += f"    {field_name} = models.{field_type}('{related_model}', related_name='{related_name}', {options})\n"
+                    models_code += f"    {field_name} = models.{field_type}(to='{related_model}', related_name='{related_name}', {options})\n"
+                    print("inside foreign key, but at the end")
                 else:
                     if "choices" in field:
                         models_code += f"    {field_name} = models.{field_type}({options}, choices={choices_name})\n"
@@ -439,7 +467,8 @@ class ValidationRuleSerializer(serializers.ModelSerializer):
             f"from {app_name}.serializers import IntegrationConfigSerializer, ValidationRuleSerializer, {', '.join(model['name']+'Serializer' for model in models)}\n"
             f"from {app_name}.models import IntegrationConfig, ValidationRule, {', '.join(model['name'] for model in models)}\n"
             # f"from {app_name}.serializers import IntegrationConfigSerializer, ValidationRuleSerializer, {{', '.join(f'{{model['name']}}Serializer' for model in models)}}\n"
-            f"from {app_name}.utils.api import make_api_call\n\n"
+            f"from {app_name}.utils.api import make_api_call\n"
+            f"from {app_name}.crud.api_permission import CRUDPermissionDRF\n\n"
         )
 
         # Start views file content
@@ -450,7 +479,8 @@ class ValidationRuleSerializer(serializers.ModelSerializer):
 class IntegrationConfigViewSet(viewsets.ModelViewSet):
     queryset = IntegrationConfig.objects.all()
     serializer_class = IntegrationConfigSerializer
-
+    permission_classes = (CRUDPermissionDRF, )
+    
     @action(detail=True, methods=['post'], url_path='trigger')
     def trigger_integration(self, request, pk=None):
         integration = self.get_object()
@@ -472,7 +502,7 @@ class IntegrationConfigViewSet(viewsets.ModelViewSet):
 class ValidationRuleViewSet(viewsets.ModelViewSet):
     queryset = ValidationRule.objects.all()
     serializer_class = ValidationRuleSerializer
-
+    permission_classes = (CRUDPermissionDRF, )
 """
 
         # Dynamic ViewSets for Models
@@ -483,7 +513,7 @@ class ValidationRuleViewSet(viewsets.ModelViewSet):
 class {model_name}ViewSet(viewsets.ModelViewSet):
     queryset = {model_name}.objects.all()
     serializer_class = {serializer_name}
-
+    permission_classes = (CRUDPermissionDRF, )
     def list(self, request, *args, **kwargs):
         # Add conditional filtering based on query params
         queryset = self.get_queryset()
@@ -706,7 +736,7 @@ class ModelCommonMixin(models.Model):
             raise ValidationError("User context is missing.")
 
         # 1) Grab relevant ValidationRule objects
-        ValidationRuleModel = apps.get_model('testcrm7', 'ValidationRule')
+        ValidationRuleModel = apps.get_model('{app_name}', 'ValidationRule')
         model_name = self.__class__.__name__
         rules = ValidationRuleModel.objects.filter(model_name=model_name)
 
@@ -1190,25 +1220,28 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.WARNING(f"App '{app_name}' is already in INSTALLED_APPS."))
 
-
     def add_middleware_to_settings(self, app_name):
         """
-        Add the app's middleware to MIDDLEWARE in settings.py.
+        Add the app's middleware to APP_MIDDLEWARE_MAPPING and ensure
+        APPS_CURRENT_USER_MIDDLEWARE is updated as needed.
         """
         from pathlib import Path
+        import os
+
         BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
         settings_file_path = os.path.join(BASE_DIR, 'scohaz_platform', 'settings', 'settings.py')
 
         if not os.path.exists(settings_file_path):
             raise CommandError("Could not find settings.py to register middleware.")
 
-        dynamic_model_middleware = f"    '{app_name}.middleware.DynamicModelMiddleware',\n"
+        dynamic_model_middleware = f"        '{app_name}.middleware.DynamicModelMiddleware',\n"
         current_user_middleware = f"    '{app_name}.middleware.CurrentUserMiddleware',\n"
+        app_mapping_entry = f"    '{app_name}': [\n{dynamic_model_middleware}    ],\n"
 
         with open(settings_file_path, "r") as f:
             settings_content = f.readlines()
 
-        # Clean up APPS_CURRENT_USER_MIDDLEWARE
+        # Handle APPS_CURRENT_USER_MIDDLEWARE (unchanged)
         in_apps_middleware = False
         cleaned_apps_middleware = []
         for line in settings_content:
@@ -1229,32 +1262,102 @@ class Command(BaseCommand):
                 for line in cleaned_apps_middleware
             ]
 
-        # Clean up MIDDLEWARE
-        in_middleware = False
-        cleaned_middleware = []
-        for line in cleaned_apps_middleware:
-            if line.strip().startswith("MIDDLEWARE = ["):
-                in_middleware = True
-            if in_middleware:
-                if current_user_middleware.strip() in line:  # Remove misplaced CurrentUserMiddleware
-                    continue
-                if line.strip() == "]":
-                    in_middleware = False
-            cleaned_middleware.append(line)
+        # Handle APP_MIDDLEWARE_MAPPING
+        in_app_mapping = False
+        updated_mapping = []
+        found_app_mapping = False
 
-        # Add DynamicModelMiddleware if not already present
-        if dynamic_model_middleware.strip() not in ''.join(cleaned_middleware):
-            cleaned_middleware = [
-                line if not line.strip().startswith("MIDDLEWARE = [") else
-                f"{line.strip()}\n{dynamic_model_middleware}"
-                for line in cleaned_middleware
+        for line in cleaned_apps_middleware:
+            if line.strip().startswith("APP_MIDDLEWARE_MAPPING = {"):
+                in_app_mapping = True
+
+            if in_app_mapping:
+                if line.strip().startswith(f"'{app_name}': ["):
+                    found_app_mapping = True
+                    in_app_mapping = False  # End processing this block since app is already present
+                if line.strip() == "},":  # End of mapping
+                    in_app_mapping = False
+
+            updated_mapping.append(line)
+
+        # Add the app to APP_MIDDLEWARE_MAPPING if not already present
+        if not found_app_mapping:
+            updated_mapping = [
+                line if not line.strip().startswith("APP_MIDDLEWARE_MAPPING = {") else
+                f"{line.strip()}\n{app_mapping_entry}"
+                for line in updated_mapping
             ]
 
         # Write back to settings.py
         with open(settings_file_path, "w") as f:
-            f.writelines(cleaned_middleware)
+            f.writelines(updated_mapping)
 
-        self.stdout.write(self.style.SUCCESS("Settings updated successfully."))
+        self.stdout.write(self.style.SUCCESS("Middleware successfully added to APP_MIDDLEWARE_MAPPING."))
+
+    # def add_middleware_to_settings(self, app_name):
+    #     """
+    #     Add the app's middleware to MIDDLEWARE in settings.py.
+    #     """
+    #     from pathlib import Path
+    #     BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+    #     settings_file_path = os.path.join(BASE_DIR, 'scohaz_platform', 'settings', 'settings.py')
+    #
+    #     if not os.path.exists(settings_file_path):
+    #         raise CommandError("Could not find settings.py to register middleware.")
+    #
+    #     dynamic_model_middleware = f"    '{app_name}.middleware.DynamicModelMiddleware',\n"
+    #     current_user_middleware = f"    '{app_name}.middleware.CurrentUserMiddleware',\n"
+    #
+    #     with open(settings_file_path, "r") as f:
+    #         settings_content = f.readlines()
+    #
+    #     # Clean up APPS_CURRENT_USER_MIDDLEWARE
+    #     in_apps_middleware = False
+    #     cleaned_apps_middleware = []
+    #     for line in settings_content:
+    #         if line.strip().startswith("APPS_CURRENT_USER_MIDDLEWARE = ["):
+    #             in_apps_middleware = True
+    #         if in_apps_middleware:
+    #             if dynamic_model_middleware.strip() in line:  # Remove misplaced DynamicModelMiddleware
+    #                 continue
+    #             if line.strip() == "]":
+    #                 in_apps_middleware = False
+    #         cleaned_apps_middleware.append(line)
+    #
+    #     # Add CurrentUserMiddleware if not already present
+    #     if current_user_middleware.strip() not in ''.join(cleaned_apps_middleware):
+    #         cleaned_apps_middleware = [
+    #             line if not line.strip().startswith("APPS_CURRENT_USER_MIDDLEWARE = [") else
+    #             f"{line.strip()}\n{current_user_middleware}"
+    #             for line in cleaned_apps_middleware
+    #         ]
+    #
+    #     # Clean up MIDDLEWARE
+    #     in_middleware = False
+    #     cleaned_middleware = []
+    #     for line in cleaned_apps_middleware:
+    #         if line.strip().startswith("MIDDLEWARE = ["):
+    #             in_middleware = True
+    #         if in_middleware:
+    #             if current_user_middleware.strip() in line:  # Remove misplaced CurrentUserMiddleware
+    #                 continue
+    #             if line.strip() == "]":
+    #                 in_middleware = False
+    #         cleaned_middleware.append(line)
+    #
+    #     # Add DynamicModelMiddleware if not already present
+    #     if dynamic_model_middleware.strip() not in ''.join(cleaned_middleware):
+    #         cleaned_middleware = [
+    #             line if not line.strip().startswith("MIDDLEWARE = [") else
+    #             f"{line.strip()}\n{dynamic_model_middleware}"
+    #             for line in cleaned_middleware
+    #         ]
+    #
+    #     # Write back to settings.py
+    #     with open(settings_file_path, "w") as f:
+    #         f.writelines(cleaned_middleware)
+    #
+    #     self.stdout.write(self.style.SUCCESS("Settings updated successfully."))
 
 
     def generate_dynamic_form_builder(self, app_path, app_name, models):
@@ -1312,31 +1415,60 @@ class DynamicFormBuilder(forms.ModelForm):
         for field_name, field in additional_fields.items():
             if field_name not in self.fields:
                 self.fields[field_name] = field
-
+                
+                
     def _build_relationship_fields(self):
         \"\"\"
-        Dynamically add fields for relationships such as ForeignKey, OneToOneField, and ManyToManyField.
+        Dynamically add fields for relationships such as ForeignKey, OneToOneField, and ManyToManyField,
+        with proper handling of missing related objects and support for `limit_choices_to`.
         \"\"\"
         for field in self.Meta.model._meta.get_fields():
             if field.is_relation and not field.auto_created:
                 if field.many_to_one and not isinstance(field, models.ManyToManyField):
                     # Handle ForeignKey or OneToOneField relationships
                     related_model = field.remote_field.model
+                    try:
+                        # Apply `limit_choices_to` if it exists
+                        limit_choices_to = field.remote_field.limit_choices_to or {{}}
+                        queryset = related_model.objects.filter(**limit_choices_to)
+                    except Exception as e:
+                        logger.error(f"Error applying `limit_choices_to` for {{field.name}}: {{e}}")
+                        queryset = related_model.objects.all()  # Default to all if filtering fails
+    
+                    try:
+                        initial_value = getattr(self.instance, field.name) if self.instance else None
+                    except field.related_model.DoesNotExist:
+                        initial_value = None  # Handle missing related object
+    
                     self.fields[field.name] = forms.ModelChoiceField(
-                        queryset=related_model.objects.all(),
+                        queryset=queryset,
                         required=not field.blank,
                         label=field.verbose_name,
-                        initial=getattr(self.instance, field.name) if self.instance else None
+                        initial=initial_value,
                     )
                 elif isinstance(field, models.ManyToManyField):
                     # Handle ManyToManyField relationships
                     related_model = field.remote_field.model
+                    try:
+                        # Apply `limit_choices_to` if it exists
+                        limit_choices_to = field.remote_field.limit_choices_to or {{}}
+                        queryset = related_model.objects.filter(**limit_choices_to)
+                    except Exception as e:
+                        logger.error(f"Error applying `limit_choices_to` for {{field.name}}: {{e}}")
+                        queryset = related_model.objects.all()  # Default to all if filtering fails
+    
+                    try:
+                        initial_value = getattr(self.instance, field.name).all() if self.instance else None
+                    except AttributeError:
+                        initial_value = None  # Handle cases where the field doesn't exist
+    
                     self.fields[field.name] = forms.ModelMultipleChoiceField(
-                        queryset=related_model.objects.all(),
+                        queryset=queryset,
                         required=not field.blank,
                         label=field.verbose_name,
-                        initial=getattr(self.instance, field.name).all() if self.instance else None
+                        initial=initial_value,
                     )
+
 
     def generate_fields(self):
         \"\"\"
@@ -1462,7 +1594,16 @@ class DynamicFormBuilder(forms.ModelForm):
         signal_code = (
             f"from django.db.models.signals import pre_save, post_save\n"
             f"from django.dispatch import receiver\n"
-            f"from {app_name}.models import {', '.join(model['name'] for model in models)}\n\n"
+            f"from {app_name}.models import AutoComputeRule, {', '.join(model['name'] for model in models)}\n"
+            f"from {app_name}.utils.auto_value_evaluator import AutoValueEvaluator\n"
+            f"import logging\n"
+            f"import threading\n"
+            f"from django.apps import apps\n"
+            f"from django.db import transaction\n"
+            f"from django.core.exceptions import ObjectDoesNotExist\n"
+
+
+            f"logger = logging.getLogger(__name__)\n\n"
         )
 
         # Generate pre-save and post-save hooks for each model
@@ -1470,7 +1611,8 @@ class DynamicFormBuilder(forms.ModelForm):
             model_name = model["name"]
 
             # Pre-save signal
-            signal_code += f"""\
+            signal_code += f"""
+            
 @receiver(pre_save, sender={model_name})
 def pre_save_{model_name.lower()}(sender, instance, **kwargs):
     # Add custom pre-save logic here
@@ -1489,6 +1631,140 @@ def post_save_{model_name.lower()}(sender, instance, created, **kwargs):
 
 """
 
+        signal_code += f"""
+
+# Thread-local storage to hold state flags
+_thread_locals = threading.local()
+
+@receiver(pre_save)
+def pre_save_auto_copute_handler(sender, instance, **kwargs):
+    \"\"\"
+    pre_save handler to store the previous state of the instance.
+    \"\"\"
+    # Initialize the flag if not present
+    if not hasattr(_thread_locals, 'auto_compute_running'):
+        _thread_locals.auto_compute_running = False
+
+    if _thread_locals.auto_compute_running:
+        # If AutoCompute is running, no need to fetch previous instance
+        _thread_locals.previous_instance = None
+        return
+
+    if not hasattr(sender, 'objects'):
+        return  # Skip if sender does not have a manager
+
+    if not instance.pk:
+        # New instance, no previous data
+        _thread_locals.previous_instance = None
+    else:
+        try:
+            previous = sender.objects.get(pk=instance.pk)
+            _thread_locals.previous_instance = previous
+        except ObjectDoesNotExist:
+            _thread_locals.previous_instance = None
+
+@receiver(post_save)
+def post_save_auto_compute_handler(sender, instance, created, **kwargs):
+    \"\"\"
+    post_save handler to process AutoComputeRules for any model.
+        \"\"\"
+    model_label = f"{{sender._meta.app_label}}.{{sender.__name__}}"
+
+    # 1. Find all rules for the model, ordered by priority
+    rules = AutoComputeRule.objects.filter(model_name=model_label).order_by('priority')
+
+    if not rules.exists():
+        return  # No rules to process
+
+    # 2. Determine if any trigger_fields were changed
+    changed_fields = []
+    previous = getattr(_thread_locals, 'previous_instance', None)
+
+    if previous:
+        # Aggregate all trigger_fields from all applicable rules
+        all_trigger_fields = set()
+        for rule in rules:
+            all_trigger_fields.update(rule.trigger_fields)
+
+        for field in all_trigger_fields:
+            old_value = getattr(previous, field, None)
+            new_value = getattr(instance, field, None)
+            if old_value != new_value:
+                changed_fields.append(field)
+    else:
+        # If created, consider all trigger_fields as changed
+        for rule in rules:
+            changed_fields.extend(rule.trigger_fields)
+
+    # Remove duplicates
+    changed_fields = list(set(changed_fields))
+
+    # Reset the previous_instance to avoid stale data
+    _thread_locals.previous_instance = None
+
+    if not changed_fields and not created:
+        return  # No relevant fields changed and it's not a creation
+
+    logger.debug(f"Changed fields for {{model_label}} (ID: {{instance.pk}}): {{changed_fields}}")
+
+    # 3. Evaluate each rule
+    for rule in rules:
+        # Check if any of the trigger fields are in changed_fields
+        if not set(rule.trigger_fields).intersection(changed_fields) and not created:
+            continue  # Skip if no relevant fields changed and it's not a creation
+
+        logger.debug(f"Evaluating rule: {{rule}}")
+
+        # 4. Gather record data
+        record_data = {{}}
+        for field in instance._meta.fields:
+            record_data[field.name] = getattr(instance, field.name, None)
+
+        # 5. Gather related objects if needed
+        context_objects = {{sender.__name__.lower(): instance}}
+
+        # Include related objects based on ForeignKey and OneToOne relationships
+        for rel in instance._meta.related_objects:
+            related_name = rel.get_accessor_name()
+            related_manager = getattr(instance, related_name, None)
+            if rel.one_to_one:
+                related_obj = related_manager
+                if related_obj:
+                    context_objects[related_obj.__class__.__name__.lower()] = related_obj
+            else:
+                # For reverse ForeignKey relationships, you might get a queryset
+                if related_manager.exists():
+                    context_objects[related_name] = related_manager.all()
+
+        # 6. Initialize the evaluator
+        evaluator = AutoValueEvaluator(record_data)
+
+        # 7. Evaluate condition
+        condition_passed = True  # Default if no condition
+        if rule.condition_logic:
+            condition_passed = evaluator.evaluate(rule.condition_logic, context_objects)
+
+        logger.debug(f"Condition passed for rule {{rule.id}}: {{condition_passed}}")
+
+        # 8. Execute actions if condition is met
+        if condition_passed and rule.action_logic:
+            logger.debug(f"Executing actions for rule {{rule.id}}")
+            # Apply actions within an atomic transaction
+            with transaction.atomic():
+                try:
+                    # Set the flag to indicate AutoCompute is running
+                    _thread_locals.auto_compute_running = True
+
+                    evaluator.apply_actions(rule.action_logic, context_objects)
+
+                    logger.debug(f"Actions executed successfully for rule {{rule.id}}")
+                except Exception as e:
+                    logger.error(f"Error executing actions for rule {{rule.id}}: {{e}}")
+                finally:
+                    # Unset the flag after actions are executed
+                    _thread_locals.auto_compute_running = False
+                    
+"""
         # Write the signals file
         signals_file_path = os.path.join(app_path, 'signals.py')
         with open(signals_file_path, 'w') as f:
@@ -1509,7 +1785,7 @@ def post_save_{model_name.lower()}(sender, instance, created, **kwargs):
             init_file.write("# utils package\n")
         logger.debug("Created '__init__.py' in 'utils'.")
 
-        # Generate validators.py with dynamic validators and support for multiple validation types
+        # Generate custom_validation.py with dynamic validators and support for multiple validation types
         custom_validation_code = f"""\
 import re
 from datetime import datetime
@@ -1623,6 +1899,382 @@ def make_api_call(base_url, method, headers=None, body=None, timeout=30):
         with open(os.path.join(utils_folder_path, 'api.py'), 'w') as api_file:
             api_file.write(api_code)
         logger.debug("Generated 'api.py'.")
+
+        # Generate auto_compute_condition_evaluator.py
+        auto_compute_condition_evaluator_code = f"""
+# {app_name}/utils/auto_compute_condition_evaluator.py
+
+import logging
+from typing import Any, Dict, List
+
+logger = logging.getLogger(__name__)
+
+class AutoComputeConditionEvaluator:
+    \"\"\"
+    Evaluates condition logic defined in JSON against record data and context objects.
+    \"\"\"
+
+    def __init__(self, record_data: Dict[str, Any]):
+        self.record_data = record_data
+
+    def evaluate(self, condition_logic: List[Dict[str, Any]], context_objects: Dict[str, Any]) -> bool:
+        \"\"\"
+        Evaluates the condition logic.
+        \"\"\"
+        for condition in condition_logic:
+            operation = condition.get("operation")
+            if operation == "and":
+                if not all(self.evaluate([sub_cond], context_objects) for sub_cond in condition.get("conditions", [])):
+                    return False
+            elif operation == "or":
+                if not any(self.evaluate([sub_cond], context_objects) for sub_cond in condition.get("conditions", [])):
+                    return False
+            elif operation == "not":
+                if any(self.evaluate([sub_cond], context_objects) for sub_cond in condition.get("conditions", [])):
+                    return False
+            elif operation == "if_else":
+                conditions = condition.get("conditions", [])
+                if_true = condition.get("if_true")
+                if_false = condition.get("if_false")
+
+                if all(self.evaluate([cond], context_objects) for cond in conditions):
+                    # Interpret 'if_true' and 'if_false' as boolean flags
+                    return True if if_true else False
+                else:
+                    return True if if_false else False
+            else:
+                field = condition.get("field")
+                op = condition.get("operation")
+                value = condition.get("value")
+
+                # Support accessing related objects via context_objects
+                if "." in field:
+                    parts = field.split(".")
+                    obj_name = parts[0].lower()
+                    field_name = parts[1]
+                    obj = context_objects.get(obj_name)
+                    if obj:
+                        current_value = getattr(obj, field_name, None)
+                    else:
+                        current_value = None
+                else:
+                    current_value = self.record_data.get(field)
+
+                # Compare based on operation
+                if not self._compare(current_value, op, value):
+                    return False
+
+        return True  # All conditions passed
+
+    def _compare(self, current_value: Any, operation: str, value: Any) -> bool:
+        \"\"\"
+        Compares current_value and value based on the operation.
+        \"\"\"
+        try:
+            if operation == "=":
+                return current_value == value
+            elif operation == "!=":
+                return current_value != value
+            elif operation == ">":
+                return current_value > value
+            elif operation == "<":
+                return current_value < value
+            elif operation == ">=":
+                return current_value >= value
+            elif operation == "<=":
+                return current_value <= value
+            elif operation == "in":
+                return current_value in value
+            elif operation == "not in":
+                return current_value not in value
+            elif operation == "__lte":
+                return current_value <= value
+            elif operation == "__gte":
+                return current_value >= value
+            else:
+                logger.error(f"Unsupported operation '{{operation}}' in condition.")
+                return False
+        except Exception as e:
+            logger.error(f"Error comparing values: {{e}}")
+            return False
+"""
+
+        with open(os.path.join(utils_folder_path, 'auto_compute_condition_evaluator.py'), 'w') as api_file:
+            api_file.write(auto_compute_condition_evaluator_code)
+        logger.debug("Generated 'auto_compute_condition_evaluator.py'.")
+
+
+        # Generate auto_value_evaluator.py
+        auto_value_evaluator_code = f"""
+# autocompute/utils/auto_value_evaluator.py
+
+import logging
+from typing import Any, Dict, List
+from django.apps import apps
+
+from .auto_compute_condition_evaluator import AutoComputeConditionEvaluator
+
+logger = logging.getLogger(__name__)
+
+class AutoValueEvaluator(AutoComputeConditionEvaluator):
+    \"\"\"
+    Extends AutoComputeConditionEvaluator to handle actions if conditions pass.
+    Inherits the 'evaluate' method from AutoComputeConditionEvaluator.
+    \"\"\"
+
+    def apply_actions(self, actions: List[Dict[str, Any]], context_objects: Dict[str, Any]) -> None:
+        \"\"\"
+        Applies a list of actions if conditions pass.
+        \"\"\"
+        for action in actions:
+            action_type = action.get("type")
+
+            try:
+                if action_type == "update":
+                    self._handle_update_action(action, context_objects)
+
+                elif action_type == "create":
+                    self._handle_create_action(action, context_objects)
+
+                elif action_type == "delete":
+                    self._handle_delete_action(action, context_objects)
+
+                elif action_type == "function":
+                    self._handle_function_action(action, context_objects)
+
+                elif action_type == "if":
+                    self._handle_if_action(action, context_objects)
+
+                else:
+                    logger.warning(f"Unknown action type: {{action_type}}")
+
+            except Exception as e:
+                logger.error(f"Error executing action '{{action_type}}': {{e}}")
+
+    def _handle_update_action(self, action: Dict[str, Any], context_objects: Dict[str, Any]) -> None:
+        \"\"\"
+        Handles 'update' type actions.
+        \"\"\"
+        target_path = action.get("target")  # e.g., "app.Model.field"
+        operation = action.get("operation")  # e.g., "=", "+", "-", etc.
+        value_expr = action.get("value")    # e.g., {{"field": "app.Model.field2"}} or {{"value": "Static Value"}}
+
+        if not target_path or not operation:
+            logger.error("Invalid update action: 'target' or 'operation' missing.")
+            return
+
+        try:
+            app_label, model_name, field_name = target_path.split(".")
+            model = apps.get_model(app_label, model_name)
+            instance_alias = model_name.lower()
+            instance = context_objects.get(instance_alias)
+
+            if not instance:
+                logger.error(f"Instance for model {{model_name}} not found in context_objects.")
+                return
+
+            # Resolve the value
+            if "field" in value_expr:
+                source_field = value_expr["field"].split(".")[-1]
+                value = getattr(instance, source_field, None)
+            elif "value" in value_expr:
+                value = value_expr["value"]
+            elif "function" in value_expr:
+                # Implement function-based value extraction if needed
+                value = None
+            else:
+                logger.error("Invalid value expression in update action.")
+                return
+
+            # Perform the operation
+            current_value = getattr(instance, field_name, None)
+
+            if operation == "=":
+                new_value = value
+            elif operation == "+":
+                new_value = current_value + value if current_value is not None and value is not None else current_value
+            elif operation == "-":
+                new_value = current_value - value if current_value is not None and value is not None else current_value
+            elif operation == "*":
+                new_value = current_value * value if current_value is not None and value is not None else current_value
+            elif operation == "/":
+                new_value = current_value / value if current_value is not None and value not in [0, None] else current_value
+            else:
+                logger.error(f"Unsupported operation '{{operation}}' in update action.")
+                return
+
+            # Use QuerySet's update() to prevent triggering signals
+            update_kwargs = {{field_name: new_value}}
+            model.objects.filter(pk=instance.pk).update(**update_kwargs)
+            logger.debug(f"Updated {{model_name}}.{{field_name}} to {{new_value}} using QuerySet's update().")
+
+        except Exception as e:
+            logger.error(f"Error handling update action: {{e}}")
+
+    def _handle_create_action(self, action: Dict[str, Any], context_objects: Dict[str, Any]) -> None:
+        \"\"\"
+        Handles 'create' type actions.
+        \"\"\"
+        model_path = action.get("model")  # e.g., "app.Model"
+        data_expr = action.get("data", {{}})
+
+        if not model_path:
+            logger.error("Invalid create action: 'model' missing.")
+            return
+
+        try:
+            app_label, model_name = model_path.split(".")
+            model = apps.get_model(app_label, model_name)
+        except Exception as e:
+            logger.error(f"Error fetching model for create action: {{e}}")
+            return
+
+        create_data = {{}}
+        for field_key, expr in data_expr.items():
+            if "field" in expr:
+                # Support accessing related objects via context_objects
+                field_path = expr["field"]
+                parts = field_path.split(".")
+                if len(parts) == 2:
+                    obj_alias, source_field = parts
+                    obj = context_objects.get(obj_alias.lower())
+                    if obj:
+                        create_data[field_key] = getattr(obj, source_field, None)
+                    else:
+                        create_data[field_key] = None
+                else:
+                    # If more nested, implement as needed
+                    create_data[field_key] = None
+            elif "value" in expr:
+                create_data[field_key] = expr["value"]
+            elif "function" in expr:
+                # Implement function-based value extraction if needed
+                create_data[field_key] = None
+            else:
+                logger.warning(f"Unknown data expression in create action for field '{{field_key}}'.")
+                create_data[field_key] = None
+
+        try:
+            model.objects.create(**create_data)
+            logger.debug(f"Created new {{model_name}} with data: {{create_data}}.")
+        except Exception as e:
+            logger.error(f"Error creating {{model_name}}: {{e}}")
+
+    def _handle_delete_action(self, action: Dict[str, Any], context_objects: Dict[str, Any]) -> None:
+        \"\"\"
+        Handles 'delete' type actions.
+        \"\"\"
+        target_path = action.get("target")  # e.g., "app.Model.field"
+
+        if not target_path:
+            logger.error("Invalid delete action: 'target' missing.")
+            return
+
+        try:
+            app_label, model_name, field_name = target_path.split(".")
+            model = apps.get_model(app_label, model_name)
+            instance_alias = model_name.lower()
+            instance = context_objects.get(instance_alias)
+
+            if not instance:
+                logger.error(f"Instance for model {{model_name}} not found in context_objects.")
+                return
+
+            instance.delete()
+            logger.debug(f"Deleted instance of {{model_name}}.")
+
+        except Exception as e:
+            logger.error(f"Error handling delete action: {{e}}")
+
+    def _handle_function_action(self, action: Dict[str, Any], context_objects: Dict[str, Any]) -> None:
+        \"\"\"
+        Handles 'function' type actions.
+        \"\"\"
+        function_path = action.get("function_path")
+        params = action.get("params", {{}})
+
+        if not function_path:
+            logger.error("Invalid function action: 'function_path' missing.")
+            return
+
+        try:
+            module_path, func_name = function_path.rsplit('.', 1)
+            module = __import__(module_path, fromlist=[func_name])
+            func = getattr(module, func_name)
+        except Exception as e:
+            logger.error(f"Error importing function '{{function_path}}': {{e}}")
+            return
+
+        resolved_params = {{}}
+        for param_key, expr in params.items():
+            if "field" in expr:
+                # Support accessing related objects via context_objects
+                field_path = expr["field"]
+                parts = field_path.split(".")
+                if len(parts) == 2:
+                    obj_alias, source_field = parts
+                    obj = context_objects.get(obj_alias.lower())
+                    if obj:
+                        resolved_params[param_key] = getattr(obj, source_field, None)
+                    else:
+                        resolved_params[param_key] = None
+                else:
+                    # If more nested, implement as needed
+                    resolved_params[param_key] = None
+            elif "value" in expr:
+                resolved_params[param_key] = expr["value"]
+            elif "function" in expr:
+                # Implement nested function calls if needed
+                resolved_params[param_key] = None
+            else:
+                logger.warning(f"Unknown parameter expression in function action for param '{{param_key}}'.")
+                resolved_params[param_key] = None
+
+        try:
+            func(**resolved_params)
+            logger.debug(f"Executed function '{{function_path}}' with params: {{resolved_params}}.")
+        except Exception as e:
+            logger.error(f"Error executing function '{{function_path}}': {{e}}")
+
+    def _handle_if_action(self, action: Dict[str, Any], context_objects: Dict[str, Any]) -> None:
+        \"\"\"
+        Handles 'if' type actions. This allows conditional actions within action_logic.
+        Example action:
+        {{
+            "type": "if",
+            "condition": "AutoApprove",
+            "actions": [ ... ]
+        }}
+        \"\"\"
+        condition = action.get("condition")
+        nested_actions = action.get("actions", [])
+
+        if not condition:
+            logger.error("Invalid 'if' action: 'condition' missing.")
+            return
+
+        # The condition here should be a boolean value in record_data or context_objects
+        # Implement a mechanism to evaluate the condition flag
+        # For simplicity, assume that 'condition' is a boolean value in record_data or context_objects
+
+        # Check in record_data
+        condition_value = self.record_data.get(condition, False)
+        if isinstance(condition_value, str):
+            # Attempt to evaluate string representations of booleans
+            condition_value = condition_value.lower() in ['true', '1', 'yes']
+
+        if condition_value:
+            logger.debug(f"'if' condition '{{condition}}' passed. Executing nested actions.")
+            self.apply_actions(nested_actions, context_objects)
+        else:
+            logger.debug(f"'if' condition '{{condition}}' failed. Skipping nested actions.")
+"""
+
+        with open(os.path.join(utils_folder_path, 'auto_value_evaluator.py'), 'w') as api_file:
+            api_file.write(auto_value_evaluator_code)
+        logger.debug("Generated 'auto_value_evaluator.py'.")
+
+
 
         # Generate condition_evaluator.py with dynamic condition evaluator logic
         condition_evaluator_code = f"""\
@@ -1744,7 +2396,7 @@ class ConditionEvaluator:
             init_file.write("# crud package\n")
         logger.debug("Created '__init__.py' in 'crud'.")
 
-        # Generate mangers.py.py with dynamic permissions and support for multiple types
+        # Generate mangers.py with dynamic permissions and support for multiple types
         managers_code = f"""
 # {app_name}/crud/managers.py
 
@@ -1806,6 +2458,63 @@ def user_can(user, action, model_class, context, object_id=None):
         with open(os.path.join(crud_folder_path, 'managers.py'), 'w') as managers_file:
             managers_file.write(managers_code)
         logger.debug("Generated 'managers.py'.")
+
+
+        # Generate api_permission.py with dynamic permissions and support for multiple types
+        api_permission_code = f"""
+# {app_name}/crud/permissions.py
+from rest_framework.permissions import BasePermission
+from {app_name}.crud.managers import user_can
+
+class CRUDPermissionDRF(BasePermission):
+    \"\"\"
+    DRF permission class that checks custom CRUD permissions
+    for each action in the 'api' context.
+    \"\"\"
+
+    def has_permission(self, request, view):
+        model = getattr(view.serializer_class.Meta, 'model', None)
+        # or model = view.queryset.model, etc.
+        print("DEBUG: has_permission -> action:", view.action)
+
+        if view.action == 'create':
+            allowed = user_can(request.user, 'create', model, context='api')
+            print("allowed", allowed)
+            return allowed  # True/False
+
+        elif view.action in ['list', 'retrieve']:
+            return user_can(request.user, 'read', model, context='api')
+
+        elif view.action in ['update', 'partial_update']:
+            return user_can(request.user, 'update', model, context='api')
+
+        elif view.action == 'destroy':
+            return user_can(request.user, 'delete', model, context='api')
+
+        return True  # fallback or handle other actions
+
+    def has_object_permission(self, request, view, obj):
+        \"\"\"
+        Called for detail actions (retrieve, update, destroy) with a specific object.
+        If you need object-level checks, pass the obj.pk to user_can().
+        \"\"\"
+        print("DEBUG >>> has_object_permission called")
+
+        model = type(obj)  # or obj._meta.model
+        action_map = {{
+            'retrieve': 'read',
+            'update': 'update',
+            'partial_update': 'update',
+            'destroy': 'delete',
+        }}
+        crud_action = action_map.get(view.action, 'read')
+
+        return user_can(request.user, crud_action, model, context='api', object_id=obj.pk)
+"""
+
+        with open(os.path.join(crud_folder_path, 'api_permission.py'), 'w') as api_permission_file:
+            api_permission_file.write(api_permission_code)
+        logger.debug("Generated 'api_permission.py'.")
 
     def generate_middleware_file(self, app_path, app_name):
         """
@@ -2215,71 +2924,71 @@ class Command(BaseCommand):
         # else:
         #     self.stdout.write(self.style.WARNING(f"App '{app_name}' is already in INSTALLED_APPS."))
         #     logger.warning(f"App '{app_name}' is already in INSTALLED_APPS.")
-
-    def add_middleware_to_settings(self, app_name):
-        """
-        Add the app's middleware to MIDDLEWARE in settings.py.
-        """
-        from pathlib import Path
-        BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-        settings_file_path = os.path.join(BASE_DIR, 'scohaz_platform', 'settings', 'settings.py')
-
-        if not os.path.exists(settings_file_path):
-            raise CommandError("Could not find settings.py to register middleware.")
-
-        dynamic_model_middleware = f"    '{app_name}.middleware.DynamicModelMiddleware',\n"
-        current_user_middleware = f"    '{app_name}.middleware.CurrentUserMiddleware',\n"
-
-        with open(settings_file_path, "r") as f:
-            settings_content = f.readlines()
-
-        # Clean up APPS_CURRENT_USER_MIDDLEWARE
-        in_apps_middleware = False
-        cleaned_apps_middleware = []
-        for line in settings_content:
-            if line.strip().startswith("APPS_CURRENT_USER_MIDDLEWARE = ["):
-                in_apps_middleware = True
-            if in_apps_middleware:
-                if dynamic_model_middleware.strip() in line:  # Remove misplaced DynamicModelMiddleware
-                    continue
-                if line.strip() == "]":
-                    in_apps_middleware = False
-            cleaned_apps_middleware.append(line)
-
-        # Add CurrentUserMiddleware if not already present
-        if current_user_middleware.strip() not in ''.join(cleaned_apps_middleware):
-            cleaned_apps_middleware = [
-                line if not line.strip().startswith("APPS_CURRENT_USER_MIDDLEWARE = [") else
-                f"{line.strip()}\n{current_user_middleware}"
-                for line in cleaned_apps_middleware
-            ]
-
-        # Clean up MIDDLEWARE
-        in_middleware = False
-        cleaned_middleware = []
-        for line in cleaned_apps_middleware:
-            if line.strip().startswith("MIDDLEWARE = ["):
-                in_middleware = True
-            if in_middleware:
-                if current_user_middleware.strip() in line:  # Remove misplaced CurrentUserMiddleware
-                    continue
-                if line.strip() == "]":
-                    in_middleware = False
-            cleaned_middleware.append(line)
-
-        # Add DynamicModelMiddleware if not already present
-        if dynamic_model_middleware.strip() not in ''.join(cleaned_middleware):
-            cleaned_middleware = [
-                line if not line.strip().startswith("MIDDLEWARE = [") else
-                f"{line.strip()}\n{dynamic_model_middleware}"
-                for line in cleaned_middleware
-            ]
-
-        # Write back to settings.py
-        with open(settings_file_path, "w") as f:
-            f.writelines(cleaned_middleware)
-
-        self.stdout.write(self.style.SUCCESS("Settings updated successfully."))
+    #
+    # def add_middleware_to_settings(self, app_name):
+    #     """
+    #     Add the app's middleware to MIDDLEWARE in settings.py.
+    #     """
+    #     from pathlib import Path
+    #     BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+    #     settings_file_path = os.path.join(BASE_DIR, 'scohaz_platform', 'settings', 'settings.py')
+    #
+    #     if not os.path.exists(settings_file_path):
+    #         raise CommandError("Could not find settings.py to register middleware.")
+    #
+    #     dynamic_model_middleware = f"    '{app_name}.middleware.DynamicModelMiddleware',\n"
+    #     current_user_middleware = f"    '{app_name}.middleware.CurrentUserMiddleware',\n"
+    #
+    #     with open(settings_file_path, "r") as f:
+    #         settings_content = f.readlines()
+    #
+    #     # Clean up APPS_CURRENT_USER_MIDDLEWARE
+    #     in_apps_middleware = False
+    #     cleaned_apps_middleware = []
+    #     for line in settings_content:
+    #         if line.strip().startswith("APPS_CURRENT_USER_MIDDLEWARE = ["):
+    #             in_apps_middleware = True
+    #         if in_apps_middleware:
+    #             if dynamic_model_middleware.strip() in line:  # Remove misplaced DynamicModelMiddleware
+    #                 continue
+    #             if line.strip() == "]":
+    #                 in_apps_middleware = False
+    #         cleaned_apps_middleware.append(line)
+    #
+    #     # Add CurrentUserMiddleware if not already present
+    #     if current_user_middleware.strip() not in ''.join(cleaned_apps_middleware):
+    #         cleaned_apps_middleware = [
+    #             line if not line.strip().startswith("APPS_CURRENT_USER_MIDDLEWARE = [") else
+    #             f"{line.strip()}\n{current_user_middleware}"
+    #             for line in cleaned_apps_middleware
+    #         ]
+    #
+    #     # Clean up MIDDLEWARE
+    #     in_middleware = False
+    #     cleaned_middleware = []
+    #     for line in cleaned_apps_middleware:
+    #         if line.strip().startswith("MIDDLEWARE = ["):
+    #             in_middleware = True
+    #         if in_middleware:
+    #             if current_user_middleware.strip() in line:  # Remove misplaced CurrentUserMiddleware
+    #                 continue
+    #             if line.strip() == "]":
+    #                 in_middleware = False
+    #         cleaned_middleware.append(line)
+    #
+    #     # Add DynamicModelMiddleware if not already present
+    #     if dynamic_model_middleware.strip() not in ''.join(cleaned_middleware):
+    #         cleaned_middleware = [
+    #             line if not line.strip().startswith("MIDDLEWARE = [") else
+    #             f"{line.strip()}\n{dynamic_model_middleware}"
+    #             for line in cleaned_middleware
+    #         ]
+    #
+    #     # Write back to settings.py
+    #     with open(settings_file_path, "w") as f:
+    #         f.writelines(cleaned_middleware)
+    #
+    #     self.stdout.write(self.style.SUCCESS("Settings updated successfully."))
 
     def create_migrations(self, app_name):
         """

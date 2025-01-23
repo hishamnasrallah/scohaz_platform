@@ -1,0 +1,54 @@
+[
+  {
+    "name": "StockPicking",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "state", "type": "CharField", "options": "max_length=20, null=False", "choices":[["draft", "Draft"], ["confirmed", "Confirmed"], ["done", "Done"], ["cancel", "Cancelled"]]}
+    ],
+    "relationships": [
+      { "name": "partner", "type": "ForeignKey", "related_model": "sales.ResPartner", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+      { "name": "moves", "type": "ManyToManyField", "related_model": "inventory.StockMove", "options": "blank=True" },
+      { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Stock Picking",
+      "verbose_name_plural": "Stock Pickings",
+      "ordering": ["-name"]
+    }
+  },
+  {
+    "name": "StockMove",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "product_uom_qty", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=1.00, null=False" },
+      { "name": "state", "type": "CharField", "options": "max_length=20, null=False", "choices":[["draft", "Draft"], ["confirmed", "Confirmed"], ["assigned", "Assigned"], ["done", "Done"], ["cancel", "Cancelled"]]}
+    ],
+    "relationships": [
+      { "name": "product", "type": "ForeignKey", "related_model": "product.ProductProduct", "options": "on_delete=models.CASCADE, null=False" },
+      { "name": "uom", "type": "ForeignKey", "related_model": "product.UomUom", "options": "on_delete=models.CASCADE, null=False" },
+      { "name": "location", "type": "ForeignKey", "related_model": "inventory.StockLocation", "options": "on_delete=models.CASCADE, null=False" },
+      { "name": "location_dest", "type": "ForeignKey", "related_model": "inventory.StockLocation", "options": "on_delete=models.CASCADE, null=False" },
+      { "name": "picking", "type": "ForeignKey", "related_model": "inventory.StockPicking", "options": "on_delete=models.CASCADE, null=False" }
+    ],
+    "meta": {
+      "verbose_name": "Stock Move",
+      "verbose_name_plural": "Stock Moves",
+      "ordering": ["-id"]
+    }
+  },
+  {
+    "name": "StockLocation",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "usage", "type": "CharField", "options": "max_length=50, null=False", "choices":[["view", "View"], ["internal", "Internal"], ["supplier", "Supplier"], ["customer", "Customer"], ["inventory", "Inventory"]]}
+    ],
+    "relationships": [
+      { "name": "parent", "type": "ForeignKey", "related_model": "inventory.StockLocation", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Stock Location",
+      "verbose_name_plural": "Stock Locations",
+      "ordering": ["name"]
+    }
+  }
+]

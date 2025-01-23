@@ -1,0 +1,343 @@
+[
+
+
+  {
+    "application": "purchase",
+    "models": [
+      {
+        "name": "PurchaseOrder",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, unique=True, null=False" },
+          { "name": "date_order", "type": "DateTimeField", "options": "auto_now_add=True, null=False" },
+          { "name": "state", "type": "CharField", "options": "max_length=20, choices=[('draft', 'Draft'), ('purchase', 'Purchase'), ('done', 'Done'), ('cancel', 'Cancelled')], null=False" },
+          { "name": "amount_total", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00, null=False" }
+        ],
+        "relationships": [
+          { "name": "partner", "type": "ForeignKey", "related_model": "sales.ResPartner", "options": "on_delete=models.CASCADE, null=False" },
+          { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Purchase Order",
+          "verbose_name_plural": "Purchase Orders",
+          "ordering": ["-date_order"]
+        }
+      },
+      {
+        "name": "PurchaseOrderLine",
+        "fields": [
+          { "name": "product_qty", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=1.00, null=False" },
+          { "name": "price_unit", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, null=False" },
+          { "name": "price_total", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, editable=False, null=False" }
+        ],
+        "relationships": [
+          { "name": "order", "type": "ForeignKey", "related_model": "purchase.PurchaseOrder", "options": "on_delete=models.CASCADE, null=False" },
+          { "name": "product", "type": "ForeignKey", "related_model": "product.ProductProduct", "options": "on_delete=models.CASCADE, null=False" }
+        ],
+        "meta": {
+          "verbose_name": "Purchase Order Line",
+          "verbose_name_plural": "Purchase Order Lines",
+          "ordering": ["order"]
+        }
+      }
+    ]
+  },
+
+  {
+    "application": "project",
+    "models": [
+      {
+        "name": "Project",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "description", "type": "TextField", "options": "null=True, blank=True" },
+          { "name": "state", "type": "CharField", "options": "max_length=20, choices=[('draft', 'Draft'), ('ongoing', 'Ongoing'), ('done', 'Done'), ('cancel', 'Cancelled')], null=False" }
+        ],
+        "relationships": [
+          { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+          { "name": "tasks", "type": "ManyToManyField", "related_model": "project.Task", "options": "blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Project",
+          "verbose_name_plural": "Projects",
+          "ordering": ["name"]
+        }
+      },
+      {
+        "name": "Task",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "description", "type": "TextField", "options": "null=True, blank=True" },
+          { "name": "priority", "type": "CharField", "options": "max_length=10, choices=[('0', 'Low'), ('1', 'Normal'), ('2', 'High')], null=False" }
+        ],
+        "relationships": [
+          { "name": "project", "type": "ForeignKey", "related_model": "project.Project", "options": "on_delete=models.CASCADE, null=False" },
+          { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+          { "name": "stage", "type": "ForeignKey", "related_model": "project.TaskStage", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Task",
+          "verbose_name_plural": "Tasks",
+          "ordering": ["-id"]
+        }
+      },
+      {
+        "name": "TaskStage",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "sequence", "type": "IntegerField", "options": "default=1, null=False" },
+          { "name": "is_closed", "type": "BooleanField", "options": "default=False" }
+        ],
+        "relationships": [],
+        "meta": {
+          "verbose_name": "Task Stage",
+          "verbose_name_plural": "Task Stages",
+          "ordering": ["sequence"]
+        }
+      }
+    ]
+  },
+
+  {
+    "application": "inventory",
+    "models": [
+      {
+        "name": "StockPicking",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "state", "type": "CharField", "options": "max_length=20, choices=[('draft', 'Draft'), ('confirmed', 'Confirmed'), ('done', 'Done'), ('cancel', 'Cancelled')], null=False" }
+        ],
+        "relationships": [
+          { "name": "partner", "type": "ForeignKey", "related_model": "sales.ResPartner", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+          { "name": "moves", "type": "ManyToManyField", "related_model": "inventory.StockMove", "options": "blank=True" },
+          { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Stock Picking",
+          "verbose_name_plural": "Stock Pickings",
+          "ordering": ["-name"]
+        }
+      },
+      {
+        "name": "StockMove",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "product_uom_qty", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=1.00, null=False" },
+          { "name": "state", "type": "CharField", "options": "max_length=20, choices=[('draft', 'Draft'), ('confirmed', 'Confirmed'), ('assigned', 'Assigned'), ('done', 'Done'), ('cancel', 'Cancelled')], null=False" }
+        ],
+        "relationships": [
+          { "name": "product", "type": "ForeignKey", "related_model": "product.ProductProduct", "options": "on_delete=models.CASCADE, null=False" },
+          { "name": "uom", "type": "ForeignKey", "related_model": "product.UomUom", "options": "on_delete=models.CASCADE, null=False" },
+          { "name": "location", "type": "ForeignKey", "related_model": "inventory.StockLocation", "options": "on_delete=models.CASCADE, null=False" },
+          { "name": "location_dest", "type": "ForeignKey", "related_model": "inventory.StockLocation", "options": "on_delete=models.CASCADE, null=False" },
+          { "name": "picking", "type": "ForeignKey", "related_model": "inventory.StockPicking", "options": "on_delete=models.CASCADE, null=False" }
+        ],
+        "meta": {
+          "verbose_name": "Stock Move",
+          "verbose_name_plural": "Stock Moves",
+          "ordering": ["-id"]
+        }
+      },
+      {
+        "name": "StockLocation",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "usage", "type": "CharField", "options": "max_length=50, choices=[('view', 'View'), ('internal', 'Internal'), ('supplier', 'Supplier'), ('customer', 'Customer'), ('inventory', 'Inventory')], null=False" }
+        ],
+        "relationships": [
+          { "name": "parent", "type": "ForeignKey", "related_model": "inventory.StockLocation", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Stock Location",
+          "verbose_name_plural": "Stock Locations",
+          "ordering": ["name"]
+        }
+      }
+    ]
+  },
+
+  {
+    "application": "accounting",
+    "models": [
+      {
+        "name": "AccountMove",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "date", "type": "DateField", "options": "null=False" },
+          { "name": "state", "type": "CharField", "options": "max_length=20, choices=[('draft', 'Draft'), ('posted', 'Posted'), ('cancel', 'Cancelled')], null=False" }
+        ],
+        "relationships": [
+          { "name": "partner", "type": "ForeignKey", "related_model": "sales.ResPartner", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+          { "name": "lines", "type": "ManyToManyField", "related_model": "accounting.AccountMoveLine", "options": "blank=True" },
+          { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Journal Entry",
+          "verbose_name_plural": "Journal Entries",
+          "ordering": ["-date"]
+        }
+      },
+      {
+        "name": "AccountMoveLine",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=True, blank=True" },
+          { "name": "debit", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00, null=False" },
+          { "name": "credit", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00, null=False" },
+          { "name": "balance", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, editable=False, null=False" }
+        ],
+        "relationships": [
+          { "name": "move", "type": "ForeignKey", "related_model": "accounting.AccountMove", "options": "on_delete=models.CASCADE, null=False" },
+          { "name": "account", "type": "ForeignKey", "related_model": "accounting.AccountAccount", "options": "on_delete=models.CASCADE, null=False" }
+        ],
+        "meta": {
+          "verbose_name": "Journal Entry Line",
+          "verbose_name_plural": "Journal Entry Lines",
+          "ordering": ["move"]
+        }
+      },
+      {
+        "name": "AccountAccount",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "code", "type": "CharField", "options": "max_length=20, unique=True, null=False" },
+          { "name": "reconcile", "type": "BooleanField", "options": "default=False" }
+        ],
+        "relationships": [
+          { "name": "user_type", "type": "ForeignKey", "related_model": "accounting.AccountAccountType", "options": "on_delete=models.CASCADE, null=False" }
+        ],
+        "meta": {
+          "verbose_name": "Account",
+          "verbose_name_plural": "Accounts",
+          "ordering": ["code"]
+        }
+      },
+      {
+        "name": "AccountAccountType",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "code", "type": "CharField", "options": "max_length=20, unique=True, null=False" },
+          { "name": "type", "type": "CharField", "options": "max_length=20, choices=[('view', 'View'), ('other', 'Other'), ('receivable', 'Receivable'), ('payable', 'Payable'), ('liquidity', 'Liquidity')], null=False" }
+        ],
+        "relationships": [],
+        "meta": {
+          "verbose_name": "Account Type",
+          "verbose_name_plural": "Account Types",
+          "ordering": ["code"]
+        }
+      }
+    ]
+  },
+
+  {
+    "application": "human_resources",
+    "models": [
+      {
+        "name": "Employee",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "work_email", "type": "EmailField", "options": "unique=True, null=True, blank=True" },
+          { "name": "work_phone", "type": "CharField", "options": "max_length=15, null=True, blank=True" }
+        ],
+        "relationships": [
+          { "name": "job", "type": "ForeignKey", "related_model": "human_resources.JobPosition", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+          { "name": "department", "type": "ForeignKey", "related_model": "human_resources.Department", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+          { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Employee",
+          "verbose_name_plural": "Employees",
+          "ordering": ["name"]
+        }
+      },
+      {
+        "name": "JobPosition",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "sequence", "type": "IntegerField", "options": "default=1, null=False" }
+        ],
+        "relationships": [
+          { "name": "department", "type": "ForeignKey", "related_model": "human_resources.Department", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Job Position",
+          "verbose_name_plural": "Job Positions",
+          "ordering": ["sequence"]
+        }
+      },
+      {
+        "name": "Department",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" }
+        ],
+        "relationships": [
+          { "name": "manager", "type": "ForeignKey", "related_model": "human_resources.Employee", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+          { "name": "parent", "type": "ForeignKey", "related_model": "human_resources.Department", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Department",
+          "verbose_name_plural": "Departments",
+          "ordering": ["name"]
+        }
+      },
+      {
+        "name": "Contract",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "date_start", "type": "DateField", "options": "null=False" },
+          { "name": "date_end", "type": "DateField", "options": "null=True, blank=True" },
+          { "name": "wage", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, null=False" },
+          { "name": "state", "type": "CharField", "options": "max_length=20, choices=[('draft', 'Draft'), ('open', 'Open'), ('close', 'Closed')], null=False" }
+        ],
+        "relationships": [
+          { "name": "employee", "type": "ForeignKey", "related_model": "human_resources.Employee", "options": "on_delete=models.CASCADE, null=False" }
+        ],
+        "meta": {
+          "verbose_name": "Contract",
+          "verbose_name_plural": "Contracts",
+          "ordering": ["-date_start"]
+        }
+      }
+    ]
+  },
+
+  {
+    "application": "website",
+    "models": [
+      {
+        "name": "WebsitePage",
+        "fields": [
+          { "name": "title", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "url", "type": "URLField", "options": "max_length=255, unique=True, null=False" },
+          { "name": "content", "type": "TextField", "options": "null=True, blank=True" },
+          { "name": "template", "type": "CharField", "options": "max_length=255, null=True, blank=True" },
+          { "name": "is_published", "type": "BooleanField", "options": "default=False" }
+        ],
+        "relationships": [
+          { "name": "author", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Website Page",
+          "verbose_name_plural": "Website Pages",
+          "ordering": ["title"]
+        }
+      },
+      {
+        "name": "WebsiteMenu",
+        "fields": [
+          { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+          { "name": "sequence", "type": "IntegerField", "options": "default=1, null=False" },
+          { "name": "is_published", "type": "BooleanField", "options": "default=False" }
+        ],
+        "relationships": [
+          { "name": "parent", "type": "ForeignKey", "related_model": "website.WebsiteMenu", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+          { "name": "page", "type": "ForeignKey", "related_model": "website.WebsitePage", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+        ],
+        "meta": {
+          "verbose_name": "Website Menu",
+          "verbose_name_plural": "Website Menus",
+          "ordering": ["sequence"]
+        }
+      }
+    ]
+  }
+
+]

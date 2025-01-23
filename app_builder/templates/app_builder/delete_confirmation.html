@@ -1,0 +1,12 @@
+{% extends "app_builder/base.html" %}
+{% block content %}
+    <div class="container mt-4">
+        <h3>Delete {{ app_def.app_name }}?</h3>
+        <form method="post">
+            {% csrf_token %}
+            <p>This action cannot be undone.</p>
+            <button type="submit" class="btn btn-danger">Confirm Delete</button>
+            <a class="btn btn-secondary" href="{% url 'app_builder:list_applications' %}">Cancel</a>
+        </form>
+    </div>
+{% endblock %}

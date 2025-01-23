@@ -7,3 +7,4 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'scohaz_platform.settings')
 app = Celery('scohaz_platform')
 app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks()
+

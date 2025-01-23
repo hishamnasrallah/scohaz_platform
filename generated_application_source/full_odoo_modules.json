@@ -1,0 +1,1080 @@
+[
+  {
+    "application": "sales",
+    "models": [
+      {
+        "name": "Partner",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "email",
+            "type": "EmailField",
+            "options": "unique=True, blank=True, null=True"
+          },
+          {
+            "name": "phone",
+            "type": "CharField",
+            "options": "max_length=15, blank=True, null=True"
+          },
+          {
+            "name": "customer_rank",
+            "type": "IntegerField",
+            "options": "default=0"
+          },
+          {
+            "name": "supplier_rank",
+            "type": "IntegerField",
+            "options": "default=0"
+          },
+          {
+            "name": "company_type",
+            "type": "CharField",
+            "options": "max_length=20, choices=[['individual'"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Partner",
+          "verbose_name_plural": "Partners",
+          "ordering": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "SaleOrder",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255, unique=True"
+          },
+          {
+            "name": "date_order",
+            "type": "DateTimeField",
+            "options": ""
+          },
+          {
+            "name": "state",
+            "type": "CharField",
+            "options": "max_length=50, choices=[['draft'"
+          },
+          {
+            "name": "amount_total",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2, default=0.00"
+          },
+          {
+            "name": "partner_id",
+            "type": "ForeignKey",
+            "related_model": "sales.Partner",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "user_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Sales Order",
+          "verbose_name_plural": "Sales Orders",
+          "ordering": [
+            "-date_order"
+          ]
+        }
+      },
+      {
+        "name": "Saleorderline",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "ForeignKey",
+            "related_model": "sale.Order",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "product_id",
+            "type": "ForeignKey",
+            "related_model": "product.Product",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "product_uom_qty",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2, default=1.00"
+          },
+          {
+            "name": "price_unit",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2"
+          },
+          {
+            "name": "price_total",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Sales Order Line",
+          "verbose_name_plural": "Sales Order Lines",
+          "ordering": [
+            "order_id"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "application": "crm",
+    "models": [
+      {
+        "name": "Crmlead",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "email_from",
+            "type": "EmailField",
+            "options": "blank=True, null=True"
+          },
+          {
+            "name": "phone",
+            "type": "CharField",
+            "options": "max_length=15, blank=True, null=True"
+          },
+          {
+            "name": "stage_id",
+            "type": "ForeignKey",
+            "related_model": "crm.Stage",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "team_id",
+            "type": "ForeignKey",
+            "related_model": "crm.Team",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "user_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Lead",
+          "verbose_name_plural": "Leads",
+          "ordering": [
+            "-id"
+          ]
+        }
+      },
+      {
+        "name": "Crmstage",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "sequence",
+            "type": "IntegerField",
+            "options": "default=1"
+          },
+          {
+            "name": "is_won",
+            "type": "BooleanField",
+            "options": "default=False"
+          },
+          {
+            "name": "is_lost",
+            "type": "BooleanField",
+            "options": "default=False"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Stage",
+          "verbose_name_plural": "Stages",
+          "ordering": [
+            "sequence"
+          ]
+        }
+      },
+      {
+        "name": "Crmteam",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "member_ids",
+            "type": "ManyToManyField",
+            "related_model": "authentication.CustomUser",
+            "options": ""
+          },
+          {
+            "name": "leader_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "CRM Team",
+          "verbose_name_plural": "CRM Teams",
+          "ordering": [
+            "name"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "application": "manufacturing",
+    "models": [
+      {
+        "name": "Mrpproduction",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255, unique=True"
+          },
+          {
+            "name": "product_id",
+            "type": "ForeignKey",
+            "related_model": "product.Product",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "product_qty",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2, default=1.00"
+          },
+          {
+            "name": "state",
+            "type": "CharField",
+            "options": "max_length=20, choices=[['draft'"
+          },
+          {
+            "name": "user_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Manufacturing Order",
+          "verbose_name_plural": "Manufacturing Orders",
+          "ordering": [
+            "-name"
+          ]
+        }
+      },
+      {
+        "name": "Mrpbom",
+        "fields": [
+          {
+            "name": "product_id",
+            "type": "ForeignKey",
+            "related_model": "product.Product",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "product_qty",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2, default=1.00"
+          },
+          {
+            "name": "bom_lines",
+            "type": "ManyToManyField",
+            "related_model": "mrp.bom.line",
+            "options": ""
+          },
+          {
+            "name": "type",
+            "type": "CharField",
+            "options": "max_length=20, choices=[['normal'"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Bill of Materials",
+          "verbose_name_plural": "Bills of Materials",
+          "ordering": [
+            "product_id"
+          ]
+        }
+      },
+      {
+        "name": "Mrpbomline",
+        "fields": [
+          {
+            "name": "bom_id",
+            "type": "ForeignKey",
+            "related_model": "mrp.Bom",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "product_id",
+            "type": "ForeignKey",
+            "related_model": "product.Product",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "product_qty",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2, default=1.00"
+          },
+          {
+            "name": "sequence",
+            "type": "IntegerField",
+            "options": "default=1"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Bill of Materials Line",
+          "verbose_name_plural": "Bills of Materials Lines",
+          "ordering": [
+            "sequence"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "application": "purchase",
+    "models": [
+      {
+        "name": "Purchaseorder",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255, unique=True"
+          },
+          {
+            "name": "partner_id",
+            "type": "ForeignKey",
+            "related_model": "purchase.Partner",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "date_order",
+            "type": "DateTimeField",
+            "options": ""
+          },
+          {
+            "name": "state",
+            "type": "CharField",
+            "options": "max_length=20, choices=[['draft'"
+          },
+          {
+            "name": "amount_total",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2, default=0.00"
+          },
+          {
+            "name": "user_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Purchase Order",
+          "verbose_name_plural": "Purchase Orders",
+          "ordering": [
+            "-date_order"
+          ]
+        }
+      },
+      {
+        "name": "Purchaseorderline",
+        "fields": [
+          {
+            "name": "order_id",
+            "type": "ForeignKey",
+            "related_model": "purchase.Order",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "product_id",
+            "type": "ForeignKey",
+            "related_model": "product.Product",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "product_qty",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2, default=1.00"
+          },
+          {
+            "name": "price_unit",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2"
+          },
+          {
+            "name": "price_total",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Purchase Order Line",
+          "verbose_name_plural": "Purchase Order Lines",
+          "ordering": [
+            "order_id"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "application": "project",
+    "models": [
+      {
+        "name": "Projectproject",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "description",
+            "type": "TextField",
+            "options": "blank=True, null=True"
+          },
+          {
+            "name": "user_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "task_ids",
+            "type": "ManyToManyField",
+            "related_model": "project.Task",
+            "options": ""
+          },
+          {
+            "name": "state",
+            "type": "CharField",
+            "options": "max_length=20, choices=[['draft'"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Project",
+          "verbose_name_plural": "Projects",
+          "ordering": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "Projecttask",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "project_id",
+            "type": "ForeignKey",
+            "related_model": "project.Project",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "user_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "stage_id",
+            "type": "ForeignKey",
+            "related_model": "project.task.stage",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "description",
+            "type": "TextField",
+            "options": "blank=True, null=True"
+          },
+          {
+            "name": "priority",
+            "type": "CharField",
+            "options": "max_length=10, choices=[['0'"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Task",
+          "verbose_name_plural": "Tasks",
+          "ordering": [
+            "-id"
+          ]
+        }
+      },
+      {
+        "name": "Projecttaskstage",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "sequence",
+            "type": "IntegerField",
+            "options": "default=1"
+          },
+          {
+            "name": "is_closed",
+            "type": "BooleanField",
+            "options": "default=False"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Task Stage",
+          "verbose_name_plural": "Task Stages",
+          "ordering": [
+            "sequence"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "application": "inventory",
+    "models": [
+      {
+        "name": "Stockpicking",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "partner_id",
+            "type": "ForeignKey",
+            "related_model": "inventory.Partner",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "state",
+            "type": "CharField",
+            "options": "max_length=20, choices=[['draft'"
+          },
+          {
+            "name": "move_ids",
+            "type": "ManyToManyField",
+            "related_model": "stock.Move",
+            "options": ""
+          },
+          {
+            "name": "user_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Stock Picking",
+          "verbose_name_plural": "Stock Pickings",
+          "ordering": [
+            "-name"
+          ]
+        }
+      },
+      {
+        "name": "Stockmove",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "product_id",
+            "type": "ForeignKey",
+            "related_model": "product.Product",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "product_uom_qty",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2, default=1.00"
+          },
+          {
+            "name": "product_uom",
+            "type": "ForeignKey",
+            "related_model": "uom.Uom",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "location_id",
+            "type": "ForeignKey",
+            "related_model": "stock.Location",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "location_dest_id",
+            "type": "ForeignKey",
+            "related_model": "stock.Location",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "picking_id",
+            "type": "ForeignKey",
+            "related_model": "stock.Picking",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "state",
+            "type": "CharField",
+            "options": "max_length=20, choices=[['draft'"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Stock Move",
+          "verbose_name_plural": "Stock Moves",
+          "ordering": [
+            "-id"
+          ]
+        }
+      },
+      {
+        "name": "Stocklocation",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "location_id",
+            "type": "ForeignKey",
+            "related_model": "stock.Location",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "usage",
+            "type": "CharField",
+            "options": "max_length=50, choices=[['view'"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Stock Location",
+          "verbose_name_plural": "Stock Locations",
+          "ordering": [
+            "name"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "application": "accounting",
+    "models": [
+      {
+        "name": "Accountmove",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "date",
+            "type": "DateField",
+            "options": ""
+          },
+          {
+            "name": "partner_id",
+            "type": "ForeignKey",
+            "related_model": "accounting.Partner",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "state",
+            "type": "CharField",
+            "options": "max_length=20, choices=[['draft'"
+          },
+          {
+            "name": "line_ids",
+            "type": "ManyToManyField",
+            "related_model": "account.move.line",
+            "options": ""
+          },
+          {
+            "name": "user_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Journal Entry",
+          "verbose_name_plural": "Journal Entries",
+          "ordering": [
+            "-date"
+          ]
+        }
+      },
+      {
+        "name": "Accountmoveline",
+        "fields": [
+          {
+            "name": "move_id",
+            "type": "ForeignKey",
+            "related_model": "account.Move",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "account_id",
+            "type": "ForeignKey",
+            "related_model": "account.Account",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "debit",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2, default=0.00"
+          },
+          {
+            "name": "credit",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2, default=0.00"
+          },
+          {
+            "name": "balance",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Journal Entry Line",
+          "verbose_name_plural": "Journal Entry Lines",
+          "ordering": [
+            "move_id"
+          ]
+        }
+      },
+      {
+        "name": "Accountaccount",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "code",
+            "type": "CharField",
+            "options": "max_length=20, unique=True"
+          },
+          {
+            "name": "user_type_id",
+            "type": "ForeignKey",
+            "related_model": "account.account.type",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "reconcile",
+            "type": "BooleanField",
+            "options": "default=False"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Account",
+          "verbose_name_plural": "Accounts",
+          "ordering": [
+            "code"
+          ]
+        }
+      },
+      {
+        "name": "Accountaccounttype",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "code",
+            "type": "CharField",
+            "options": "max_length=20, unique=True"
+          },
+          {
+            "name": "type",
+            "type": "CharField",
+            "options": "max_length=20, choices=[['view'"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Account Type",
+          "verbose_name_plural": "Account Types",
+          "ordering": [
+            "code"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "application": "human resources",
+    "models": [
+      {
+        "name": "Hremployee",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "work_email",
+            "type": "EmailField",
+            "options": "unique=True, blank=True, null=True"
+          },
+          {
+            "name": "work_phone",
+            "type": "CharField",
+            "options": "max_length=15, blank=True, null=True"
+          },
+          {
+            "name": "job_id",
+            "type": "ForeignKey",
+            "related_model": "hr.Job",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "department_id",
+            "type": "ForeignKey",
+            "related_model": "hr.Department",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "user_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Employee",
+          "verbose_name_plural": "Employees",
+          "ordering": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "Hrjob",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "sequence",
+            "type": "IntegerField",
+            "options": "default=1"
+          },
+          {
+            "name": "department_id",
+            "type": "ForeignKey",
+            "related_model": "hr.Department",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Job Position",
+          "verbose_name_plural": "Job Positions",
+          "ordering": [
+            "sequence"
+          ]
+        }
+      },
+      {
+        "name": "Hrdepartment",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "manager_id",
+            "type": "ForeignKey",
+            "related_model": "hr.Employee",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "parent_id",
+            "type": "ForeignKey",
+            "related_model": "hr.Department",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Department",
+          "verbose_name_plural": "Departments",
+          "ordering": [
+            "name"
+          ]
+        }
+      },
+      {
+        "name": "Hrcontract",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "employee_id",
+            "type": "ForeignKey",
+            "related_model": "hr.Employee",
+            "options": "on_delete=models.CASCADE"
+          },
+          {
+            "name": "date_start",
+            "type": "DateField",
+            "options": ""
+          },
+          {
+            "name": "date_end",
+            "type": "DateField",
+            "options": "blank=True, null=True"
+          },
+          {
+            "name": "wage",
+            "type": "DecimalField",
+            "options": "max_digits=10, decimal_places=2"
+          },
+          {
+            "name": "state",
+            "type": "CharField",
+            "options": "max_length=20, choices=[['draft'"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Contract",
+          "verbose_name_plural": "Contracts",
+          "ordering": [
+            "-date_start"
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "application": "website",
+    "models": [
+      {
+        "name": "Websitepage",
+        "fields": [
+          {
+            "name": "title",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "url",
+            "type": "CharField",
+            "options": "max_length=255, unique=True"
+          },
+          {
+            "name": "content",
+            "type": "TextField",
+            "options": "blank=True, null=True"
+          },
+          {
+            "name": "template",
+            "type": "CharField",
+            "options": "max_length=255, blank=True, null=True"
+          },
+          {
+            "name": "is_published",
+            "type": "BooleanField",
+            "options": "default=False"
+          },
+          {
+            "name": "author_id",
+            "type": "ForeignKey",
+            "related_model": "authentication.CustomUser",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Website Page",
+          "verbose_name_plural": "Website Pages",
+          "ordering": [
+            "title"
+          ]
+        }
+      },
+      {
+        "name": "Websitemenu",
+        "fields": [
+          {
+            "name": "name",
+            "type": "CharField",
+            "options": "max_length=255"
+          },
+          {
+            "name": "parent_id",
+            "type": "ForeignKey",
+            "related_model": "website.Menu",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "sequence",
+            "type": "IntegerField",
+            "options": "default=1"
+          },
+          {
+            "name": "page_id",
+            "type": "ForeignKey",
+            "related_model": "website.Page",
+            "options": "on_delete=models.SET_NULL, null=True, blank=True"
+          },
+          {
+            "name": "is_published",
+            "type": "BooleanField",
+            "options": "default=False"
+          }
+        ],
+        "meta": {
+          "verbose_name": "Website Menu",
+          "verbose_name_plural": "Website Menus",
+          "ordering": [
+            "sequence"
+          ]
+        }
+      }
+    ]
+  }
+]

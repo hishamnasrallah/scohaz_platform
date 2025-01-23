@@ -1,0 +1,108 @@
+[
+  {
+    "name": "Customer",
+    "fields": [
+      { "name": "first_name", "type": "CharField", "options": "max_length=100" },
+      { "name": "last_name", "type": "CharField", "options": "max_length=100" },
+      { "name": "email", "type": "EmailField", "options": "unique=True" },
+      { "name": "phone_number", "type": "CharField", "options": "max_length=15, blank=True, null=True" },
+      { "name": "company_name", "type": "CharField", "options": "max_length=255, blank=True" },
+      { "name": "address", "type": "TextField", "options": "blank=True, null=True" },
+      { "name": "is_active", "type": "BooleanField", "options": "default=True" },
+      { "name": "created_at", "type": "DateTimeField", "options": "auto_now_add=True" }
+    ],
+    "meta": {
+      "verbose_name": "Customer",
+      "verbose_name_plural": "Customers",
+      "ordering": ["-created_at"]
+    }
+  },
+  {
+    "name": "Lead",
+    "fields": [
+      { "name": "title", "type": "CharField", "options": "max_length=255" },
+      { "name": "status", "type": "CharField", "options": "max_length=50", "choices": [["new", "New"], ["contacted", "Contacted"], ["qualified", "Qualified"]] },
+      { "name": "priority", "type": "CharField", "options": "max_length=20", "choices": [["low", "Low"], ["medium", "Medium"], ["high", "High"]] },
+      { "name": "value", "type": "DecimalField", "options": "max_digits=10, decimal_places=2" },
+      { "name": "source", "type": "CharField", "options": "max_length=50, blank=True" },
+      { "name": "created_at", "type": "DateTimeField", "options": "auto_now_add=True" }
+    ],
+    "relationships": [
+      { "name": "customer", "type": "ForeignKey", "related_model": "testcrm8.Customer", "options": "on_delete=models.CASCADE" },
+      { "name": "assigned_to", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Lead",
+      "verbose_name_plural": "Leads",
+      "ordering": ["-created_at"]
+    }
+  },
+  {
+    "name": "Activity",
+    "fields": [
+      { "name": "activity_type", "type": "CharField", "options": "max_length=50", "choices": [["call", "Call"], ["meeting", "Meeting"], ["email", "Email"], ["task", "Task"]] },
+      { "name": "description", "type": "TextField", "options": "blank=True, null=True" },
+      { "name": "timestamp", "type": "DateTimeField", "options": "auto_now_add=True" },
+      { "name": "is_completed", "type": "BooleanField", "options": "default=False" }
+    ],
+    "relationships": [
+      { "name": "lead", "type": "ForeignKey", "related_model": "testcrm8.Lead", "options": "on_delete=models.CASCADE" },
+      { "name": "assigned_to", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Activity",
+      "verbose_name_plural": "Activities",
+      "ordering": ["-timestamp"]
+    }
+  },
+  {
+    "name": "Product",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255" },
+      { "name": "price", "type": "DecimalField", "options": "max_digits=10, decimal_places=2" },
+      { "name": "description", "type": "TextField", "options": "blank=True, null=True" },
+      { "name": "is_active", "type": "BooleanField", "options": "default=True" }
+    ],
+    "meta": {
+      "verbose_name": "Product",
+      "verbose_name_plural": "Products",
+      "ordering": ["name"]
+    }
+  },
+  {
+    "name": "Invoice",
+    "fields": [
+      { "name": "invoice_number", "type": "CharField", "options": "max_length=50, unique=True" },
+      { "name": "total", "type": "DecimalField", "options": "max_digits=10, decimal_places=2" },
+      { "name": "issue_date", "type": "DateField", "options": "auto_now_add=True" },
+      { "name": "due_date", "type": "DateField", "options": "null=True, blank=True" },
+      { "name": "status", "type": "CharField", "options": "max_length=50", "choices": [["draft", "Draft"], ["issued", "Issued"], ["paid", "Paid"], ["cancelled", "Cancelled"]] },
+      { "name": "discount", "type": "DecimalField", "options": "max_digits=5, decimal_places=2, default=0.00" }
+    ],
+    "relationships": [
+      { "name": "customer", "type": "ForeignKey", "related_model": "testcrm8.Customer", "options": "on_delete=models.CASCADE" },
+      { "name": "created_by", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Invoice",
+      "verbose_name_plural": "Invoices",
+      "ordering": ["-issue_date"]
+    }
+  },
+  {
+    "name": "Payment",
+    "fields": [
+      { "name": "amount", "type": "DecimalField", "options": "max_digits=10, decimal_places=2" },
+      { "name": "payment_date", "type": "DateTimeField", "options": "auto_now_add=True" }
+    ],
+    "relationships": [
+      { "name": "invoice", "type": "ForeignKey", "related_model": "testcrm8.Invoice", "options": "on_delete=models.CASCADE" },
+      { "name": "received_by", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Payment",
+      "verbose_name_plural": "Payments",
+      "ordering": ["-payment_date"]
+    }
+  }
+]

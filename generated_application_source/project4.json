@@ -1,0 +1,51 @@
+[
+  {
+    "name": "Project",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "description", "type": "TextField", "options": "null=True, blank=True" },
+      { "name": "state", "type": "CharField", "options": "max_length=20, null=False", "choices":[["draft", "Draft"], ["ongoing", "Ongoing"], ["done", "Done"], ["cancel", "Cancelled"]]}
+    ],
+    "relationships": [
+      { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+      { "name": "tasks", "type": "ManyToManyField", "related_model": "project.Task", "options": "blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Project",
+      "verbose_name_plural": "Projects",
+      "ordering": ["name"]
+    }
+  },
+  {
+    "name": "Task",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "description", "type": "TextField", "options": "null=True, blank=True" },
+      { "name": "priority", "type": "CharField", "options": "max_length=10, null=False", "choices":[["0", "Low"], ["1", "Normal"], ["2", "High"]] }
+    ],
+    "relationships": [
+      { "name": "project", "type": "ForeignKey", "related_model": "project.Project", "options": "on_delete=models.CASCADE, null=False" },
+      { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+      { "name": "stage", "type": "ForeignKey", "related_model": "project.TaskStage", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Task",
+      "verbose_name_plural": "Tasks",
+      "ordering": ["-id"]
+    }
+  },
+  {
+    "name": "TaskStage",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "sequence", "type": "IntegerField", "options": "default=1, null=False" },
+      { "name": "is_closed", "type": "BooleanField", "options": "default=False" }
+    ],
+    "relationships": [],
+    "meta": {
+      "verbose_name": "Task Stage",
+      "verbose_name_plural": "Task Stages",
+      "ordering": ["sequence"]
+    }
+  }
+]

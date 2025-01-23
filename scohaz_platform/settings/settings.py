@@ -19,7 +19,7 @@ load_dotenv()
 DEBUG = DEBUG
 BASE_DIR = BASE_DIR
 INSTALLED_APPS = INSTALLED_APPS
-MIDDLEWARE = MIDDLEWARE
+_MIDDLEWARE = MIDDLEWARE
 DATABASES = DATABASES
 STATIC_URL = STATIC_URL
 SECRET_KEY = SECRET_KEY
@@ -38,8 +38,8 @@ MEDIA_URL = MEDIA_URL
 STATIC_ROOT = STATIC_ROOT
 CSRF_TRUSTED_ORIGINS = CSRF_TRUSTED_ORIGINS
 INSTALLED_APPS += [
-    "debug_toolbar",
-    "silk",
+    # "debug_toolbar",
+    # "silk",
     "django_prometheus",
     "corsheaders",
     # "django_extensions",
@@ -49,16 +49,8 @@ INSTALLED_APPS += [
     "django_celery_results"
 
 ]
+
 CUSTOM_APPS = [
-    'testcrm8',
-    'testcrm7',
-    'testcrm6',
-    'testcrm5',
-    'testcrm4',
-    'testcrm3',
-    'testcrm2',
-    'testcrm',
-    'crm',
 
 ]
 INSTALLED_APPS += CUSTOM_APPS + [
@@ -72,43 +64,26 @@ INSTALLED_APPS += CUSTOM_APPS + [
     "version",
     "integration",
     "license_subscription_manager",
-    "dynamic_models",
     "app_builder"
     # "lowcode",
 ]
 
 APPS_CURRENT_USER_MIDDLEWARE = [
-    'testcrm8.middleware.CurrentUserMiddleware',
-    'testcrm7.middleware.CurrentUserMiddleware',
-    'testcrm6.middleware.CurrentUserMiddleware',
-    # 'testcrm5.middleware.CurrentUserMiddleware',
-    # 'testcrm4.middleware.CurrentUserMiddleware',
-    # 'testcrm3.middleware.CurrentUserMiddleware',
-    # 'testcrm2.middleware.CurrentUserMiddleware',
-    # 'testcrm.middleware.CurrentUserMiddleware',
 ]
 
-APPS_MIDDLEWARE = [
+APP_MIDDLEWARE_MAPPING = {
 
-]
+}
+
 MIDDLEWARE = [
-    'testcrm8.middleware.DynamicModelMiddleware',
-    'testcrm7.middleware.DynamicModelMiddleware',
-    'testcrm6.middleware.DynamicModelMiddleware',
-    # 'testcrm5.middleware.DynamicModelMiddleware',
-    # 'testcrm4.middleware.DynamicModelMiddleware',
-    # 'testcrm3.middleware.DynamicModelMiddleware',
-    # 'testcrm2.middleware.DynamicModelMiddleware',
-    # 'testcrm.middleware.DynamicModelMiddleware',
-    'crm.middleware.DynamicModelMiddleware',
     "corsheaders.middleware.CorsMiddleware",
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
-    *MIDDLEWARE,
+    "scohaz_platform.middleware.MiddlewareRouter",
+    *_MIDDLEWARE,
     # "license_subscription_manager.middleware.SubscriptionLicenseMiddleware",
-    "debug_toolbar.middleware.DebugToolbarMiddleware",
-    "silk.middleware.SilkyMiddleware",
+    # "debug_toolbar.middleware.DebugToolbarMiddleware",
+    # "silk.middleware.SilkyMiddleware",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
-    *APPS_CURRENT_USER_MIDDLEWARE,
 ]
 
 
@@ -118,6 +93,7 @@ INTERNAL_IPS = ["127.0.0.1"]
 CORS_ALLOWED_ORIGINS = [
     "https://your-frontend-domain.com",
     "https://another-trusted-domain.com",
+    "http://localhost:5173",
 ]
 
 # Alternatively, for dev only (NOT for production):
@@ -130,7 +106,6 @@ SITE_ID = int(os.environ.get("SITE_ID", None)) if os.environ.get("SITE_ID") else
 
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
-        "testcrm5.crud.api_permission.CRUDPermissionDRF",
         'rest_framework.permissions.IsAuthenticated'
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -186,7 +161,7 @@ CELERY_BROKER_URL = 'redis://localhost:6379/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers.DatabaseScheduler'
-
+CELERY_TIMEZONE = 'UTC'
 
 if not DEBUG:  # Disable ic in production
     ic.disable()

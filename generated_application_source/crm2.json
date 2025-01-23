@@ -1,0 +1,50 @@
+[
+  {
+    "name": "CrmLead",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "email_from", "type": "EmailField", "options": "null=True, blank=True" },
+      { "name": "phone", "type": "CharField", "options": "max_length=15, null=True, blank=True" }
+    ],
+    "relationships": [
+      { "name": "stage", "type": "ForeignKey", "related_model": "crm.CrmStage", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+      { "name": "team", "type": "ForeignKey", "related_model": "crm.CrmTeam", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+      { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Lead",
+      "verbose_name_plural": "Leads",
+      "ordering": ["-id"]
+    }
+  },
+  {
+    "name": "CrmStage",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "sequence", "type": "IntegerField", "options": "default=1, null=False" },
+      { "name": "is_won", "type": "BooleanField", "options": "default=False" },
+      { "name": "is_lost", "type": "BooleanField", "options": "default=False" }
+    ],
+    "relationships": [],
+    "meta": {
+      "verbose_name": "Stage",
+      "verbose_name_plural": "Stages",
+      "ordering": ["sequence"]
+    }
+  },
+  {
+    "name": "CrmTeam",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" }
+    ],
+    "relationships": [
+      { "name": "members", "type": "ManyToManyField", "related_model": "authentication.CustomUser", "options": "blank=True" },
+      { "name": "leader", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "CRM Team",
+      "verbose_name_plural": "CRM Teams",
+      "ordering": ["name"]
+    }
+  }
+]

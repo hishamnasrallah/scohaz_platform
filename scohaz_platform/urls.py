@@ -25,7 +25,7 @@ from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from rest_framework.permissions import AllowAny
 
-
+from scohaz_platform.apis.views import ApplicationURLsView, CategorizedApplicationURLsView
 from scohaz_platform.settings import settings, CUSTOM_APPS
 
 # API Documentation Schema
@@ -45,6 +45,7 @@ schema_view = get_schema_view(
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('auth/', include("authentication.urls")),
+    path('app_builder/', include("app_builder.urls")),
     path('lookups/', include("lookup.urls")),
     path('case/', include("case.urls")),
     path("", include("django_prometheus.urls")),
@@ -60,6 +61,8 @@ urlpatterns = [
     path('api-docs/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('api-redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     # Include dynamically registered app URLs
+    path('api/applications/urls/', ApplicationURLsView.as_view(), name='application_urls'),
+    path('api/applications/categorized-urls/', CategorizedApplicationURLsView.as_view(), name='categorized_application_urls'),
 ]
 
 # Dynamically register app URLs
@@ -92,12 +95,13 @@ if not settings.DEBUG:
         re_path(r'^static/(?P<path>.*)$', serve, {'document_root': settings.STATIC_ROOT}),
     ]
 
-if settings.DEBUG:  # Only enable in DEBUG mode
-    urlpatterns += [
-        path("silk/", include("silk.urls")),
-        path("__debug__/", include("debug_toolbar.urls")),
+# if settings.DEBUG:  # Only enable in DEBUG mode
+#     urlpatterns += [
+#         path("silk/", include("silk.urls")),
+#         path("__debug__/", include("debug_toolbar.urls")),
+#
+#     ]
 
-    ]
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

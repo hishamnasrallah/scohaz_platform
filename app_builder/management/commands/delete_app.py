@@ -47,6 +47,12 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"App folder '{app_path}' does not exist."))
 
     def _remove_from_settings(self, app_name):
+        """
+        Remove references to the app from settings.py, including APPS_CURRENT_USER_MIDDLEWARE
+        and APP_MIDDLEWARE_MAPPING.
+        """
+        import os
+
         settings_file_path = os.path.join(settings.BASE_DIR, 'scohaz_platform', 'settings', 'settings.py')
         if not os.path.exists(settings_file_path):
             self.stdout.write(self.style.WARNING("Could not find settings.py to update."))
@@ -56,10 +62,55 @@ class Command(BaseCommand):
             settings_content = f.readlines()
 
         updated_content = []
-        for line in settings_content:
-            if app_name not in line:
-                updated_content.append(line)
+        in_app_middleware_mapping = False
+        in_target_mapping_block = False
+        in_user_middleware = False
+        in_custom_apps = False
 
+        for line in settings_content:
+            # Handle APP_MIDDLEWARE_MAPPING cleanup
+            if line.strip().startswith("APP_MIDDLEWARE_MAPPING = {"):
+                in_app_middleware_mapping = True
+
+            if in_app_middleware_mapping:
+                if line.strip().startswith(f'"{app_name}": [') or line.strip().startswith(f"'{app_name}': ["):
+                    # Begin skipping the entire app block
+                    in_target_mapping_block = True
+                    continue
+                if in_target_mapping_block:
+                    # Skip all lines until the block ends
+                    if line.strip() == "],":
+                        in_target_mapping_block = False
+                        continue
+                    continue
+                if line.strip() == "],":  # End of APP_MIDDLEWARE_MAPPING
+                    in_app_middleware_mapping = False
+
+            # Handle APPS_CURRENT_USER_MIDDLEWARE cleanup
+            if line.strip().startswith("APPS_CURRENT_USER_MIDDLEWARE = ["):
+                in_user_middleware = True
+
+            if in_user_middleware:
+                if f"'{app_name}.middleware.CurrentUserMiddleware'," in line:
+                    # Skip the CurrentUserMiddleware entry for the given app_name
+                    continue
+                if line.strip() == "]":  # End of APPS_CURRENT_USER_MIDDLEWARE
+                    in_user_middleware = False
+
+            # Handle CUSTOM_APPS cleanup
+            if line.strip().startswith("CUSTOM_APPS = ["):
+                in_custom_apps = True
+
+            if in_custom_apps:
+                if f"'{app_name}'," in line:
+                    # Skip the CUSTOM_APPS entry for the given app_name
+                    continue
+                if line.strip() == "]":  # End of CUSTOM_APPS
+                    in_custom_apps = False
+            # Add non-skipped lines to the updated content
+            updated_content.append(line)
+
+        # Write updated content back to settings.py
         with open(settings_file_path, 'w') as f:
             f.writelines(updated_content)
 

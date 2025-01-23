@@ -1,3 +1,4 @@
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
@@ -169,3 +170,88 @@ class ApprovalRecord(models.Model):
 
     def __str__(self):
         return f"Approval by {self.approved_by} for {self.case} at step {self.approval_step}"
+
+
+
+class CaseMapper(models.Model):
+    """
+    Defines the mapping configuration for a particular Case Type
+    (and optionally sub-status or other criteria).
+    """
+    name = models.CharField(max_length=100, help_text="Name of this mapper config.")
+
+    # Example linking to case_type (which might be a 'Lookup' or string)
+    # You can adapt this to your needs
+    case_type = models.CharField(
+        max_length=100,
+        help_text="Identifier or name of the case type. E.g. 'VacationRequest'."
+    )
+
+    # Optionally, you can add sub_status, etc. if you want finer scoping:
+    # sub_status = models.CharField(max_length=100, null=True, blank=True, ...)
+
+    def __str__(self):
+        return f"{self.name} (type={self.case_type})"
+
+
+class MapperTarget(models.Model):
+    """
+    Specifies which model (via ContentType) to act upon
+    and references optional custom finder/processor plugins.
+    """
+    id = models.UUIDField(primary_key=True, editable=False)
+    case_mapper = models.ForeignKey(CaseMapper, on_delete=models.CASCADE, related_name="targets")
+
+    # Which model to affect (dynamic)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+
+    # Optional path to a function that will find existing records
+    # (e.g. 'myapp.plugins.some_plugin.find_records')
+    finder_function_path = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Dotted path to a plugin function/class that will find existing objects."
+    )
+
+    # Optional path to a function that will create/update/delete
+    # (e.g. 'myapp.plugins.some_plugin.process_records')
+    processor_function_path = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Dotted path to a plugin function/class that will handle creation/updating/deletion."
+    )
+
+    # You could store more info if needed, e.g. an 'operation' field, or
+    # even a JSON of custom parameters.
+
+    def __str__(self):
+        return f"MapperTarget for {self.case_mapper.name} -> {self.content_type} "
+
+
+# (Optional) Example for storing "field rules" if you want a fully declarative approach
+# that doesn't require a custom plugin for simpler scenarios.
+class MapperFieldRule(models.Model):
+    """
+    If you want to let admin define simple JSON path -> model field mappings
+    for scenarios that don't need complex logic.
+    """
+    mapper_target = models.ForeignKey(MapperTarget, on_delete=models.CASCADE, related_name='field_rules')
+
+    # The field name on the model (like 'start_date', 'reason', etc.)
+    target_field = models.CharField(max_length=100)
+
+    # A JSON path or dotted path within case_data
+    json_path = models.CharField(max_length=255, help_text="e.g. 'vacation.start_date'")
+
+    # Optional transformation function path
+    transform_function_path = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Dotted path to a function that can transform extracted data before assigning."
+    )
+
+    def __str__(self):
+        return f"{self.mapper_target} - {self.target_field} <- {self.json_path}"

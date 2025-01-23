@@ -1,0 +1,67 @@
+[
+  {
+    "name": "AccountMove",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "date", "type": "DateField", "options": "null=False" },
+      { "name": "state", "type": "CharField", "options": "max_length=20, null=False", "choices":[["draft", "Draft"], ["posted", "Posted"], ["cancel", "Cancelled"]]}
+    ],
+    "relationships": [
+      { "name": "partner", "type": "ForeignKey", "related_model": "sales.ResPartner", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+      { "name": "lines", "type": "ManyToManyField", "related_model": "accounting.AccountMoveLine", "options": "blank=True" },
+      { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Journal Entry",
+      "verbose_name_plural": "Journal Entries",
+      "ordering": ["-date"]
+    }
+  },
+  {
+    "name": "AccountMoveLine",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=True, blank=True" },
+      { "name": "debit", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00, null=False" },
+      { "name": "credit", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00, null=False" },
+      { "name": "balance", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, null=False" }
+    ],
+    "relationships": [
+      { "name": "move", "type": "ForeignKey", "related_model": "accounting.AccountMove", "options": "on_delete=models.CASCADE, null=False" },
+      { "name": "account", "type": "ForeignKey", "related_model": "accounting.AccountAccount", "options": "on_delete=models.CASCADE, null=False" }
+    ],
+    "meta": {
+      "verbose_name": "Journal Entry Line",
+      "verbose_name_plural": "Journal Entry Lines"
+    }
+  },
+  {
+    "name": "AccountAccount",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "code", "type": "CharField", "options": "max_length=20, unique=True, null=False" },
+      { "name": "reconcile", "type": "BooleanField", "options": "default=False" }
+    ],
+    "relationships": [
+      { "name": "user_type", "type": "ForeignKey", "related_model": "accounting.AccountAccountType", "options": "on_delete=models.CASCADE, null=False" }
+    ],
+    "meta": {
+      "verbose_name": "Account",
+      "verbose_name_plural": "Accounts",
+      "ordering": ["code"]
+    }
+  },
+  {
+    "name": "AccountAccountType",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "code", "type": "CharField", "options": "max_length=20, unique=True, null=False" },
+      { "name": "type", "type": "CharField", "options": "max_length=20, null=False", "choices":[["view", "View"], ["other", "Other"], ["receivable", "Receivable"], ["payable", "Payable"], ["liquidity", "Liquidity"]] }
+    ],
+    "relationships": [],
+    "meta": {
+      "verbose_name": "Account Type",
+      "verbose_name_plural": "Account Types",
+      "ordering": ["code"]
+    }
+  }
+]

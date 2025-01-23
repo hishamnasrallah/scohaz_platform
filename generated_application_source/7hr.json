@@ -1,0 +1,68 @@
+[
+  {
+    "name": "Employee",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "work_email", "type": "EmailField", "options": "unique=True, null=True, blank=True" },
+      { "name": "work_phone", "type": "CharField", "options": "max_length=15, null=True, blank=True" }
+    ],
+    "relationships": [
+      { "name": "job", "type": "ForeignKey", "related_model": "human_resources.JobPosition", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+      { "name": "department", "type": "ForeignKey", "related_model": "human_resources.Department", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+      { "name": "user", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Employee",
+      "verbose_name_plural": "Employees",
+      "ordering": ["name"]
+    }
+  },
+  {
+    "name": "JobPosition",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "sequence", "type": "IntegerField", "options": "default=1, null=False" }
+    ],
+    "relationships": [
+      { "name": "department", "type": "ForeignKey", "related_model": "human_resources.Department", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Job Position",
+      "verbose_name_plural": "Job Positions",
+      "ordering": ["sequence"]
+    }
+  },
+  {
+    "name": "Department",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" }
+    ],
+    "relationships": [
+      { "name": "manager", "type": "ForeignKey", "related_model": "human_resources.Employee", "options": "on_delete=models.SET_NULL, null=True, blank=True" },
+      { "name": "parent", "type": "ForeignKey", "related_model": "human_resources.Department", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Department",
+      "verbose_name_plural": "Departments",
+      "ordering": ["name"]
+    }
+  },
+  {
+    "name": "Contract",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255, null=False" },
+      { "name": "date_start", "type": "DateField", "options": "null=False" },
+      { "name": "date_end", "type": "DateField", "options": "null=True, blank=True" },
+      { "name": "wage", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, null=False" },
+      { "name": "state", "type": "CharField", "options": "max_length=20, null=False", "choices":[["draft", "Draft"], ["open", "Open"], ["close", "Closed"]]}
+    ],
+    "relationships": [
+      { "name": "employee", "type": "ForeignKey", "related_model": "human_resources.Employee", "options": "on_delete=models.CASCADE, null=False" }
+    ],
+    "meta": {
+      "verbose_name": "Contract",
+      "verbose_name_plural": "Contracts",
+      "ordering": ["-date_start"]
+    }
+  }
+]

@@ -1,0 +1,91 @@
+[
+  {
+    "name": "Customer",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255" },
+      { "name": "email", "type": "EmailField", "options": "unique=True" },
+      { "name": "phone", "type": "CharField", "options": "max_length=15, blank=True, null=True" },
+      { "name": "company_type", "type": "CharField", "options": "max_length=20, choices=[['individual', 'Individual'], ['company', 'Company']]" },
+      { "name": "is_company", "type": "BooleanField", "options": "default=False" },
+      { "name": "parent_id", "type": "ForeignKey", "related_model": "crm.Customer", "options": "on_delete=models.CASCADE, null=True, blank=True" },
+      { "name": "industry", "type": "CharField", "options": "max_length=255, blank=True, null=True" },
+      { "name": "created_at", "type": "DateTimeField", "options": "auto_now_add=True" }
+    ],
+    "meta": {
+      "verbose_name": "Customer",
+      "verbose_name_plural": "Customers",
+      "ordering": ["-created_at"]
+    }
+  },
+  {
+    "name": "SalesOrder",
+    "fields": [
+      { "name": "order_number", "type": "CharField", "options": "max_length=50, unique=True" },
+      { "name": "date_order", "type": "DateTimeField", "options": "auto_now_add=True" },
+      { "name": "state", "type": "CharField", "options": "max_length=50, choices=[['draft', 'Draft'], ['sent', 'Quotation Sent'], ['sale', 'Sales Order'], ['done', 'Locked'], ['cancel', 'Cancelled']]" },
+      { "name": "amount_total", "type": "DecimalField", "options": "max_digits=10, decimal_places=2" },
+      { "name": "amount_tax", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00" },
+      { "name": "amount_untaxed", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00" }
+    ],
+    "relationships": [
+      { "name": "customer", "type": "ForeignKey", "related_model": "crm.Customer", "options": "on_delete=models.CASCADE" },
+      { "name": "salesperson", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Sales Order",
+      "verbose_name_plural": "Sales Orders",
+      "ordering": ["-date_order"]
+    }
+  },
+  {
+    "name": "SalesOrderLine",
+    "fields": [
+      { "name": "product_name", "type": "CharField", "options": "max_length=255" },
+      { "name": "product_uom_qty", "type": "DecimalField", "options": "max_digits=10, decimal_places=2" },
+      { "name": "price_unit", "type": "DecimalField", "options": "max_digits=10, decimal_places=2" },
+      { "name": "price_subtotal", "type": "DecimalField", "options": "max_digits=10, decimal_places=2" },
+      { "name": "tax_amount", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00" }
+    ],
+    "relationships": [
+      { "name": "order", "type": "ForeignKey", "related_model": "crm.SalesOrder", "options": "on_delete=models.CASCADE" },
+      { "name": "product", "type": "ForeignKey", "related_model": "crm.Product", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Sales Order Line",
+      "verbose_name_plural": "Sales Order Lines",
+      "ordering": ["product_name"]
+    }
+  },
+  {
+    "name": "Product",
+    "fields": [
+      { "name": "name", "type": "CharField", "options": "max_length=255" },
+      { "name": "default_code", "type": "CharField", "options": "max_length=100, blank=True, null=True" },
+      { "name": "list_price", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00" },
+      { "name": "standard_price", "type": "DecimalField", "options": "max_digits=10, decimal_places=2, default=0.00" },
+      { "name": "type", "type": "CharField", "options": "max_length=20, choices=[['consu', 'Consumable'], ['service', 'Service'], ['product', 'Stockable Product']]" }
+    ],
+    "meta": {
+      "verbose_name": "Product",
+      "verbose_name_plural": "Products",
+      "ordering": ["name"]
+    }
+  },
+  {
+    "name": "Payment",
+    "fields": [
+      { "name": "amount", "type": "DecimalField", "options": "max_digits=10, decimal_places=2" },
+      { "name": "payment_date", "type": "DateField", "options": "auto_now_add=True" },
+      { "name": "payment_method", "type": "CharField", "options": "max_length=50, choices=[['cash', 'Cash'], ['bank', 'Bank Transfer'], ['card', 'Credit Card']]" }
+    ],
+    "relationships": [
+      { "name": "order", "type": "ForeignKey", "related_model": "crm.SalesOrder", "options": "on_delete=models.CASCADE" },
+      { "name": "received_by", "type": "ForeignKey", "related_model": "authentication.CustomUser", "options": "on_delete=models.SET_NULL, null=True, blank=True" }
+    ],
+    "meta": {
+      "verbose_name": "Payment",
+      "verbose_name_plural": "Payments",
+      "ordering": ["-payment_date"]
+    }
+  }
+]

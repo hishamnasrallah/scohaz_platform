@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Case, ApprovalRecord
+from .models import Case, ApprovalRecord, MapperFieldRule, MapperTarget, CaseMapper
 from lookup.models import Lookup
 
 
@@ -84,3 +84,48 @@ class ApprovalRecordAdmin(admin.ModelAdmin):
             'fields': ('approved_at',)
         }),
     )
+
+
+
+# 1) An inline for MapperFieldRule under MapperTarget
+class MapperFieldRuleInline(admin.TabularInline):
+    model = MapperFieldRule
+    extra = 1
+    # You can customize fields, readonly_fields, etc. here if desired.
+
+# 2) An inline for MapperTarget under CaseMapper
+class MapperTargetInline(admin.TabularInline):
+    model = MapperTarget
+    extra = 1
+    # You won't see MapperFieldRule here directly unless you do nested inlines
+    # (which requires a 3rd-party library).
+
+# 3) CaseMapper Admin
+@admin.register(CaseMapper)
+class CaseMapperAdmin(admin.ModelAdmin):
+    list_display = ("name", "case_type")
+    search_fields = ("name", "case_type")
+    inlines = [MapperTargetInline]
+
+# 4) MapperTarget Admin
+@admin.register(MapperTarget)
+class MapperTargetAdmin(admin.ModelAdmin):
+    list_display = (
+        "case_mapper",
+        "content_type",
+        "finder_function_path",
+        "processor_function_path",
+    )
+    search_fields = ("finder_function_path", "processor_function_path")
+    inlines = [MapperFieldRuleInline]
+
+# 5) MapperFieldRule Admin
+@admin.register(MapperFieldRule)
+class MapperFieldRuleAdmin(admin.ModelAdmin):
+    list_display = (
+        "mapper_target",
+        "target_field",
+        "json_path",
+        "transform_function_path",
+    )
+    search_fields = ("target_field", "json_path")

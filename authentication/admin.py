@@ -1,6 +1,7 @@
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.contrib.auth.models import Group
 from django.utils.translation import gettext_lazy as _
 
 # Register your models here.
@@ -171,5 +172,14 @@ class PhoneNumberAdmin(admin.ModelAdmin):
 
 @admin.register(CRUDPermission)
 class CRUDPermissionAdmin(admin.ModelAdmin):
-    list_display = ['id', 'content_type__model']
+    list_display = ['id', 'group__name', 'content_type__app_label', 'content_type__model']
     search_fields = ["user__username", "user__first_name", "phone_number"]
+
+# admin.site.unregister(Group)
+
+# @admin.register(Group)
+# class GroupAdmin(admin.ModelAdmin):
+#     list_display = ['name',]
+#     search_fields = ['name']
+#
+#     admin_group = "authentication"

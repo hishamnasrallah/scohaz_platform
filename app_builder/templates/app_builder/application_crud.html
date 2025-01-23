@@ -1,0 +1,180 @@
+{% extends "app_builder/base.html" %}
+{% load static %}
+{% block content %}
+    <div class="container mt-4">
+        {% if creating %}
+            <h2>Create Application</h2>
+        {% else %}
+            <h2>Edit Application</h2>
+        {% endif %}
+
+        <form method="post" novalidate>
+            {% csrf_token %}
+            <!-- Top-level ApplicationDefinition form -->
+            <div class="card mb-3">
+                <div class="card-header">Application Settings</div>
+                <div class="card-body row">
+                    <div class="col-md-6">
+                        {{ form.non_field_errors }}
+                        {{ form.app_name|as_crispy_field }}
+                        {{ form.overwrite|as_crispy_field }}
+                        {{ form.skip_admin|as_crispy_field }}
+                        {{ form.skip_tests|as_crispy_field }}
+                        {{ form.skip_urls|as_crispy_field }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inline formset for ModelDefinition -->
+            <div class="card mb-3">
+                <div class="card-header">Model Definitions</div>
+                <div class="card-body">
+                    {{ formset.management_form }}
+                    <table class="table" id="models-table">
+                        <thead>
+                        <tr>
+                            <th>Model Name</th>
+                            <th>db_table</th>
+                            <th>verbose_name</th>
+                            <th>verbose_name_plural</th>
+                            <th>ordering</th>
+                            <th>unique_together</th>
+                            <th>indexes</th>
+                            <th>constraints</th>
+                            <th>Delete?</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for form in formset.forms %}
+                            <tr class="formset_row">
+                                <td>{{ form.model_name }}</td>
+                                <td>{{ form.db_table }}</td>
+                                <td>{{ form.verbose_name }}</td>
+                                <td>{{ form.verbose_name_plural }}</td>
+                                <td>{{ form.ordering }}</td>
+                                <td>{{ form.unique_together }}</td>
+                                <td>{{ form.indexes }}</td>
+                                <td>{{ form.constraints }}</td>
+                                <td>{{ form.DELETE }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    <button type="button" class="btn btn-secondary" id="add-model">Add Another Model</button>
+                </div>
+            </div>
+
+            <!-- Sub-formsets: For each existing ModelDefinition, show Fields & Relationships side by side -->
+            {% for mdef, fset, rset in sub_formsets %}
+                <div class="card mb-3">
+                    <div class="card-header">Model: {{ mdef.model_name }}</div>
+                    <div class="card-body">
+                        <!-- Fields Formset -->
+                        <h5>Fields</h5>
+                        {{ fset.management_form }}
+                        <table class="table" id="fields-{{ mdef.pk }}-table">
+                            <thead>
+                            <tr>
+                                <th>Field Name</th>
+                                <th>Field Type</th>
+                                <th>Options</th>
+                                <th>Has Choices?</th>
+                                <th>Choices JSON</th>
+                                <th>Delete?</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for ff in fset.forms %}
+                                <tr class="formset_row">
+                                    <td>{{ ff.field_name }}</td>
+                                    <td>{{ ff.field_type }}</td>
+                                    <td>{{ ff.options }}</td>
+                                    <td>{{ ff.has_choices }}</td>
+                                    <td>{{ ff.choices_json }}</td>
+                                    <td>{{ ff.DELETE }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        <button type="button" class="btn btn-sm btn-secondary add-formset"
+                                data-prefix="fields_{{ mdef.pk }}">Add Field</button>
+
+                        <hr>
+
+                        <!-- Relationships Formset -->
+                        <h5>Relationships</h5>
+                        {{ rset.management_form }}
+                        <table class="table" id="rels-{{ mdef.pk }}-table">
+                            <thead>
+                            <tr>
+                                <th>Relation Name</th>
+                                <th>Relation Type</th>
+                                <th>Related Model</th>
+                                <th>Options</th>
+                                <th>Delete?</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for rr in rset.forms %}
+                                <tr class="formset_row">
+                                    <td>{{ rr.relation_name }}</td>
+                                    <td>{{ rr.relation_type }}</td>
+                                    <td>{{ rr.related_model }}</td>
+                                    <td>{{ rr.options }}</td>
+                                    <td>{{ rr.DELETE }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                        <button type="button" class="btn btn-sm btn-secondary add-formset"
+                                data-prefix="rels_{{ mdef.pk }}">Add Relationship</button>
+                    </div>
+                </div>
+            {% endfor %}
+
+            <button type="submit" class="btn btn-primary">Save</button>
+            <a class="btn btn-secondary" href="{% url 'app_builder:list_applications' %}">Cancel</a>
+        </form>
+    </div>
+
+    <!-- Add Django formset dynamic JS -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        (function($){
+            // For the modelDefinition formset
+            var modelTotalForms = $('#id_models-TOTAL_FORMS');
+            var modelTable = $('#models-table tbody');
+            var modelEmptyForm = modelTable.find('.formset_row:last').clone(true);
+            var modelFormIdx = parseInt(modelTotalForms.val());
+
+            $('#add-model').on('click', function(e){
+                e.preventDefault();
+                var newForm = modelEmptyForm.clone(true);
+                // Replace __prefix__ or old indexes
+                newForm.html(newForm.html().replace(/models-(\d+)/g, 'models-'+modelFormIdx));
+                newForm.html(newForm.html().replace(/models-__prefix__/g, 'models-'+modelFormIdx));
+                modelTable.append(newForm);
+                modelFormIdx++;
+                modelTotalForms.val(modelFormIdx);
+            });
+
+            // For sub-formsets
+            $('.add-formset').on('click', function(e){
+                e.preventDefault();
+                var prefix = $(this).data('prefix');
+                var totalFormsInput = $('#id_'+prefix+'-TOTAL_FORMS');
+                var table = $('#'+prefix+'-table tbody');
+                var lastRow = table.find('.formset_row:last').clone(true);
+                var newIndex = parseInt(totalFormsInput.val());
+
+                var newFormHtml = lastRow.html();
+                // Replace old index
+                var regex = new RegExp(prefix+'-(\\d+)', 'g');
+                newFormHtml = newFormHtml.replace(regex, prefix+'-'+newIndex);
+                table.append('<tr class="formset_row">'+newFormHtml+'</tr>');
+                newIndex++;
+                totalFormsInput.val(newIndex);
+            });
+        })(jQuery);
+    </script>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "app_builder/base.html" %}
+{% load static %}
+{% block content %}
+    <div class="container mt-4">
+        <h2>Applications</h2>
+        <p><a class="btn btn-primary" href="{% url 'app_builder:create_application' %}">Create New Application</a></p>
+        <table class="table table-striped">
+            <thead>
+            <tr>
+                <th>App Name</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for app in apps %}
+                <tr>
+                    <td>{{ app.app_name }}</td>
+                    <td>{{ app.created_at|date:"Y-m-d H:i" }}</td>
+                    <td>
+                        <a class="btn btn-sm btn-info" href="{% url 'app_builder:edit_application' app.pk %}">Edit</a>
+                        <a class="btn btn-sm btn-danger" href="{% url 'app_builder:delete_application' app.pk %}">Delete</a>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}
