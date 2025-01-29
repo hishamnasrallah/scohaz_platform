@@ -5,13 +5,18 @@ from django.urls import reverse
 from django.db import transaction
 from django.contrib import messages
 from django.http import HttpResponseRedirect
+from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
 from .forms import (
     ApplicationDefinitionForm,
     ModelDefinitionFormSet,
     FieldDefinitionFormSet,
     RelationshipDefinitionFormSet
 )
-from rest_framework import viewsets
+from rest_framework import viewsets, status
 from .models import ApplicationDefinition, ModelDefinition, FieldDefinition, RelationshipDefinition
 from app_builder.serializers.application_serializer import (
     ApplicationSerializer,
@@ -19,6 +24,51 @@ from app_builder.serializers.application_serializer import (
     FieldDefinitionSerializer,
     RelationshipDefinitionSerializer,
 )
+from .services import create_application_from_diagram
+
+class DiagramImportView(APIView):
+    permission_classes = [AllowAny]
+    def post(self, request, *args, **kwargs):
+        diagram_data = request.data  # The JSON from the request body
+
+        try:
+            application = create_application_from_diagram(diagram_data)
+        except ValidationError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {
+                "detail": "Diagram imported successfully!",
+                "application_id": application.id
+            },
+            status=status.HTTP_201_CREATED
+        )
+# class DiagramImportView(APIView):
+#     """
+#     Handles a POST request with the diagram JSON and maps it
+#     into the ApplicationDefinition/ModelDefinition/etc. schema.
+#     """
+#
+#     @transaction.atomic  # ensures atomic DB transactions
+#     def post(self, request, *args, **kwargs):
+#         data = request.data  # This is the diagram JSON
+#
+#         # 1) Validate the incoming JSON if needed
+#         #    (You can write a custom serializer or do manual validation)
+#
+#         # 2) Map the JSON to your existing models
+#         try:
+#             application = create_application_from_diagram(data)
+#         except Exception as e:
+#             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+#
+#         # 3) Return success response
+#         return Response(
+#             {"detail": "Diagram imported successfully!", "application_id": application.id},
+#             status=status.HTTP_201_CREATED
+#         )
 
 class ApplicationDefinitionViewSet(viewsets.ModelViewSet):
     queryset = ApplicationDefinition.objects.all()

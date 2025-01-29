@@ -384,16 +384,39 @@ class ValidationRule(models.Model):
                     else:
                         models_code += f"    {field_name} = models.{field_type}({options})\n"
 
-            # Add Meta class if provided
+            # If there's a meta object, add the Meta class
             meta = model.get("meta", {})
             if meta:
                 models_code += "    class Meta:\n"
                 for key, value in meta.items():
-                    if isinstance(value, str) and not value.startswith("[") and not value.startswith("'"):
-                        value = f"'{value}'"
-                    models_code += f"        {key} = {value}\n"
+                    # We'll treat 'indexes' specially, converting them to models.Index
+                    if key == "indexes" and isinstance(value, list):
+                        # Build a string of real Django Index objects
+                        python_index_lines = []
+                        for ix in value:
+                            fields_repr = repr(ix["fields"])  # e.g. ['field_2','field_3']
+                            name_repr = f"'{ix['name']}'"
+                            unique_repr = 'True' if ix.get('unique') else 'False'
+                            # print("unique_repr_____________", unique_repr)
+                            line = (
+                                f"models.Index(fields={fields_repr}, "
+                                f"name={name_repr})"
+                            )
+                            python_index_lines.append(line)
 
-            models_code += "\n"
+                        if python_index_lines:
+                            indexes_str = "[" + ", ".join(python_index_lines) + "]"
+                        else:
+                            indexes_str = "[]"
+
+                        models_code += f"        indexes = {indexes_str}\n"
+
+                    else:
+                        # Normal meta key, e.g. verbose_name, ordering, etc.
+                        # Make sure we quote it if it's a string
+                        if isinstance(value, str) and not value.startswith("[") and not value.startswith("'"):
+                            value = f"'{value}'"
+                        models_code += f"        {key} = {value}\n"
 
         # Add dynamic signals for IntegrationConfig
         models_code += """
@@ -3016,10 +3039,20 @@ def validate_model_schema(schema):
     """
     required_model_keys = {"name", "fields"}
     required_field_keys = {"name", "type"}
+    # valid_field_types = {
+    #     "CharField", "TextField", "IntegerField", "FloatField", "DecimalField",
+    #     "DateField", "DateTimeField", "BooleanField", "JSONField",  # Add JSONField
+    #     "ForeignKey", "OneToOneField", "ManyToManyField", "PositiveIntegerField", "EmailField"
+    # }
     valid_field_types = {
         "CharField", "TextField", "IntegerField", "FloatField", "DecimalField",
-        "DateField", "DateTimeField", "BooleanField", "JSONField",  # Add JSONField
-        "ForeignKey", "OneToOneField", "ManyToManyField", "PositiveIntegerField", "EmailField"
+        "DateField", "DateTimeField", "BooleanField", "JSONField", "TimeField",
+        "ForeignKey", "OneToOneField", "ManyToManyField", "PositiveIntegerField", "EmailField",
+        # Add these:
+        "BigIntegerField", "AutoField", "BigAutoField", "BinaryField",
+        "DurationField", "GenericIPAddressField", "SlugField", "URLField",
+        "SmallIntegerField", "PositiveSmallIntegerField", "UUIDField"
+        # ...any others you need...
     }
 
     valid_relation_types = {"ForeignKey", "OneToOneField", "ManyToManyField"}
@@ -3078,7 +3111,7 @@ def validate_model_schema(schema):
                 valid_options = {
                     "AutoField": {"primary_key", "verbose_name", "help_text", "db_column", "db_index", "unique", "editable"},
                     "BigAutoField": {"primary_key", "verbose_name", "help_text", "db_column", "db_index", "unique", "editable"},
-                    "BigIntegerField": {"blank", "null", "default", "verbose_name", "help_text", "db_column", "db_index", "unique"},
+                    "BigIntegerField": {"primary_key", "blank", "null", "default", "verbose_name", "help_text", "db_column", "db_index", "unique"},
                     "BinaryField": {"blank", "null", "default", "verbose_name", "help_text", "db_column"},
                     "BooleanField": {"blank", "null", "default", "verbose_name", "help_text", "db_column"},
                     "CharField": {"max_length", "blank", "null", "default", "choices", "unique", "verbose_name", "help_text", "db_column"},

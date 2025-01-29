@@ -27,7 +27,10 @@ print(DEBUG)
 ALLOWED_HOSTS = ['localhost', '127.0.0.1',
                  '8364-185-51-214-156.ngrok-free.app',
                  'http://localhost:5173',
-                 'https://startling-taffy-c99aff.netlify.app']
+                 'https://startling-taffy-c99aff.netlify.app',
+                 '0cf3-185-51-214-156.ngrok-free.app',
+                 '172.105.85.143',
+                 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://*.ngrok-free.app',
