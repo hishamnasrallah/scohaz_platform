@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated  # Optional: Adjust permissions as needed
 
+
 from utils.urls_helper import get_all_urls, get_categorized_urls
 
 
