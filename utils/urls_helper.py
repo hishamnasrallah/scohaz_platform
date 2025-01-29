@@ -59,38 +59,65 @@ def _get_view_class(callback):
 def _get_request_keys(callback):
     """
     Extract expected request keys by introspecting the view’s serializer_class.
-    This avoids calling get_serializer() directly on an un-instantiated view.
+    Return a list of dicts: [{'name': <field_name>, 'type': <field_type>}].
     """
     view_class = _get_view_class(callback)
 
-    # 1. Grab the serializer_class if it exists
+    # 1) Grab the serializer_class if it exists
     serializer_class = getattr(view_class, 'serializer_class', None)
     if not serializer_class:
         return []
 
-    # 2. Instantiate the serializer (no request context)
+    # 2) Instantiate the serializer (no request context)
     try:
         serializer = serializer_class()
     except Exception as e:
         logger.error(f"Could not instantiate serializer_class {serializer_class}: {e}")
         return []
 
-    # 3. Inspect its fields
-    if hasattr(serializer, 'Meta'):
-        # If 'fields' is set to '__all__' and it's a ModelSerializer
-        if getattr(serializer.Meta, 'fields', None) == '__all__':
-            model = getattr(serializer.Meta, 'model', None)
-            if model is not None and hasattr(model, '_meta'):
-                return [field.name for field in model._meta.fields]
+    # 3) If the serializer has a Meta with 'model', attempt to read model fields
+    #    so we can get both the name and the type.
+    model = getattr(getattr(serializer, 'Meta', None), 'model', None)
 
-        # Otherwise, if Meta.fields is a list or tuple
-        meta_fields = getattr(serializer.Meta, 'fields', None)
-        if meta_fields:
-            return list(meta_fields)
+    # Helper function to build the final list of field descriptors
+    def build_fields_list(field_names):
+        """Return a list of dicts with 'name' and 'type' for each field."""
+        fields_list = []
+        for field_name in field_names:
+            # Attempt to find a corresponding model field
+            if model and hasattr(model, '_meta'):
+                try:
+                    model_field = model._meta.get_field(field_name)
+                    field_type = model_field.get_internal_type()  # e.g. CharField, IntegerField
+                except Exception:
+                    # If no matching model field or error, fallback to the serializer field class
+                    serializer_field = serializer.fields.get(field_name, None)
+                    field_type = type(serializer_field).__name__ if serializer_field else "Unknown"
+            else:
+                # Fallback: use serializer field class
+                serializer_field = serializer.fields.get(field_name, None)
+                field_type = type(serializer_field).__name__ if serializer_field else "Unknown"
 
-    # Fallback to serializer.fields if no Meta or fields
+            fields_list.append({
+                "name": field_name,
+                "type": field_type
+            })
+        return fields_list
+
+    # 4) If 'fields' is set to '__all__' and it's a ModelSerializer
+    meta_fields = getattr(getattr(serializer, 'Meta', None), 'fields', None)
+    if meta_fields == '__all__' and model and hasattr(model, '_meta'):
+        # Return all DB fields from the model
+        all_model_field_names = [f.name for f in model._meta.fields]
+        return build_fields_list(all_model_field_names)
+
+    # 5) Otherwise, if Meta.fields is a list or tuple
+    if isinstance(meta_fields, (list, tuple)):
+        return build_fields_list(meta_fields)
+
+    # 6) Fallback to serializer.fields if no Meta or fields
     if hasattr(serializer, 'fields'):
-        return list(serializer.fields.keys())
+        return build_fields_list(serializer.fields.keys())
 
     return []
 
