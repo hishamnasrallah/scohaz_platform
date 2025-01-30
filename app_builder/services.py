@@ -460,7 +460,7 @@ def create_application_from_diagram(diagram_data):
                 options_list.append("primary_key=True")
 
             # Build a comma-separated string from options_list
-            options_str = ",".join(options_list)
+            options_str = ','.join(options_list)
 
             # --- Parse to inject default values for CharField/DecimalField ---
             opt_dict = parse_options_str(options_str)
@@ -661,20 +661,20 @@ def create_application_from_diagram(diagram_data):
             on_delete_action = rel.get("onDelete", "CASCADE").upper()  # Default to "CASCADE"
             if on_delete_action not in ["CASCADE", "SET_NULL", "RESTRICT", "DO_NOTHING", "PROTECT"]:
                 raise ValidationError(f"Invalid onDelete action: {on_delete_action}")
-            options_str = f"on_delete=models.{on_delete_action}"
-            if on_delete_action == "SET_NULL":
-                options_str += f", null=True"
+            options_str = f'on_delete=models.{on_delete_action}'
+            if on_delete_action == 'SET_NULL':
+                options_str += f', null=True'
 
         else:
-            options_str = ""
+            options_str = ''
 
         # Add limitedTo to options if provided
         limited_to = rel.get("limitedTo")
         if limited_to:
             if options_str:
-                options_str += f", limited_to={limited_to}"
+                options_str += f', limit_choices_to={limited_to}'
             else:
-                options_str = f"limited_to={limited_to}"
+                options_str = f'limit_choices_to={limited_to}'
         # Only create RelationshipDefinition if we have a local model_with_fk
         if model_with_fk:
             RelationshipDefinition.objects.create(
