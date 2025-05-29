@@ -376,11 +376,18 @@ class ValidationRule(models.Model):
                 elif field_type in ["ForeignKey", "OneToOneField", "ManyToManyField"]:
                     print("inside foreign key")
                     related_name = f"{app_name.lower()}_{model_name.lower()}_{field_name}_set"
-                    models_code += f"    {field_name} = models.{field_type}(to='{related_model}', related_name='{related_name}', {options})\n"
+                    if 'blank=' not in options:
+                        options += ', blank=True,'
+                    if field_type in ["ManyToManyField"]:
+                        models_code += f"    {field_name} = models.{field_type}(to='{related_model}', related_name='{related_name}'{options})\n"
+                    if field_type in ["ForeignKey", "OneToOneField", ]:
+                        models_code += f"    {field_name} = models.{field_type}(to='{related_model}', related_name='{related_name}', {options})\n"
+                    models_code.replace(', ,', ',')
+
                     print("inside foreign key, but at the end")
                 else:
                     if "choices" in field:
-                        models_code += f"    {field_name} = models.{field_type}({options}, choices={choices_name})\n"
+                        models_code += f"    {field_name} = models.{field_type}(choices={choices_name},{options} )\n"
                     else:
                         models_code += f"    {field_name} = models.{field_type}({options})\n"
 
@@ -410,6 +417,7 @@ class ValidationRule(models.Model):
                             indexes_str = "[]"
 
                         models_code += f"        indexes = {indexes_str}\n"
+                        models_code.replace(', ,', ',')
 
                     else:
                         # Normal meta key, e.g. verbose_name, ordering, etc.
@@ -417,8 +425,9 @@ class ValidationRule(models.Model):
                         if isinstance(value, str) and not value.startswith("[") and not value.startswith("'"):
                             value = f"'{value}'"
                         models_code += f"        {key} = {value}\n"
+                        models_code.replace(', ,', ',')
 
-        # Add dynamic signals for IntegrationConfig
+    # Add dynamic signals for IntegrationConfig
         models_code += """
 @receiver(post_save, sender=IntegrationConfig)
 def handle_integration_post_save(sender, instance, created, **kwargs):
@@ -427,6 +436,7 @@ def handle_integration_post_save(sender, instance, created, **kwargs):
     else:
         print(f"IntegrationConfig updated: {instance.name}")
 """
+        models_code.replace(', ,', ',')
 
         # Write the models to the models.py file
         with open(os.path.join(app_path, "models.py"), "w") as f:
@@ -892,7 +902,7 @@ class ModelCommonMixin(models.Model):
         abstract = True
 
     def __str__(self):
-        return f"{{self.__class__.__name__}} (ID: {{self.id}})"
+        return self.name if self.name else f"{{self.__class__.__name__}} (ID: {{self.id}})"
 
     def clean(self):
         \"\"\"
@@ -1627,10 +1637,18 @@ class DynamicFormBuilder(forms.ModelForm):
                         logger.error(f"Error applying `limit_choices_to` for {{field.name}}: {{e}}")
                         queryset = related_model.objects.all()  # Default to all if filtering fails
     
-                    try:
-                        initial_value = getattr(self.instance, field.name).all() if self.instance else None
-                    except AttributeError:
-                        initial_value = None  # Handle cases where the field doesn't exist
+                    # try:
+                    #     initial_value = getattr(self.instance, field.name).all() if self.instance else None
+                    # except AttributeError:
+                    #     initial_value = None  # Handle cases where the field doesn't exist
+                    
+                    if self.instance and self.instance.pk:
+                        try:
+                            initial_value = getattr(self.instance, field.name).all()
+                        except Exception:
+                            initial_value = None
+                    else:
+                        initial_value = None  # don't access .all() on unsaved instance
     
                     self.fields[field.name] = forms.ModelMultipleChoiceField(
                         queryset=queryset,
