@@ -51,6 +51,15 @@ INSTALLED_APPS += [
 ]
 
 CUSTOM_APPS = [
+    'relational_app',
+    'samer_app',
+    'assets_app',
+    'asset_app',
+    'contact2_app',
+    'omar',
+    'testchoice',
+    'hr',
+    'crm',
 
 ]
 INSTALLED_APPS += CUSTOM_APPS + [
@@ -64,14 +73,74 @@ INSTALLED_APPS += CUSTOM_APPS + [
     "version",
     "integration",
     "license_subscription_manager",
-    "app_builder"
+    "app_builder",
+    "version_control"
     # "lowcode",
 ]
 
+# APPS_CURRENT_USER_MIDDLEWARE = {
+#     'contact_app': [
+#         'contact_app.middleware.CurrentUserMiddleware',
+#     ],
+#     'omar': [
+#         'omar.middleware.CurrentUserMiddleware',
+#     ],
+#     'testchoice': [
+#         'testchoice.middleware.CurrentUserMiddleware',
+#     ],
+#     'hr': [
+#         'hr.middleware.CurrentUserMiddleware',
+#     ],
+#     'crm': [
+#         'crm.middleware.CurrentUserMiddleware',
+#     ],
+# }
 APPS_CURRENT_USER_MIDDLEWARE = [
+    'relational_app.middleware.CurrentUserMiddleware',
+    'samer_app.middleware.CurrentUserMiddleware',
+    'assets_app.middleware.CurrentUserMiddleware',
+    'asset_app.middleware.CurrentUserMiddleware',
+    'contact2_app.middleware.CurrentUserMiddleware',
+    'omar.middleware.CurrentUserMiddleware',
+    'testchoice.middleware.CurrentUserMiddleware',
+    'hr.middleware.CurrentUserMiddleware',
+    #// TODO: add other modules
+    'crm.middleware.CurrentUserMiddleware',
 ]
 
 APP_MIDDLEWARE_MAPPING = {
+    'relational_app': [
+        'relational_app.middleware.DynamicModelMiddleware',
+    ],
+    'samer_app': [
+        'samer_app.middleware.DynamicModelMiddleware',
+    ],
+    'assets_app': [
+        'assets_app.middleware.DynamicModelMiddleware',
+    ],
+    'asset_app': [
+        'asset_app.middleware.DynamicModelMiddleware',
+    ],
+    'contact2_app': [
+        'contact2_app.middleware.DynamicModelMiddleware',
+    ],
+
+    'omar': [
+        'omar.middleware.DynamicModelMiddleware',
+    ],
+
+
+    'testchoice': [
+        'testchoice.middleware.DynamicModelMiddleware',
+    ],
+    'hr': [
+        'hr.middleware.DynamicModelMiddleware',
+    ],
+
+    'crm': [
+        'crm.middleware.DynamicModelMiddleware',
+    ],
+
 
 }
 

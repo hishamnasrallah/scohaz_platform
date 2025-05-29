@@ -26,5 +26,5 @@ class CategorizedApplicationURLsView(APIView):
 
     def get(self, request, *args, **kwargs):
         application_name = request.query_params.get('application_name', None)
-        categorized_urls = get_categorized_urls(application_name=application_name)
+        categorized_urls = get_categorized_urls(application_name=application_name, user=request.user)
         return Response({'applications': categorized_urls})

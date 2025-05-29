@@ -442,10 +442,43 @@ def handle_integration_post_save(sender, instance, created, **kwargs):
         code = (
             "from rest_framework import serializers\n"
             f"from {app_name}.models import IntegrationConfig, ValidationRule, {', '.join(model['name'] for model in models)}\n\n"
+            f"from django.core.exceptions import ValidationError as DjangoValidationError\n"
+            f"from rest_framework.exceptions import ValidationError as DRFValidationError"
         )
 
         # Add IntegrationConfig serializer
         code += """
+class BaseModelSerializer(serializers.ModelSerializer):
+    \"\"\"
+    A base serializer that calls model.clean() via full_clean()
+    and injects the user into models using set_validation_user().
+    \"\"\"
+
+    def _run_model_clean(self, instance):
+        # Optionally pass the user from request
+        user = self.context.get('request', None) and self.context['request'].user
+        if hasattr(instance, 'set_validation_user'):
+            instance.set_validation_user(user)
+
+        try:
+            instance.full_clean()
+        except DjangoValidationError as e:
+            raise DRFValidationError(e.message_dict)
+
+    def create(self, validated_data):
+        instance = self.Meta.model(**validated_data)
+        self._run_model_clean(instance)
+        instance.save()
+        return instance
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        self._run_model_clean(instance)
+        instance.save()
+        return instance
+
+
 class IntegrationConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = IntegrationConfig
@@ -466,7 +499,7 @@ class ValidationRuleSerializer(serializers.ModelSerializer):
         for model in models:
             model_name = model["name"]
             code += (
-                f"class {model_name}Serializer(serializers.ModelSerializer):\n"
+                f"class {model_name}Serializer(BaseModelSerializer):\n"
                 f"    class Meta:\n"
                 f"        model = {model_name}\n"
                 f"        fields = '__all__'\n\n"
@@ -650,7 +683,6 @@ from django.apps import apps
 """
         # dynamic validation mixin
         mixin_code += f"""
-
 class DynamicAdminMixin:
     context_name = "admin"
 
@@ -681,10 +713,24 @@ class DynamicAdminMixin:
         return user_can(request.user, "delete", self.model, self.context_name, object_id)
 
     # ---------------
-    # DYNAMIC FORM
+    # DYNAMIC FORM GENERATION
     # ---------------
     def get_form(self, request, obj=None, **kwargs):
-        \"\"\"Return a dynamically built form class. Example uses DynamicFormBuilder.\"\"\"
+        \"\"\"
+        Return a dynamically built form class with Django admin widgets
+        and field-level adjustments (e.g., DateTime split, file input, etc.).
+        \"\"\"
+        from django import forms
+        from django.db import models
+        from django.contrib.admin.widgets import (
+            AdminDateWidget,
+            AdminSplitDateTime,
+            AdminTimeWidget,
+            FilteredSelectMultiple,
+        )
+        from django.utils.dateparse import parse_date, parse_time
+        from datetime import datetime, date, time
+
         class CustomDynamicForm(DynamicFormBuilder):
             class Meta:
                 model = self.model
@@ -694,6 +740,107 @@ class DynamicAdminMixin:
                 inner_kwargs.setdefault('user', request.user)
                 super().__init__(*args, **inner_kwargs)
 
+                for field_name, field in self_inner.fields.items():
+                    try:
+                        model_field = self.model._meta.get_field(field_name)
+
+                        # Date-only field
+                        if isinstance(model_field, models.DateField) and not isinstance(model_field, models.DateTimeField):
+                            field.widget = AdminDateWidget()
+
+                        # DateTime field with safe clean() and to_python()
+                        elif isinstance(model_field, models.DateTimeField):
+                            field.widget = AdminSplitDateTime()
+                            original_clean = field.clean
+                            original_to_python = field.to_python
+
+                            # Patch .clean()
+                            def split_clean(value, *args, **kwargs):
+                                if isinstance(value, list) and len(value) == 2:
+                                    date_value, time_value = value
+
+                                    if isinstance(date_value, str):
+                                        date_part = parse_date(date_value)
+                                    elif isinstance(date_value, date):
+                                        date_part = date_value
+                                    else:
+                                        date_part = None
+
+                                    if isinstance(time_value, str):
+                                        time_part = parse_time(time_value)
+                                    elif isinstance(time_value, time):
+                                        time_part = time_value
+                                    else:
+                                        time_part = None
+
+                                    if date_part and time_part:
+                                        return datetime.combine(date_part, time_part)
+
+                                    return None  # Fail silently with None instead of calling original
+
+                                return original_clean(value, *args, **kwargs)
+
+                            # Patch .to_python() to support .has_changed() logic
+                            def split_to_python(value):
+                                if isinstance(value, list) and len(value) == 2:
+                                    date_value, time_value = value
+
+                                    if isinstance(date_value, str):
+                                        date_part = parse_date(date_value)
+                                    elif isinstance(date_value, date):
+                                        date_part = date_value
+                                    else:
+                                        date_part = None
+
+                                    if isinstance(time_value, str):
+                                        time_part = parse_time(time_value)
+                                    elif isinstance(time_value, time):
+                                        time_part = time_value
+                                    else:
+                                        time_part = None
+
+                                    if date_part and time_part:
+                                        return datetime.combine(date_part, time_part)
+
+                                    # If it's a list but we can't parse it, return None (not the original method)
+                                    return None
+
+                                # Only call the original if NOT a list
+                                return original_to_python(value)
+
+                            field.clean = split_clean
+                            field.to_python = split_to_python
+
+                        # Time-only field
+                        elif isinstance(model_field, models.TimeField):
+                            field.widget = AdminTimeWidget()
+
+                        # Text area for long text
+                        elif isinstance(model_field, models.TextField):
+                            field.widget = forms.Textarea(attrs={{'rows': 4}})
+
+                        # File/image upload
+                        elif isinstance(model_field, models.FileField):
+                            field.widget = forms.ClearableFileInput()
+
+                        # ManyToMany fields with dual select box
+                        elif isinstance(model_field, models.ManyToManyField):
+                            field.widget = FilteredSelectMultiple(model_field.verbose_name, is_stacked=False)
+
+                        # Optional enhancements (UX improvements)
+                        elif isinstance(model_field, models.EmailField):
+                            field.widget = forms.EmailInput()
+                        elif isinstance(model_field, models.URLField):
+                            field.widget = forms.URLInput()
+                        elif isinstance(model_field, models.IntegerField):
+                            field.widget = forms.NumberInput()
+                        elif isinstance(model_field, (models.DecimalField, models.FloatField)):
+                            field.widget = forms.NumberInput(attrs={{'step': 'any'}})
+
+                    except Exception:
+                        # Skip virtual or dynamically excluded fields
+                        continue
+
         return CustomDynamicForm
 
     # ---------------
@@ -701,9 +848,9 @@ class DynamicAdminMixin:
     # ---------------
     def save_model(self, request, obj, form, change):
         \"\"\"
-        Override to set created_by/updated_by and call obj.full_clean().
+        Inject user into model context and trigger clean validation.
         \"\"\"
-        obj.set_validation_user(request.user)  # so the model can see the user, if needed
+        obj.set_validation_user(request.user)
 
         if not obj.created_by:
             obj.created_by = request.user
@@ -711,12 +858,12 @@ class DynamicAdminMixin:
 
         from django.core.exceptions import ValidationError as DjangoValidationError
         try:
-            # Force the model's validation
-            x = obj.full_clean()  # calls ModelCommonMixin.clean()
+            obj.full_clean()  # triggers your dynamic validation
             super().save_model(request, obj, form, change)
         except DjangoValidationError as e:
             form.add_error(None, e)
             raise e
+
 
 
 class ModelCommonMixin(models.Model):
@@ -754,7 +901,7 @@ class ModelCommonMixin(models.Model):
         \"\"\"
         super().clean()
 
-        user = get_current_user()  # or another approach to get the current user
+        user = getattr(self, '_validation_user', None) or get_current_user()  # or another approach to get the current user
         if not user:
             raise ValidationError("User context is missing.")
 
@@ -790,12 +937,12 @@ class ModelCommonMixin(models.Model):
                 # --- (b) condition logic (skip or fail) ---
                 if rule.condition_logic:
                     cond_eval = ConditionEvaluator(record_data)
-                    evaluation_result = cond_eval.evaluate(rule.condition_logic, rule.error_message)
-                    if not evaluation_result[1]:
+                    evaluation_result = cond_eval.evaluate(rule.condition_logic)
+                    if not evaluation_result:
                         # If the condition is not satisfied, do you want to skip this rule
                         # or block saving? Typically "skip" means "don't validate this rule."
                         # So we just continue:
-                        raise ValidationError({{evaluation_result[0]["field"]: evaluation_result[0]["error_message"]}})
+                        raise ValidationError({{rule.field_name: rule.error_message}})
             elif rule.validator_type == 'function':
                 # --- (c) apply the actual validation (regex, function, etc.) ---
                 validator = VALIDATOR_REGISTRY[rule.function_name]
@@ -1084,7 +1231,7 @@ class {model_name}APITests(BaseTestSetup):
                     related_model_name = field["related_model"].split(".")[-1]
                     code += f"            '{field['name']}': self.{related_model_name.lower()}.id,\n"
 
-            code += """        }
+            code += f"""        
         response = self.client.post(f'/{app_name}/{api_endpoint}/', data)
         self.assertIn(response.status_code, [status.HTTP_201_CREATED, status.HTTP_400_BAD_REQUEST])
 
@@ -2300,7 +2447,7 @@ class AutoValueEvaluator(AutoComputeConditionEvaluator):
 
 
         # Generate condition_evaluator.py with dynamic condition evaluator logic
-        condition_evaluator_code = f"""\
+        condition_evaluator_code = f"""
 import re
 from typing import Any, Dict, List, Union
 from urllib import request
@@ -2399,7 +2546,89 @@ class ConditionEvaluator:
         right_value = self._resolve_value_expr(value_expr)
 
         return self._compare_values(left_value, operation, right_value)
+        
+    def _get_value(self, field_name: str) -> Any:
+        \"\"\"
+        Retrieves the value from record_data for a given field name.
+        Supports nested keys using dot notation, e.g., "user.profile.email".
+        \"\"\"
+        value = self.record_data
+        for part in field_name.split("."):
+            if isinstance(value, dict):
+                value = value.get(part)
+            else:
+                return None
+        return value
+
+    def _resolve_value_expr(self, expr: Union[Dict[str, Any], Any]) -> Any:
+        \"\"\"
+        Resolves a value expression.
+        - If it's a dict with a 'field' key, fetches the value from `record_data`.
+        - If it's an arithmetic expression, evaluates it.
+        - Otherwise returns the literal value.
+        \"\"\"
+        if isinstance(expr, dict):
+            if "field" in expr:
+                return self._get_value(expr["field"])
+            elif "operation" in expr and expr["operation"] in ["+", "-", "*", "/", "**"]:
+                return self._evaluate_arithmetic(expr)
+        return expr  # Literal value
+
+    def _compare_values(self, left: Any, operation: str, right: Any) -> bool:
+        \"\"\"
+        Compares two values based on the provided operation.
+        Supported operations: =, !=, >, >=, <, <=, contains, startswith, endswith, matches
+        \"\"\"
+        try:
+            if operation == "=":
+                return left == right
+            elif operation == "!=":
+                return left != right
+            elif operation == ">":
+                return left > right
+            elif operation == ">=":
+                return left >= right
+            elif operation == "<":
+                return left < right
+            elif operation == "<=":
+                return left <= right
+            elif operation == "contains":
+                return str(right) in str(left)
+            elif operation == "startswith":
+                return str(left).startswith(str(right))
+            elif operation == "endswith":
+                return str(left).endswith(str(right))
+            elif operation == "matches":
+                return re.match(str(right), str(left)) is not None
+        except Exception:
+            return False
+        return False
+
+    def _evaluate_arithmetic(self, expr: Dict[str, Any]) -> Any:
+        \"\"\"
+        Evaluates simple arithmetic expressions.
+        Supports nested field lookups.
+        Example: {{"field": "salary", "operation": "+", "value": {{"field": "bonus"}}}}
+        \"\"\"
+        left = self._get_value(expr["field"])
+        right = self._resolve_value_expr(expr["value"])
+        op = expr["operation"]
+
+        try:
+            if op == "+":
+                return left + right
+            elif op == "-":
+                return left - right
+            elif op == "*":
+                return left * right
+            elif op == "/":
+                return left / right if right != 0 else None
+            elif op == "**":
+                return left ** right
+        except Exception:
+            return None
 """
+
 
         with open(os.path.join(utils_folder_path, 'condition_evaluator.py'), 'w') as condition_evaluator_file:
             condition_evaluator_file.write(condition_evaluator_code)
@@ -3051,7 +3280,7 @@ def validate_model_schema(schema):
         # Add these:
         "BigIntegerField", "AutoField", "BigAutoField", "BinaryField",
         "DurationField", "GenericIPAddressField", "SlugField", "URLField",
-        "SmallIntegerField", "PositiveSmallIntegerField", "UUIDField"
+        "SmallIntegerField", "PositiveSmallIntegerField", "UUIDField", "FileField"
         # ...any others you need...
     }
 

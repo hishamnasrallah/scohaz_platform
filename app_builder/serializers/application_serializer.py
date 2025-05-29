@@ -26,3 +26,9 @@ class ApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = ApplicationDefinition
         fields = '__all__'
+
+class ApplicationERDSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = ApplicationDefinition
+        fields = '__all__'

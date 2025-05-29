@@ -1,9 +1,6 @@
 import re
 import logging
-
-from django.db.models import NOT_PROVIDED
 from django.urls import get_resolver, URLPattern, URLResolver
-from django.utils import timezone
 from rest_framework.views import APIView
 
 logger = logging.getLogger(__name__)
@@ -66,10 +63,9 @@ def _get_request_keys(callback):
     """
     Extract expected request keys by introspecting the view's serializer_class,
     removing excluded fields. Also return other_info if present.
-
     The function returns a dict:
         {
-          "keys": [ { "name": <field_name>, "type": <field_type>, ... }, ... ],
+          "keys": [ { "name": <field_name>, "type": <field_type> }, ... ],
           "other_info": <dict or "not written yet">
         }
     """
@@ -105,90 +101,18 @@ def _get_request_keys(callback):
         for field_name in field_names:
             if field_name in excluded_fields:
                 continue
-
-            # We'll attempt to get a model_field and a serializer_field
-            model_field = None
-            ser_field = serializer.fields.get(field_name, None)
-
             if model and hasattr(model, '_meta'):
                 try:
                     model_field = model._meta.get_field(field_name)
+                    field_type = model_field.get_internal_type()  # e.g. CharField
                 except Exception:
-                    # If it's not found in the model, we still have ser_field as fallback
-                    pass
-
-            # We'll figure out the field_type name as before
-            if model_field:
-                field_type = model_field.get_internal_type()  # e.g. CharField
+                    ser_field = serializer.fields.get(field_name)
+                    field_type = type(ser_field).__name__ if ser_field else "Unknown"
             else:
+                ser_field = serializer.fields.get(field_name)
                 field_type = type(ser_field).__name__ if ser_field else "Unknown"
 
-            # ---------------------------------------------------------------------
-            # METADATA: required, read_only, default, help_text
-            # (from previous point)
-            # ---------------------------------------------------------------------
-            required = False
-            read_only = False
-            default_value = None
-            help_text = ""
-            choices_list = []
-
-            if model_field:
-                required = (not model_field.null) and (not model_field.blank)
-                if model_field.default is not NOT_PROVIDED:
-                    default_value = model_field.default
-                help_text = getattr(model_field, 'help_text', '') or ''
-
-            # -- NEW: If we have choices
-            try:
-                if model_field.choices:
-                    for (val, lbl) in model_field.choices:
-                        choices_list.append({"value": val, "label": lbl})
-            except:
-                pass
-
-            if ser_field:
-                if hasattr(ser_field, 'read_only') and ser_field.read_only:
-                    read_only = True
-                if hasattr(ser_field, 'help_text') and ser_field.help_text:
-                    help_text = ser_field.help_text
-
-            # Build the base field_info
-            field_info = {
-                "name": field_name,
-                "type": field_type,
-                "required": required,
-                "read_only": read_only,
-                "default": default_value,
-                "help_text": help_text
-            }
-            if choices_list:
-                field_info["choices"] = choices_list
-
-            # ---------------------------------------------------------------------
-            # RELATIONSHIP DETAILS - ADDED
-            # ---------------------------------------------------------------------
-            if model_field and model_field.is_relation:  # <-- ADDED
-                relation_type = model_field.get_internal_type()  # e.g. 'ForeignKey' <-- ADDED
-                remote_model = model_field.remote_field.model  # <-- ADDED
-                related_model = f"{remote_model._meta.app_label}.{remote_model._meta.model_name}"  # <-- ADDED
-
-                field_info["relation_type"] = relation_type     # <-- ADDED
-                field_info["related_model"] = related_model     # <-- ADDED
-                field_info["related_model"] = related_model     # <-- ADDED
-
-                # If you want to store limit_choices_to
-                limit_choices = getattr(model_field.remote_field, 'limit_choices_to', None)  # <-- ADDED
-                if limit_choices:
-                    field_info["limit_choices_to"] = str(limit_choices)  # Convert to string or dict
-                if model_field.choices:
-                    choices_list = []
-                    for (value, label) in model_field.choices:
-                        choices_list.append({"value": value, "label": label})
-                    field_info["choices"] = choices_list
-            # Append to field_list
-            field_list.append(field_info)
-
+            field_list.append({"name": field_name, "type": field_type})
         return field_list
 
     # Collect fields from the serializer
@@ -375,7 +299,7 @@ def _build_methods_info(methods, keys):
                     # For patch, let's just show one field as an example
                     # or we can do the entire set if you prefer
                     list(sample_request.keys())[0]: list(sample_request.values())[0]
-                } if len(sample_request.keys()) > 0 else {},
+                }if len(list(sample_request.keys())) == len(list(sample_request.values())) and len(list(sample_request.keys())) > 0 else {},
                 "response_example": sample_response
             }
         elif method_upper == 'DELETE':
@@ -400,7 +324,7 @@ def _build_methods_info(methods, keys):
     return methods_info
 
 
-def get_categorized_urls(application_name=None, user=None):  # <-- ADDED: user param
+def get_categorized_urls(application_name=None):
     """
     Returns a dictionary of the form:
     {
@@ -417,7 +341,7 @@ def get_categorized_urls(application_name=None, user=None):  # <-- ADDED: user p
               'other_info': ...,
               'query_params': [...],
               'permissions': [...],
-              'methods_info': {
+              'methods_info': {  # <-- new: deeper doc per HTTP method
                  'GET': {
                    'description': 'Retrieve data',
                    'status_codes': [ {code, description}, ...],
@@ -432,7 +356,6 @@ def get_categorized_urls(application_name=None, user=None):  # <-- ADDED: user p
       }
     }
     """
-    from django.urls import get_resolver
     urlconf = get_resolver()  # Get the root resolver
     categorized_urls = {}
 
@@ -454,104 +377,19 @@ def get_categorized_urls(application_name=None, user=None):  # <-- ADDED: user p
                 raw_path = prefix + str(pattern.pattern)
 
                 # Skip certain auto-generated or unwanted paths
-                # if "drf_format_suffix" in raw_path:
-                #     continue
-                # if "auth" in raw_path:
-                #     continue
-                # if "case" in raw_path:
-                #     continue
-                # if "api-docs" in raw_path:
-                #     continue
-                # if "version" in raw_path:
-                #     continue
-                # if "integration" in raw_path:
-                #     continue
-                # if "app-builder" in raw_path:
-                #     continue
-                # if "translations" in raw_path:
-                #     continue
-                # if "(?P<format>[a-z0-9]+)/?$" in raw_path:
-                #     continue
-                # if "custom-action" in raw_path:
-                #     continue
-                # if "validation-rules" in raw_path:
-                #     continue
-                # if "integration-configs" in raw_path:
-                #     continue
-                # if "api-root" in  str(pattern.name):
-                #     continue
-                EXCLUDED_PATHS = {
-                    "drf_format_suffix",
-                    "auth",
-                    "case",
-                    "api-docs",
-                    "version",
-                    "integration",
-                    "app-builder",
-                    "translations",
-                    "custom-action",
-                    "validation-rules",
-                    "integration-configs",
-                }
-
-                EXCLUDED_PATTERNS = {
-                    "(?P<format>[a-z0-9]+)/?$",
-                    "api-root"
-                }
-
-                if any(excluded in raw_path for excluded in EXCLUDED_PATHS) or \
-                        any(excluded in str(pattern.name) if pattern.name else "" for excluded in EXCLUDED_PATTERNS):
+                if "drf_format_suffix" in raw_path:
                     continue
+                if "(?P<format>[a-z0-9]+)/?$" in raw_path:
+                    continue
+                if "custom-action" in raw_path:
+                    continue
+                if "validation-rules" in raw_path:
+                    continue
+                if "integration-configs" in raw_path:
+                    continue
+
                 # Also skip if the path is exactly `app_name/` (like "crm/") if you want
                 if cleaned_path.strip('/') == app_name.strip('/'):
-                    continue
-
-                # --------------------------------------------------
-                # NEW: Identify the model/content_type and check CRUDPermission
-                # --------------------------------------------------
-                from django.contrib.contenttypes.models import ContentType
-                from authentication.models import CRUDPermission  # <-- ADJUST import path as needed
-
-                view_class = _get_view_class(pattern.callback)
-                try:
-                    model_cls = getattr(view_class.serializer_class.Meta, 'model', None)
-                except:
-                    model_cls = None
-
-                if not model_cls:
-                    # Sometimes it's on .queryset.model
-                    queryset = getattr(view_class, 'queryset', None)
-                    if queryset is not None and hasattr(queryset, 'model'):
-                        model_cls = queryset.model
-
-                # Default: user cannot do anything
-                can_create = can_read = can_update = can_delete = False
-
-                content_type = None
-                if model_cls:
-                    print(model_cls)
-                if model_cls:
-                    content_type = ContentType.objects.get_for_model(model_cls)
-
-                if user and content_type:
-                    # fetch all CRUDPermission for user groups & this content_type with context='api'
-                    perms_qs = CRUDPermission.objects.filter(
-                        group__in=user.groups.all(),
-                        content_type=content_type,
-                        context__contains='api'
-                    )
-                    if perms_qs.exists():
-                        can_create = any(p.can_create for p in perms_qs)
-                        can_read   = any(p.can_read   for p in perms_qs)
-                        can_update = any(p.can_update for p in perms_qs)
-                        can_delete = any(p.can_delete for p in perms_qs)
-                else:
-                    # No user or no identified model => fallback logic
-                    # e.g. allow read to everyone, or disallow everything
-                    can_read = True  # as an example
-
-                # If user cannot read => skip entire endpoint
-                if not can_read:
                     continue
 
                 # Collect keys, other_info, query_params, etc.
@@ -565,51 +403,17 @@ def get_categorized_urls(application_name=None, user=None):  # <-- ADDED: user p
                 # Build deeper info per method
                 methods_info = _build_methods_info(methods, keys)
 
-                # Filter out disallowed methods
-                allowed_methods = set(methods)
-                if not can_create:
-                    allowed_methods.discard('POST')
-                if not can_read:
-                    allowed_methods.discard('GET')
-                if not can_update:
-                    allowed_methods.discard('PUT')
-                    allowed_methods.discard('PATCH')
-                if not can_delete:
-                    allowed_methods.discard('DELETE')
-
-                final_methods = list(allowed_methods)
-                filtered_methods_info = {
-                    m: methods_info[m] for m in final_methods if m in methods_info
-                }
-
                 details = {
                     'path': prefix + cleaned_path,
                     'name': pattern.name or '',
-                    'methods': final_methods,
+                    'methods': methods,
                     'parameters': parameters,
                     'keys': keys,         # derived from serializer or other_info
                     'other_info': other_info,
                     'query_params': query_params,
-                    'permissions': permissions,  # DRF permission classes
-                    'methods_info': filtered_methods_info
+                    'permissions': permissions,
+                    'methods_info': methods_info  # <--- newly added
                 }
-
-                # --------------------------------------------------
-                # NEW: Add "available_actions" field  # <-- ADDED
-                # --------------------------------------------------
-                available_actions = []  # <-- ADDED
-                if can_read and "GET" in final_methods:          # <-- ADDED
-                    available_actions.append("read")
-                if can_create and "POST" in final_methods:          # <-- ADDED
-                    available_actions.append("create")
-                if can_update and ("PUT" in final_methods or "PATCH" in final_methods):          # <-- ADDED
-                    available_actions.append("update")
-                if can_delete and "DELETE" in final_methods:          # <-- ADDED
-                    available_actions.append("delete")
-                # you could also add "view" if can_read is True, but typically
-                # it's implied by the fact we didn't skip the endpoint
-
-                details["available_actions"] = available_actions  # <-- ADDED
 
                 if app_name not in categorized_urls:
                     categorized_urls[app_name] = []
@@ -620,7 +424,7 @@ def get_categorized_urls(application_name=None, user=None):  # <-- ADDED: user p
                 _extract_urls(pattern.url_patterns, app_prefix)
 
     # Traverse the URL patterns
-    _extract_urls(urlconf.url_patterns, prefix='')
+    _extract_urls(urlconf.url_patterns)
 
     # Optionally handle dynamic or custom apps from settings
     try:
@@ -641,8 +445,6 @@ def get_categorized_urls(application_name=None, user=None):  # <-- ADDED: user p
     total_urls = sum(len(url_list) for url_list in categorized_urls.values())
 
     return {
-        "api_version": "v1.0.0",                   # <-- ADDED
-        "schema_generated_on": timezone.now().isoformat(),
         'total_applications': total_applications,
         'total_urls': total_urls,
         'applications': categorized_urls,

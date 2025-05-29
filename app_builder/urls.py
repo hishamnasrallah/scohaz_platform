@@ -2,7 +2,7 @@ from django.urls import path, include
 
 from app_builder import views
 from app_builder.views import ApplicationDefinitionViewSet, ModelDefinitionViewSet, FieldDefinitionViewSet, \
-    RelationshipDefinitionViewSet, DiagramImportView
+    RelationshipDefinitionViewSet, DiagramImportView, ApplicationDefinitionERDView
 
 app_name = 'app_builder'  # This defines the namespace
 from rest_framework.routers import DefaultRouter
@@ -23,6 +23,8 @@ router.register(r'fields', FieldDefinitionViewSet, basename='fielddefinition')
 router.register(r'relationships', RelationshipDefinitionViewSet, basename='relationshipdefinition')
 
 urlpatterns += [
+    path('api/applications/erd/', ApplicationDefinitionERDView.as_view(), name='diagram-import-to-erd-designer'),
+
     path('api/', include(router.urls)),
     path('api/diagram/import/', DiagramImportView.as_view(), name='diagram-import'),
 

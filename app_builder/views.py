@@ -6,7 +6,8 @@ from django.db import transaction
 from django.contrib import messages
 from django.http import HttpResponseRedirect
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import AllowAny
+from rest_framework.generics import RetrieveAPIView
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -22,7 +23,7 @@ from app_builder.serializers.application_serializer import (
     ApplicationSerializer,
     ModelDefinitionSerializer,
     FieldDefinitionSerializer,
-    RelationshipDefinitionSerializer,
+    RelationshipDefinitionSerializer, ApplicationERDSerializer,
 )
 from .services import create_application_from_diagram
 
@@ -73,6 +74,16 @@ class DiagramImportView(APIView):
 class ApplicationDefinitionViewSet(viewsets.ModelViewSet):
     queryset = ApplicationDefinition.objects.all()
     serializer_class = ApplicationSerializer
+
+
+class ApplicationDefinitionERDView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        queryset = ApplicationDefinition.objects.all()
+        serializer = ApplicationERDSerializer(queryset, many=True)
+        return Response(serializer.data)
+
 
 class ModelDefinitionViewSet(viewsets.ModelViewSet):
     queryset = ModelDefinition.objects.all()

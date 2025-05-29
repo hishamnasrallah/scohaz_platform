@@ -21,19 +21,27 @@ print(BASE_DIR)
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-ei4z7#l_5z^ff)3dam7lc!6vv*byrq(xtp&mwt&g0zs@wl-q2n'
 
+# APPEND_SLASH = False
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 print(DEBUG)
 ALLOWED_HOSTS = ['localhost', '127.0.0.1',
-                 '8364-185-51-214-156.ngrok-free.app',
+                 '3b98-185-51-214-156.ngrok-free.app',
                  'http://localhost:5173',
+                 'http://localhost:3001',
                  'https://startling-taffy-c99aff.netlify.app',
                  '0cf3-185-51-214-156.ngrok-free.app',
                  '172.105.85.143',
+                 's0i1qu01t60c.share.zrok.io',
+                 '172.16.11.127',
+                 '172.22.144.1'
                  ]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://*.ngrok-free.app',
+    'http://localhost:3001',
+
 ]
 
 # Application definition
@@ -56,6 +64,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    # 'scohaz_platform.middleware.CurrentUserRouterMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 

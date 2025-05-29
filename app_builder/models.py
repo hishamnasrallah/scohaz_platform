@@ -26,7 +26,7 @@ class ApplicationDefinition(models.Model):
     skip_admin = models.BooleanField(default=False)
     skip_tests = models.BooleanField(default=False)
     skip_urls = models.BooleanField(default=False)
-
+    erd_json = models.JSONField(default=dict, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -134,24 +134,38 @@ class FieldDefinition(models.Model):
     """
     A single field (CharField, etc.) in the model, with optional choices.
     """
+
     FIELD_TYPE_CHOICES = [
+        ("AutoField", "AutoField"),
+        ("BigAutoField", "BigAutoField"),
+        ("SmallAutoField", "SmallAutoField"),
+        ("BooleanField", "BooleanField"),
         ("CharField", "CharField"),
-        ("TextField", "TextField"),
-        ("IntegerField", "IntegerField"),
-        ("FloatField", "FloatField"),
-        ("DecimalField", "DecimalField"),
+        ("CommaSeparatedIntegerField", "CommaSeparatedIntegerField"),  # Deprecated in Django 3.1, consider using CharField with validation
         ("DateField", "DateField"),
         ("DateTimeField", "DateTimeField"),
-        ("BooleanField", "BooleanField"),
-        ("JSONField", "JSONField"),
+        ("DecimalField", "DecimalField"),
+        ("DurationField", "DurationField"),
         ("EmailField", "EmailField"),
-        ("URLField", "URLField"),
-        ("SlugField", "SlugField"),
-        ("PositiveIntegerField", "PositiveIntegerField"),
+        ("FilePathField", "FilePathField"),
+        ("FloatField", "FloatField"),
+        ("IntegerField", "IntegerField"),
         ("BigIntegerField", "BigIntegerField"),
+        ("SmallIntegerField", "SmallIntegerField"),
+        ("IPAddressField", "IPAddressField"),
+        ("GenericIPAddressField", "GenericIPAddressField"),
+        ("PositiveBigIntegerField", "PositiveBigIntegerField"),
+        ("PositiveIntegerField", "PositiveIntegerField"),
         ("PositiveSmallIntegerField", "PositiveSmallIntegerField"),
-        ("SmallIntegerField", "SmallIntegerField")
+        ("SlugField", "SlugField"),
+        ("TextField", "TextField"),
+        ("TimeField", "TimeField"),
+        ("URLField", "URLField"),
+        ("BinaryField", "BinaryField"),
+        ("UUIDField", "UUIDField"),
+        ("JSONField", "JSONField"),  # JSONField was added in Django 3.1 and is useful for storing JSON data
     ]
+
 
     model_definition = models.ForeignKey(ModelDefinition, on_delete=models.CASCADE)
     field_name = models.CharField(

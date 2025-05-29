@@ -1,8 +1,6 @@
-import re
 import uuid
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models.functions import Upper
 
 from .models import ApplicationDefinition, ModelDefinition, FieldDefinition, RelationshipDefinition
 
@@ -18,7 +16,6 @@ FIELD_TYPE_MAP = {
     "decimal": "DecimalField",
     "numeric": "DecimalField",
     "real": "FloatField",
-    "float": "FloatField",
     "double_precision": "FloatField",
 
     # Serial / Auto-incrementing
@@ -42,7 +39,6 @@ FIELD_TYPE_MAP = {
     # Date / Time / Interval
     # --------------------------------------------------------------------------------
     "date": "DateField",
-    "datetime": "DateTimeField",
     "timestamp": "DateTimeField",
     "timestamp_with_time_zone": "DateTimeField",
     "timestamp_without_time_zone": "DateTimeField",
@@ -98,11 +94,6 @@ FIELD_TYPE_MAP = {
     "uuid": "UUIDField",
 
     # --------------------------------------------------------------------------------
-    # FILE
-    # --------------------------------------------------------------------------------
-    "file": "FileField",
-
-    # --------------------------------------------------------------------------------
     # XML
     # --------------------------------------------------------------------------------
     "xml": "TextField",
@@ -145,24 +136,21 @@ FIELD_TYPE_MAP = {
     "user-defined": "CharField",
 }
 
+
 def parse_options_str(options_str):
     """
-    Convert a string like 'max_length=100,unique=True,choices=[('test1','Test1'),('test2','test2')]'
-    into a dict: {'max_length': '100', 'unique': 'True', 'choices': "[('test1','Test1'),('test2','test2')]"}.
+    Convert a string like 'max_length=100,unique=True'
+    into a dict: {'max_length': '100', 'unique': 'True'}.
     """
     if not options_str.strip():
         return {}
-
+    pairs = [p.strip() for p in options_str.split(",") if p.strip()]
     result = {}
-    key_value_pairs = []
-
-    # Use regex to split while keeping values in brackets intact
-    pattern = r'(\w+)=((?:\[[^\]]*\])|(?:[^,]+))'
-    matches = re.findall(pattern, options_str)
-
-    for key, value in matches:
-        result[key.strip()] = value.strip()
-
+    for pair in pairs:
+        if "=" not in pair:
+            continue
+        k, v = pair.split("=", 1)
+        result[k.strip()] = v.strip()
     return result
 
 def build_options_str(options_dict):
@@ -475,14 +463,9 @@ def create_application_from_diagram(diagram_data):
                 if mapped_field_type in ("DecimalField", "FloatField"):
                     try:
                         options_list.append(f'max_digits={int(field["max_digits"])}')
-                        options_list.append(f"decimal_places={int(field['decimal_places'])}")
+                        options_list.append(f'decimal_places={int(field["decimal_places"])}')
                     except:
                         pass
-
-            # Add choices to options if provided
-            choices = []
-            if field.get("choices") is not None and mapped_field_type in ("CharField", "IntegerField"):
-                choices = field["choices"]
 
             # If "unique": True and it's only a single field, we can place "unique=True"
             if field.get("unique") is True:
@@ -490,9 +473,8 @@ def create_application_from_diagram(diagram_data):
                     options_list.append("unique=True")
 
             # If "primaryKey": True => store "primary_key=True"
-            if field.get("primaryKey") is True and field.get('name') in ['ID', 'Id', 'id', 'iD']:
-                continue
-                # options_list.append("primary_key=True")
+            if field.get("primaryKey") is True:
+                options_list.append("primary_key=True")
 
             # Build a comma-separated string from options_list
             options_str = ','.join(options_list)
@@ -518,8 +500,8 @@ def create_application_from_diagram(diagram_data):
                 field_name=field_name,
                 field_type=mapped_field_type,
                 options=final_options_str,
-                has_choices=True if choices else False,
-                choices_json=choices
+                has_choices=False,
+                choices_json=None
             )
             field_id_to_fielddef[field_id] = field_def
 
@@ -705,13 +687,11 @@ def create_application_from_diagram(diagram_data):
 
         # Add limitedTo to options if provided
         limited_to = rel.get("limitedTo")
-        print(rel.get("limitedTo"))
         if limited_to:
             if options_str:
                 options_str += f', limit_choices_to={limited_to}'
             else:
                 options_str = f'limit_choices_to={limited_to}'
-
         # Only create RelationshipDefinition if we have a local model_with_fk
         if model_with_fk:
             RelationshipDefinition.objects.create(

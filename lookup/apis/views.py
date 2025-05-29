@@ -10,11 +10,12 @@ class LookupFilter(filters.FilterSet):
     parent_lookup = filters.NumberFilter(field_name='parent_lookup__id',
                                          lookup_expr='exact', required=False)
     type = filters.NumberFilter(field_name='type', lookup_expr='exact', required=False)
+    name = filters.CharFilter(field_name='parent_lookup__name', lookup_expr='exact', required=False)
     id = filters.NumberFilter(field_name='id', lookup_expr='exact', required=False)
     # active_ind = BooleanFilter(field_name='active_ind', lookup_expr='exact', required=False)
     class Meta:
         model = Lookup
-        fields = ['parent_lookup', 'type', 'id', 'active_ind']
+        fields = ['parent_lookup', 'type', 'name', 'id', 'active_ind']
 
 
 class RetrieveLookupsListAPIView(ListAPIView):
