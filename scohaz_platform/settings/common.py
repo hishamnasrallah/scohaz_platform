@@ -35,7 +35,8 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1',
                  '172.105.85.143',
                  's0i1qu01t60c.share.zrok.io',
                  '172.16.11.127',
-                 '172.22.144.1'
+                 '172.22.144.1',
+                 'http://localhost:4200'
                  ]
 
 CSRF_TRUSTED_ORIGINS = [

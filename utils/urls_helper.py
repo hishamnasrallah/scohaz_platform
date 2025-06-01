@@ -168,32 +168,40 @@ def _get_request_keys(callback):
             # ---------------------------------------------------------------------
             # RELATIONSHIP DETAILS - ADDED
             # ---------------------------------------------------------------------
-            if model_field and model_field.is_relation:  # <-- ADDED
-                relation_type = model_field.get_internal_type()  # e.g. 'ForeignKey' <-- ADDED
-                remote_model = model_field.remote_field.model  # <-- ADDED
-                related_model = f"{remote_model._meta.app_label}.{remote_model._meta.model_name}"  # <-- ADDED
+            if model_field and model_field.is_relation:
+                relation_type = model_field.get_internal_type()
+                remote_model = model_field.remote_field.model
+                related_model = f"{remote_model._meta.app_label}.{remote_model._meta.model_name}"
 
-                field_info["relation_type"] = relation_type     # <-- ADDED
-                field_info["related_model"] = related_model     # <-- ADDED
-                field_info["related_model"] = related_model     # <-- ADDED
+                field_info["relation_type"] = relation_type
+                field_info["related_model"] = related_model
 
-                # If you want to store limit_choices_to
-                limit_choices = getattr(model_field.remote_field, 'limit_choices_to', None)  # <-- ADDED
+                # NEW: Handle ManyToManyField as multiple select
+                if relation_type == 'ManyToManyField':
+                    field_info["multiple"] = True  # <-- Important for frontend to show multi-select
+                    field_info["required"] = model_field.blank is False
+
+                # Optional: add limit_choices_to
+                limit_choices = getattr(model_field.remote_field, 'limit_choices_to', None)
                 if limit_choices:
-                    field_info["limit_choices_to"] = str(limit_choices)  # Convert to string or dict
+                    field_info["limit_choices_to"] = str(limit_choices)
+
+                # Optional: extract choices from model field (if defined)
                 if model_field.choices:
                     choices_list = []
                     for (value, label) in model_field.choices:
                         choices_list.append({"value": value, "label": label})
                     field_info["choices"] = choices_list
-            # Append to field_list
+
+        # Append to field_list
             field_list.append(field_info)
 
         return field_list
 
     # Collect fields from the serializer
     if meta_fields == '__all__' and model and hasattr(model, '_meta'):
-        all_model_field_names = [f.name for f in model._meta.fields]
+        all_model_field_names = [f.name for f in model._meta.fields] + \
+                                [f.name for f in model._meta.many_to_many]
         serializer_keys = build_fields_list(all_model_field_names)
     elif isinstance(meta_fields, (list, tuple)):
         serializer_keys = build_fields_list(meta_fields)

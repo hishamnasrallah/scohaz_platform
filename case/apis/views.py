@@ -1,3 +1,5 @@
+import json
+
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
@@ -63,8 +65,32 @@ class SubmitApplication(APIView):
         # Get the request body data (if any)
         request_body = request.data.get('case_data', {})
 
+        # Handle stringified JSON
+        if isinstance(request_body, str):
+            try:
+                request_body = json.loads(request_body)
+            except json.JSONDecodeError:
+                return Response(
+                    {
+                        "detail": "'case_data' string could not be parsed as valid JSON.",
+                        "received_type": str(type(request_body))
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Ensure it's now a dict
+        if not isinstance(request_body, dict):
+            return Response(
+                {
+                    "detail": "'case_data' must be a dictionary.",
+                    "received_type": str(type(request_body))
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Merge stored case data with request body (override stored values with request body values)
         merged_data = stored_case_data.copy()
+        print("under copy")
         merged_data.update(request_body)
 
         # Retrieve service flow dynamically using the case type

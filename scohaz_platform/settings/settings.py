@@ -51,6 +51,8 @@ INSTALLED_APPS += [
 ]
 
 CUSTOM_APPS = [
+    'bbb_app',
+    'aaa_app',
     'relational_app',
     'samer_app',
     'assets_app',
@@ -96,6 +98,8 @@ INSTALLED_APPS += CUSTOM_APPS + [
 #     ],
 # }
 APPS_CURRENT_USER_MIDDLEWARE = [
+    'bbb_app.middleware.CurrentUserMiddleware',
+    'aaa_app.middleware.CurrentUserMiddleware',
     'relational_app.middleware.CurrentUserMiddleware',
     'samer_app.middleware.CurrentUserMiddleware',
     'assets_app.middleware.CurrentUserMiddleware',
@@ -109,6 +113,12 @@ APPS_CURRENT_USER_MIDDLEWARE = [
 ]
 
 APP_MIDDLEWARE_MAPPING = {
+    'bbb_app': [
+        'bbb_app.middleware.DynamicModelMiddleware',
+    ],
+    'aaa_app': [
+        'aaa_app.middleware.DynamicModelMiddleware',
+    ],
     'relational_app': [
         'relational_app.middleware.DynamicModelMiddleware',
     ],

@@ -835,7 +835,17 @@ class DynamicAdminMixin:
 
                         # ManyToMany fields with dual select box
                         elif isinstance(model_field, models.ManyToManyField):
-                            field.widget = FilteredSelectMultiple(model_field.verbose_name, is_stacked=False)
+                            related_model = model_field.remote_field.model
+                            queryset = related_model.objects.all()
+
+                            self_inner.fields[field_name] = forms.ModelMultipleChoiceField(
+                                queryset=queryset,
+                                required=not model_field.blank,
+                                label=model_field.verbose_name,
+                                widget=FilteredSelectMultiple(model_field.verbose_name, is_stacked=False)
+                            )
+
+                        # field.widget = FilteredSelectMultiple(model_field.verbose_name, is_stacked=False)
 
                         # Optional enhancements (UX improvements)
                         elif isinstance(model_field, models.EmailField):
@@ -873,6 +883,187 @@ class DynamicAdminMixin:
         except DjangoValidationError as e:
             form.add_error(None, e)
             raise e
+
+# class DynamicAdminMixin:
+#     context_name = "admin"
+# 
+#     # ---------------
+#     # PERMISSION CHECKS
+#     # ---------------
+#     def has_view_permission(self, request, obj=None):
+#         if request.user.is_superuser:
+#             return True
+#         object_id = obj.pk if obj else None
+#         return user_can(request.user, "read", self.model, self.context_name, object_id)
+# 
+#     def has_add_permission(self, request):
+#         if request.user.is_superuser:
+#             return True
+#         return user_can(request.user, "create", self.model, self.context_name)
+# 
+#     def has_change_permission(self, request, obj=None):
+#         if request.user.is_superuser:
+#             return True
+#         object_id = obj.pk if obj else None
+#         return user_can(request.user, "update", self.model, self.context_name, object_id)
+# 
+#     def has_delete_permission(self, request, obj=None):
+#         if request.user.is_superuser:
+#             return True
+#         object_id = obj.pk if obj else None
+#         return user_can(request.user, "delete", self.model, self.context_name, object_id)
+# 
+#     # ---------------
+#     # DYNAMIC FORM GENERATION
+#     # ---------------
+#     def get_form(self, request, obj=None, **kwargs):
+#         \"\"\"
+#         Return a dynamically built form class with Django admin widgets
+#         and field-level adjustments (e.g., DateTime split, file input, etc.).
+#         \"\"\"
+#         from django import forms
+#         from django.db import models
+#         from django.contrib.admin.widgets import (
+#             AdminDateWidget,
+#             AdminSplitDateTime,
+#             AdminTimeWidget,
+#             FilteredSelectMultiple,
+#         )
+#         from django.utils.dateparse import parse_date, parse_time
+#         from datetime import datetime, date, time
+# 
+#         class CustomDynamicForm(DynamicFormBuilder):
+#             class Meta:
+#                 model = self.model
+#                 fields = "__all__"
+# 
+#             def __init__(self_inner, *args, **inner_kwargs):
+#                 inner_kwargs.setdefault('user', request.user)
+#                 super().__init__(*args, **inner_kwargs)
+# 
+#                 for field_name, field in self_inner.fields.items():
+#                     try:
+#                         model_field = self.model._meta.get_field(field_name)
+# 
+#                         # Date-only field
+#                         if isinstance(model_field, models.DateField) and not isinstance(model_field, models.DateTimeField):
+#                             field.widget = AdminDateWidget()
+# 
+#                         # DateTime field with safe clean() and to_python()
+#                         elif isinstance(model_field, models.DateTimeField):
+#                             field.widget = AdminSplitDateTime()
+#                             original_clean = field.clean
+#                             original_to_python = field.to_python
+# 
+#                             # Patch .clean()
+#                             def split_clean(value, *args, **kwargs):
+#                                 if isinstance(value, list) and len(value) == 2:
+#                                     date_value, time_value = value
+# 
+#                                     if isinstance(date_value, str):
+#                                         date_part = parse_date(date_value)
+#                                     elif isinstance(date_value, date):
+#                                         date_part = date_value
+#                                     else:
+#                                         date_part = None
+# 
+#                                     if isinstance(time_value, str):
+#                                         time_part = parse_time(time_value)
+#                                     elif isinstance(time_value, time):
+#                                         time_part = time_value
+#                                     else:
+#                                         time_part = None
+# 
+#                                     if date_part and time_part:
+#                                         return datetime.combine(date_part, time_part)
+# 
+#                                     return None  # Fail silently with None instead of calling original
+# 
+#                                 return original_clean(value, *args, **kwargs)
+# 
+#                             # Patch .to_python() to support .has_changed() logic
+#                             def split_to_python(value):
+#                                 if isinstance(value, list) and len(value) == 2:
+#                                     date_value, time_value = value
+# 
+#                                     if isinstance(date_value, str):
+#                                         date_part = parse_date(date_value)
+#                                     elif isinstance(date_value, date):
+#                                         date_part = date_value
+#                                     else:
+#                                         date_part = None
+# 
+#                                     if isinstance(time_value, str):
+#                                         time_part = parse_time(time_value)
+#                                     elif isinstance(time_value, time):
+#                                         time_part = time_value
+#                                     else:
+#                                         time_part = None
+# 
+#                                     if date_part and time_part:
+#                                         return datetime.combine(date_part, time_part)
+# 
+#                                     # If it's a list but we can't parse it, return None (not the original method)
+#                                     return None
+# 
+#                                 # Only call the original if NOT a list
+#                                 return original_to_python(value)
+# 
+#                             field.clean = split_clean
+#                             field.to_python = split_to_python
+# 
+#                         # Time-only field
+#                         elif isinstance(model_field, models.TimeField):
+#                             field.widget = AdminTimeWidget()
+# 
+#                         # Text area for long text
+#                         elif isinstance(model_field, models.TextField):
+#                             field.widget = forms.Textarea(attrs={{'rows': 4}})
+# 
+#                         # File/image upload
+#                         elif isinstance(model_field, models.FileField):
+#                             field.widget = forms.ClearableFileInput()
+# 
+#                         # ManyToMany fields with dual select box
+#                         elif isinstance(model_field, models.ManyToManyField):
+#                             field.widget = FilteredSelectMultiple(model_field.verbose_name, is_stacked=False)
+# 
+#                         # Optional enhancements (UX improvements)
+#                         elif isinstance(model_field, models.EmailField):
+#                             field.widget = forms.EmailInput()
+#                         elif isinstance(model_field, models.URLField):
+#                             field.widget = forms.URLInput()
+#                         elif isinstance(model_field, models.IntegerField):
+#                             field.widget = forms.NumberInput()
+#                         elif isinstance(model_field, (models.DecimalField, models.FloatField)):
+#                             field.widget = forms.NumberInput(attrs={{'step': 'any'}})
+# 
+#                     except Exception:
+#                         # Skip virtual or dynamically excluded fields
+#                         continue
+# 
+#         return CustomDynamicForm
+# 
+#     # ---------------
+#     # SAVE MODEL
+#     # ---------------
+#     def save_model(self, request, obj, form, change):
+#         \"\"\"
+#         Inject user into model context and trigger clean validation.
+#         \"\"\"
+#         obj.set_validation_user(request.user)
+# 
+#         if not obj.created_by:
+#             obj.created_by = request.user
+#         obj.updated_by = request.user
+# 
+#         from django.core.exceptions import ValidationError as DjangoValidationError
+#         try:
+#             obj.full_clean()  # triggers your dynamic validation
+#             super().save_model(request, obj, form, change)
+#         except DjangoValidationError as e:
+#             form.add_error(None, e)
+#             raise e
 
 
 

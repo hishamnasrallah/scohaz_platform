@@ -136,15 +136,19 @@ class MiddlewareRouter:
     (like model-level triggers, logging, etc.)
     """
     def __init__(self, get_response):
+        print("init ##############")
         self.get_response = get_response
 
     def __call__(self, request):
+        print("call ###############")
         response = self.get_response(request)
+        print("response ###############", response)
+        print("call ###############")
 
         resolver_match = resolve(request.path_info)
         app_name = resolver_match.app_name
 
-        if app_name in ["jsi18n"]:
+        if app_name in ["jsi18n", "case"]:
             return response
 
         if app_name == "admin":
@@ -163,12 +167,15 @@ class MiddlewareRouter:
         return None
 
     def process_app_specific_middlewares(self, request, app_name):
-        try:
-            if app_name and app_name in settings.APP_MIDDLEWARE_MAPPING:
-                for middleware_path in settings.APP_MIDDLEWARE_MAPPING[app_name]:
-                    self.load_and_execute_middleware(middleware_path, request)
-        except Exception as e:
-            print(f"[MiddlewareRouter] Error (DynamicModelMiddleware): {e}")
+        # try:
+        if app_name and app_name == "case":
+            print("Case")
+        elif app_name and app_name in settings.APP_MIDDLEWARE_MAPPING:
+            for middleware_path in settings.APP_MIDDLEWARE_MAPPING[app_name]:
+                self.load_and_execute_middleware(middleware_path, request)
+
+        # except Exception as e:
+        #     print(f"[MiddlewareRouter] Error (DynamicModelMiddleware): {e}")
 
     def load_and_execute_middleware(self, middleware_path, request):
         try:
