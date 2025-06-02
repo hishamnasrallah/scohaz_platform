@@ -4,6 +4,8 @@ import tempfile
 import os
 
 import sys
+import re
+
 from django.contrib import admin, messages
 from django.core.management import call_command
 from django.http import HttpResponse
@@ -16,31 +18,88 @@ from .models import (
 )
 from .tasks import create_app_task
 
+
+
+def fix_limited_to_keys(schema_data):
+    """
+    Traverse the schema and fix any 'limit_choices_to={...}' inside the 'options' string
+    by converting 'parent_lookup_name' → 'parent_lookup__name'.
+    """
+    def fix_key_format(key):
+        if key.startswith("parent_lookup_") and "__" not in key:
+            return key.replace("parent_lookup_", "parent_lookup__", 1)
+        return key
+
+    def fix_options_string(options_str):
+        # Match limit_choices_to={...} using regex
+        match = re.search(r"limit_choices_to\s*=\s*({.*?})", options_str)
+        if not match:
+            return options_str  # No match, return original
+
+        json_part = match.group(1)
+        try:
+            parsed = json.loads(json_part)
+        except json.JSONDecodeError:
+            return options_str  # Invalid JSON, skip
+
+        # Fix the keys
+        fixed = {fix_key_format(k): v for k, v in parsed.items()}
+        fixed_json_str = json.dumps(fixed)
+
+        # Replace only the matched JSON part
+        return options_str.replace(json_part, fixed_json_str)
+
+    def process_dict(d):
+        for k, v in d.items():
+            if k == "options" and isinstance(v, str) and "limit_choices_to" in v:
+                d[k] = fix_options_string(v)
+            elif isinstance(v, dict):
+                process_dict(v)
+            elif isinstance(v, list):
+                for item in v:
+                    if isinstance(item, dict):
+                        process_dict(item)
+
+    if isinstance(schema_data, list):
+        for item in schema_data:
+            process_dict(item)
+    elif isinstance(schema_data, dict):
+        process_dict(schema_data)
+
 @admin.action(description="Compile Project For New Applications")
 def generate_json_files(modeladmin, request, queryset):
-    """
-    Admin action to generate JSON files and store them in the specified folder.
-    """
-    # Define the directory to save JSON files (e.g., "generated_jsons" in the project root)
+    import json
+    import os
+
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     output_dir = os.path.join(project_root, "generated_application_source")
-    os.makedirs(output_dir, exist_ok=True)  # Ensure the directory exists
+    os.makedirs(output_dir, exist_ok=True)
 
     for obj in queryset:
-        app_name = obj.app_name  # Assuming `app_name` is a field in the model
-        schema_data = obj.compile_schema()  # Assuming `compile_schema` generates the data
+        app_name = obj.app_name
+        schema_data = obj.compile_schema()
+
+        print(f"\n📦 Generating for app: {app_name}")
+        print("🔍 Original type:", type(schema_data))
+
+        fix_limited_to_keys(schema_data)  # Mutates in-place
+
+        # Optional: Confirm results
+        for model in schema_data:
+            for rel in model.get("relationships", []):
+                if rel.get("limitedTo"):
+                    print(f"✅ [{app_name}] fixed limitedTo:", rel["limitedTo"])
 
         try:
-            # Save the JSON file in the specified directory
             file_path = os.path.join(output_dir, f"{app_name}.json")
             with open(file_path, "w", encoding="utf-8") as json_file:
                 json.dump(schema_data, json_file, indent=4)
-            messages.success(request, f"Generated JSON file for application '{app_name}' and saved to {file_path}")
+            messages.success(request, f"Generated JSON for '{app_name}' at {file_path}")
         except Exception as e:
-            messages.error(request, f"Failed to generate JSON for '{app_name}': {e}")
+            messages.error(request, f"Failed to write file for '{app_name}': {e}")
 
-    # Add an info message to confirm completion
-    messages.info(request, f"All JSON files were saved to: {output_dir}")
+    messages.info(request, f"✅ All JSON files saved to: {output_dir}")
+
 
 @admin.action(description="Generate JSON files for selected applications")
 def generate_json_and_download_it_and_take_copy_to_project_files(modeladmin, request, queryset):

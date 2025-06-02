@@ -854,13 +854,33 @@ class UserCaseActionsView(APIView):
         except AttributeError:
             user = None
 
+        response_data = {}
+
         if user:
+            user_groups = user.groups.all()
             # 1. All cases related to the same beneficiary
             user_cases = Case.objects.filter(applicant=user).all()
             user_cases_serialized = CaseSerializer(user_cases, many=True).data
-            # 3. All actions related to the requested user group
-            user_groups = user.groups.all()
-            actions = Action.objects.filter(groups__in=user_groups).distinct()
+
+            # 2. Extract current approval steps from user cases
+            current_steps = ApprovalStep.objects.filter(
+                id__in=user_cases.values_list('current_approval_step_id', flat=True),
+                group__in=user_groups,
+                active_ind=True
+            ).distinct()
+
+            # 3. Get related actions from ActionStep model
+            action_ids = ActionStep.objects.filter(
+                approval_step__in=current_steps,
+                active_ind=True
+            ).values_list('action_id', flat=True)
+
+            actions = Action.objects.filter(
+                id__in=action_ids,
+                groups__in=user_groups,
+                active_ind=True
+            ).distinct()
+
             actions_serialized = ActionSerializer(actions, many=True).data
 
             response_data = {
@@ -882,22 +902,38 @@ class UserCaseActionsView(APIView):
 
         elif not user:
 
-            # 2. All cases related to assigned employee user
-            assigned_emp_cases = Case.objects.filter(
-                assigned_emp=user).all()
-            assigned_emp_cases_serialized = CaseSerializer(
-                assigned_emp_cases, many=True).data
 
-            # 3. All actions related to the requested user group
+            # Handle if user is not authenticated properly (assigned_emp case)
+            assigned_emp_cases = Case.objects.filter(assigned_emp=user).all()
+            assigned_emp_cases_serialized = CaseSerializer(assigned_emp_cases, many=True).data
+
             user_groups = user.groups.all()
-            actions = Action.objects.filter(groups__in=user_groups).distinct()
+            # Same logic if needed here too
+            current_steps = ApprovalStep.objects.filter(
+                id__in=assigned_emp_cases.values_list('current_approval_step_id', flat=True),
+                group__in=user_groups,
+                active_ind=True
+            ).distinct()
+
+            action_ids = ActionStep.objects.filter(
+                approval_step__in=current_steps,
+                active_ind=True
+            ).values_list('action_id', flat=True)
+
+            actions = Action.objects.filter(
+                id__in=action_ids,
+                groups__in=user_groups,
+                active_ind=True
+            ).distinct()
+
             actions_serialized = ActionSerializer(actions, many=True).data
 
-            # 4. Create separate keys for the response
             response_data = {
                 'assigned_cases': assigned_emp_cases_serialized,
                 'available_actions': actions_serialized
             }
+
+            response_data = response_data
         else:
             response_data = {}
         return Response(response_data)

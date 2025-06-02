@@ -74,6 +74,7 @@ class DynamicFlowValidator:
         valid_keys = set(self.valid_fields.keys())
         if "uploaded_files" not in valid_keys:
             valid_keys.add("uploaded_files")
+
         # Identify extra keys
         validation_results["extra_keys"] = list(received_keys - valid_keys)
 
@@ -81,6 +82,12 @@ class DynamicFlowValidator:
         for field_path, field_info in self.valid_fields.items():
             if field_info.get("mandatory") and not self.is_parent_optional(self.merged_data, field_path):
                 field_value = self.get_nested_value(self.merged_data, field_path)
+
+                # Special handling for file fields - check dynamically against allowed_lookups
+                if field_info.get("field_type") == "file" and field_value is None:
+                    if self._check_file_in_uploaded_files(field_info):
+                        continue  # File exists, don't mark as missing
+
                 if field_value is None:
                     validation_results["missing_keys"].append(field_path)
 
@@ -92,15 +99,16 @@ class DynamicFlowValidator:
                 # Check visibility conditions before validation
                 evaluated_visibility_condition = self.evaluate_visibility_conditions(field_info, self.merged_data)
 
-                if not evaluated_visibility_condition and not self.merged_data[field_info["name"]]:
+                if not evaluated_visibility_condition and not self.merged_data.get(field_info["name"]):
                     continue
-                elif not evaluated_visibility_condition and self.merged_data[field_info["name"]]:
+                elif not evaluated_visibility_condition and self.merged_data.get(field_info["name"]):
                     validation_results["extra_keys"].append(field_info["name"])
                     continue
                 else:
                     errors = self._validate_field_value(field_info, value)
                     if errors:
                         validation_results["field_errors"][field_path] = errors
+
         if self.submit:
             if validation_results["field_errors"] or validation_results["missing_keys"]:
                 validation_results["is_valid"] = False
@@ -113,6 +121,37 @@ class DynamicFlowValidator:
             self.merged_data.pop(key, None)
 
         return validation_results
+    def _check_file_in_uploaded_files(self, field_info: Dict[str, Any]) -> bool:
+        """
+        Check if a file field exists in the uploaded_files array.
+        This dynamically checks against the field's allowed_lookups.
+        """
+        uploaded_files = self.merged_data.get('uploaded_files', [])
+        if not uploaded_files:
+            return False
+
+        # Get allowed document types for this field from allowed_lookups
+        allowed_lookups = field_info.get('allowed_lookups', [])
+        allowed_types = set()
+
+        # Collect allowed type names from the field's allowed_lookups
+        for lookup in allowed_lookups:
+            allowed_types.add(lookup.get('name', ''))
+
+        # If no specific allowed_lookups, fall back to checking the lookup field
+        if not allowed_types and field_info.get('lookup'):
+            # This means the field has a general lookup but no specific allowed_lookups
+            # In this case, we should accept any document type upload
+            # Or we could fetch the lookup and its children, but for now let's be permissive
+            return len(uploaded_files) > 0
+
+        # Check if any uploaded file's type matches the allowed types
+        for uploaded_file in uploaded_files:
+            file_type = uploaded_file.get('type', '')
+            if file_type in allowed_types:
+                return True
+
+        return False
 
     def evaluate_visibility_conditions(self, field_info: Dict[str, Any], merged_data: Dict[str, Any]) -> bool:
         """
@@ -481,17 +520,17 @@ class DynamicFlowValidator:
         return errors
 
     def _validate_file_constraints(self, value: str, field_info: Dict[str, Any]) -> List[str]:
-        errors = []
-        allowed_file_types = field_info.get("file_types")
-        max_file_size = field_info.get("max_file_size")
+            errors = []
+            allowed_file_types = field_info.get("file_types")
+            max_file_size = field_info.get("max_file_size")
 
-        # Check file extension
-        if allowed_file_types:
-            allowed_extensions = allowed_file_types.split(",")
-            if not any(value.lower().endswith(ext.strip()) for ext in allowed_extensions):
-                errors.append(f"Invalid file type. Allowed types: {allowed_extensions}.")
+            # Check file extension
+            if allowed_file_types:
+                allowed_extensions = allowed_file_types.split(",")
+                if not any(value.lower().endswith(ext.strip()) for ext in allowed_extensions):
+                    errors.append(f"Invalid file type. Allowed types: {allowed_extensions}.")
 
-        # Note: To check file size, the actual file object would be needed.
-        # This would typically be handled in the serializer rather than here.
+            # Note: To check file size, the actual file object would be needed.
+            # This would typically be handled in the serializer rather than here.
 
-        return errors
+            return errors

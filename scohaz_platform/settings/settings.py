@@ -51,6 +51,7 @@ INSTALLED_APPS += [
 ]
 
 CUSTOM_APPS = [
+    'ab_app',
     'bbb_app',
     'aaa_app',
     'relational_app',
@@ -98,6 +99,7 @@ INSTALLED_APPS += CUSTOM_APPS + [
 #     ],
 # }
 APPS_CURRENT_USER_MIDDLEWARE = [
+    'ab_app.middleware.CurrentUserMiddleware',
     'bbb_app.middleware.CurrentUserMiddleware',
     'aaa_app.middleware.CurrentUserMiddleware',
     'relational_app.middleware.CurrentUserMiddleware',
@@ -113,6 +115,9 @@ APPS_CURRENT_USER_MIDDLEWARE = [
 ]
 
 APP_MIDDLEWARE_MAPPING = {
+    'ab_app': [
+        'ab_app.middleware.DynamicModelMiddleware',
+    ],
     'bbb_app': [
         'bbb_app.middleware.DynamicModelMiddleware',
     ],

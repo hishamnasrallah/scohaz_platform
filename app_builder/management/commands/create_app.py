@@ -460,12 +460,10 @@ def handle_integration_post_save(sender, instance, created, **kwargs):
         code += """
 class BaseModelSerializer(serializers.ModelSerializer):
     \"\"\"
-    A base serializer that calls model.clean() via full_clean()
-    and injects the user into models using set_validation_user().
+    Enhanced base serializer to support full_clean(), user injection, and ManyToMany handling.
     \"\"\"
 
     def _run_model_clean(self, instance):
-        # Optionally pass the user from request
         user = self.context.get('request', None) and self.context['request'].user
         if hasattr(instance, 'set_validation_user'):
             instance.set_validation_user(user)
@@ -476,16 +474,43 @@ class BaseModelSerializer(serializers.ModelSerializer):
             raise DRFValidationError(e.message_dict)
 
     def create(self, validated_data):
+        # Extract ManyToMany fields first
+        m2m_fields = {
+            field.name: validated_data.pop(field.name)
+            for field in self.Meta.model._meta.many_to_many
+            if field.name in validated_data
+        }
+
+        # Create instance without M2M
         instance = self.Meta.model(**validated_data)
         self._run_model_clean(instance)
         instance.save()
+
+        # Assign M2M relationships
+        for field_name, value in m2m_fields.items():
+            getattr(instance, field_name).set(value)
+
         return instance
 
     def update(self, instance, validated_data):
+        # Extract ManyToMany fields first
+        m2m_fields = {
+            field.name: validated_data.pop(field.name)
+            for field in self.Meta.model._meta.many_to_many
+            if field.name in validated_data
+        }
+
+        # Set regular fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+
         self._run_model_clean(instance)
         instance.save()
+
+        # Set M2M fields
+        for field_name, value in m2m_fields.items():
+            getattr(instance, field_name).set(value)
+
         return instance
 
 
