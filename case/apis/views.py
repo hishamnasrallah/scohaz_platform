@@ -2,21 +2,24 @@ import json
 
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, views, generics
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.views import APIView
-from case.models import Case, ApprovalRecord
-from conditional_approval.apis.serializers import ActionSerializer
+from case.models import Case, ApprovalRecord, MapperTarget, MapperExecutionLog, CaseMapper, MapperFieldRule
+from conditional_approval.apis.serializers import ActionBasicSerializer
 from conditional_approval.models import Action, ApprovalStep, ActionStep, ParallelApprovalGroup
 from dynamicflow.utils.dynamicflow_validator_helper import DynamicFlowValidator
 from lookup.models import Lookup
 from utils.conditional_approval import evaluate_conditions
 from dynamicflow.utils.dynamicflow_helper import DynamicFlowHelper
-from .serializers import CaseSerializer
+from .serializers import CaseSerializer, RunMapperInputSerializer, DryRunMapperInputSerializer, \
+    MapperExecutionLogSerializer, CaseMapperSerializer, MapperTargetSerializer, MapperFieldRuleSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.decorators import action
+
+from ..plugins.default_plugin import process_records, dry_run
 
 
 class CaseViewSet(viewsets.ModelViewSet):
@@ -295,49 +298,80 @@ class EmployeeCasesView(APIView):
 
     def get(self, request):
         user = request.user
-
-        # Get cases assigned to the user
-        my_cases = Case.objects.filter(assigned_emp=user)
-        case_serializer = CaseSerializer(my_cases, many=True)
-
-        # Get the count of 'my_cases'
-        my_cases_count = my_cases.count()
-
-        # Get user's groups
         user_groups = user.groups.all()
 
-        # Fetch cases eligible for the user's groups in parallel and priority approvals
+        # -------- My Cases --------
+        my_cases = Case.objects.filter(assigned_emp=user)
+        my_cases_data = self._serialize_cases_with_actions(my_cases, user_groups)
+        my_cases_count = my_cases.count()
+
+        # -------- Available Cases --------
         available_cases = Case.objects.filter(
             Q(assigned_emp__isnull=True) & (
-                # Cases where the assigned group matches the user's groups
                     Q(assigned_group__in=user_groups) |
-                    # Cases where the current approval step has parallel approval groups matching user's groups
                     Q(current_approval_step__parallel_approval_groups__group__in=user_groups) |
-                    # Cases where the current approval step has priority approver groups matching user's groups
                     Q(current_approval_step__priority_approver_groups__in=user_groups)
             )
         ).distinct()
-
-        available_case_serializer = CaseSerializer(available_cases, many=True)
-
-        # Get the count of 'available_cases'
+        available_cases_data = CaseSerializer(available_cases, many=True).data
         available_cases_count = available_cases.count()
 
-        # Return the response with the correct counts and results
+        # -------- Response --------
         return Response({
             'my_cases': {
                 'count': my_cases_count,
                 'next': None,
                 'previous': None,
-                'results': case_serializer.data
+                'results': my_cases_data
             },
             'available_cases': {
                 'count': available_cases_count,
                 'next': None,
                 'previous': None,
-                'results': available_case_serializer.data
+                'results': available_cases_data
             }
         })
+
+    def _serialize_cases_with_actions(self, cases, user_groups):
+        """
+        For each case, attach valid actions based on the current approval step and user group.
+        """
+        enriched_cases = []
+
+        for case in cases:
+            case_data = CaseSerializer(case).data
+
+            # Initialize available actions list
+            case_data["available_actions"] = []
+
+            # Get the current approval step
+            approval_step = getattr(case, "current_approval_step", None)
+            if not approval_step:
+                enriched_cases.append(case_data)
+                continue
+
+            # Get active ActionSteps for this approval step
+            action_steps = approval_step.actions.filter(
+                active_ind=True,
+                action__active_ind=True,
+            ).select_related('action')
+
+            # Filter actions by group access
+            allowed_actions = []
+            for step in action_steps:
+                action = step.action
+                if not action:
+                    continue
+
+                action_groups = action.groups.all()
+                if not action_groups.exists() or action_groups.intersection(user_groups).exists():
+                    allowed_actions.append(action)
+
+            # Serialize allowed actions
+            case_data["available_actions"] = ActionBasicSerializer(allowed_actions, many=True).data
+            enriched_cases.append(case_data)
+
+        return enriched_cases
 
 # last view was working fine without pararrel approvals
 # class EmployeeCasesView(APIView):
@@ -881,7 +915,7 @@ class UserCaseActionsView(APIView):
                 active_ind=True
             ).distinct()
 
-            actions_serialized = ActionSerializer(actions, many=True).data
+            actions_serialized = ActionBasicSerializer(actions, many=True).data
 
             response_data = {
                 'my_cases': {
@@ -926,7 +960,7 @@ class UserCaseActionsView(APIView):
                 active_ind=True
             ).distinct()
 
-            actions_serialized = ActionSerializer(actions, many=True).data
+            actions_serialized = ActionBasicSerializer(actions, many=True).data
 
             response_data = {
                 'assigned_cases': assigned_emp_cases_serialized,
@@ -937,3 +971,59 @@ class UserCaseActionsView(APIView):
         else:
             response_data = {}
         return Response(response_data)
+
+
+class RunMapperAPIView(views.APIView):
+    def post(self, request):
+        serializer = RunMapperInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        case = Case.objects.get(id=serializer.validated_data['case_id'])
+        target = MapperTarget.objects.get(id=serializer.validated_data['mapper_target_id'])
+
+        try:
+            result = process_records(case, target, found_object=None)
+            return Response({
+                "message": "✅ Mapping executed successfully.",
+                "result_count": len(result) if isinstance(result, list) else 1
+            })
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+class DryRunMapperAPIView(views.APIView):
+    def post(self, request):
+        # from .plugins.default_plugin import dry_run
+        serializer = DryRunMapperInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        case = Case.objects.get(id=serializer.validated_data['case_id'])
+        target = MapperTarget.objects.get(id=serializer.validated_data['mapper_target_id'])
+
+        try:
+            preview = dry_run(case, target, found_object=None)
+            return Response(preview)
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+class MapperExecutionLogListAPIView(generics.ListAPIView):
+    queryset = MapperExecutionLog.objects.all().order_by('-executed_at')
+    serializer_class = MapperExecutionLogSerializer
+
+class MapperExecutionLogDetailAPIView(generics.RetrieveAPIView):
+    queryset = MapperExecutionLog.objects.all()
+    serializer_class = MapperExecutionLogSerializer
+
+
+
+class CaseMapperViewSet(viewsets.ModelViewSet):
+    queryset = CaseMapper.objects.all()
+    serializer_class = CaseMapperSerializer
+
+class MapperTargetViewSet(viewsets.ModelViewSet):
+    queryset = MapperTarget.objects.all()
+    serializer_class = MapperTargetSerializer
+
+class MapperFieldRuleViewSet(viewsets.ModelViewSet):
+    queryset = MapperFieldRule.objects.all()
+    serializer_class = MapperFieldRuleSerializer
+

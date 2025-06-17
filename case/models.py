@@ -1,6 +1,11 @@
+import importlib
+import uuid
+
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.db.models import Max
 
@@ -186,6 +191,10 @@ class CaseMapper(models.Model):
         max_length=100,
         help_text="Identifier or name of the case type. E.g. 'VacationRequest'."
     )
+    version = models.PositiveIntegerField(default=1)  # version tracking
+    parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='versions')  # link to previous version
+
+    active_ind = models.BooleanField(default=True, help_text="Whether this mapper is active.")
 
     # Optionally, you can add sub_status, etc. if you want finer scoping:
     # sub_status = models.CharField(max_length=100, null=True, blank=True, ...)
@@ -199,7 +208,10 @@ class MapperTarget(models.Model):
     Specifies which model (via ContentType) to act upon
     and references optional custom finder/processor plugins.
     """
-    id = models.UUIDField(primary_key=True, editable=False)
+    id = models.UUIDField(primary_key=True,
+                          default=uuid.uuid4,  # ✅ Auto-generate UUIDs
+                          editable=False)
+
     case_mapper = models.ForeignKey(CaseMapper, on_delete=models.CASCADE, related_name="targets")
 
     # Which model to affect (dynamic)
@@ -222,6 +234,33 @@ class MapperTarget(models.Model):
         blank=True,
         help_text="Dotted path to a plugin function/class that will handle creation/updating/deletion."
     )
+    post_processor_path = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Optional function path to run after mapping is completed."
+    )
+    root_path = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Optional JSON path to a list of objects (e.g. 'children') to map multiple records."
+    )
+    filter_function_path = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Optional function to filter each item in a JSON list before mapping (must return True/False)"
+    )
+    parent_target = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        related_name="children",
+        on_delete=models.CASCADE
+    )
+
+    active_ind = models.BooleanField(default=True, help_text="Whether this target is active.")
 
     # You could store more info if needed, e.g. an 'operation' field, or
     # even a JSON of custom parameters.
@@ -229,29 +268,206 @@ class MapperTarget(models.Model):
     def __str__(self):
         return f"MapperTarget for {self.case_mapper.name} -> {self.content_type} "
 
+    def clean(self):
+        for path in [
+            ("finder_function_path", self.finder_function_path),
+            ("processor_function_path", self.processor_function_path),
+            ("post_processor_path", self.post_processor_path)
+        ]:
+            if path[1]:
+                try:
+                    module_path, func_name = path[1].rsplit(".", 1)
+                    module = importlib.import_module(module_path)
+                    if not hasattr(module, func_name):
+                        raise ValidationError({path[0]: f"Function '{func_name}' not found in module '{module_path}'"})
+                except Exception as e:
+                    raise ValidationError({path[0]: f"Invalid function path: {str(e)}"})
 
 # (Optional) Example for storing "field rules" if you want a fully declarative approach
 # that doesn't require a custom plugin for simpler scenarios.
 class MapperFieldRule(models.Model):
-    """
-    If you want to let admin define simple JSON path -> model field mappings
-    for scenarios that don't need complex logic.
-    """
-    mapper_target = models.ForeignKey(MapperTarget, on_delete=models.CASCADE, related_name='field_rules')
-
-    # The field name on the model (like 'start_date', 'reason', etc.)
+    mapper_target = models.ForeignKey("MapperTarget", on_delete=models.CASCADE, related_name='field_rules')
     target_field = models.CharField(max_length=100)
-
-    # A JSON path or dotted path within case_data
     json_path = models.CharField(max_length=255, help_text="e.g. 'vacation.start_date'")
-
-    # Optional transformation function path
     transform_function_path = models.CharField(
         max_length=255,
         null=True,
         blank=True,
-        help_text="Dotted path to a function that can transform extracted data before assigning."
+        help_text="Optional function to transform the extracted value."
+    )
+
+    # ✅ NEW: Conditional logic
+    condition_path = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Optional: JSON path to evaluate (e.g. citizen.age)"
+    )
+    condition_value = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Value to compare against"
+    )
+    condition_operator = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=[
+            ("==", "Equal"),
+            ("!=", "Not equal"),
+            (">", "Greater than"),
+            ("<", "Less than"),
+            ("in", "In"),
+            ("not_in", "Not in"),
+        ]
+    )
+    condition_expression = models.TextField(null=True, blank=True)
+    default_value = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Fallback value if the condition fails or path is missing."
+    )
+    source_lookup = models.ForeignKey(
+        "lookup.Lookup", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='source_lookup_rules',
+        help_text="Parent Lookup category of source value, used to translate input values."
+    )
+    target_lookup = models.ForeignKey(
+        "lookup.Lookup", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='target_lookup_rules',
+        help_text="Parent Lookup category from which the final value should be fetched."
     )
 
     def __str__(self):
         return f"{self.mapper_target} - {self.target_field} <- {self.json_path}"
+
+    def clean(self):
+        if self.transform_function_path:
+            try:
+                module_path, func_name = self.transform_function_path.rsplit(".", 1)
+                module = importlib.import_module(module_path)
+                if not hasattr(module, func_name):
+                    raise ValidationError({
+                        "transform_function_path": f"Function '{func_name}' not found in module '{module_path}'"
+                    })
+            except Exception as e:
+                raise ValidationError({
+                    "transform_function_path": f"Invalid transform function path: {str(e)}"
+                })
+
+    def save(self, *args, **kwargs):
+        from case.models import MapperFieldRuleLog
+        user = kwargs.pop('user', None)
+
+        if self.pk:  # If existing, compare for changes
+            old_instance = MapperFieldRule.objects.get(pk=self.pk)
+            old_data = {
+                'target_field': old_instance.target_field,
+                'json_path': old_instance.json_path,
+                'default_value': old_instance.default_value,
+                'transform_function_path': old_instance.transform_function_path,
+                'condition_path': old_instance.condition_path,
+                'condition_operator': old_instance.condition_operator,
+                'condition_value': old_instance.condition_value,
+            }
+        else:
+            old_data = {}
+
+        super().save(*args, **kwargs)
+
+        new_data = {
+            'target_field': self.target_field,
+            'json_path': self.json_path,
+            'default_value': self.default_value,
+            'transform_function_path': self.transform_function_path,
+            'condition_path': self.condition_path,
+            'condition_operator': self.condition_operator,
+            'condition_value': self.condition_value,
+        }
+
+        if old_data != new_data:
+            MapperFieldRuleLog.objects.create(
+                rule=self,
+                user=user,
+                old_data=old_data,
+                new_data=new_data,
+            )
+
+class MapperFieldRuleLog(models.Model):
+    rule = models.ForeignKey('MapperFieldRule', on_delete=models.CASCADE, related_name='change_logs')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    # Snapshot of old and new values
+    old_data = models.JSONField()
+    new_data = models.JSONField()
+
+    def __str__(self):
+        return f"ChangeLog for Rule {self.rule_id} at {self.changed_at}"
+
+class MapperExecutionLog(models.Model):
+    case = models.ForeignKey("Case", on_delete=models.CASCADE, related_name="mapper_logs")
+    mapper_target = models.ForeignKey("MapperTarget", on_delete=models.SET_NULL, null=True)
+    executed_at = models.DateTimeField(default=timezone.now)
+    success = models.BooleanField(default=False)
+    result_data = models.JSONField(default=dict)  # store full trace: parent/child mappings
+    error_trace = models.TextField(null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-executed_at']
+
+    def __str__(self):
+        return f"ExecutionLog: Case {self.case_id} → Target {self.mapper_target_id}"
+
+# Add this new model
+
+class MapperFieldCondition(models.Model):
+    rule = models.ForeignKey("MapperFieldRule", related_name="field_conditions", on_delete=models.CASCADE)
+    path = models.CharField(max_length=255, help_text="JSON path in the case data or context")
+    operator = models.CharField(max_length=20, choices=[
+        ('==', 'Equals'),
+        ('!=', 'Not Equals'),
+        ('>', 'Greater Than'),
+        ('<', 'Less Than'),
+        ('in', 'Contains'),
+        ('not_in', 'Does Not Contain'),
+    ])
+    value = models.CharField(max_length=255, help_text="Expected value to compare against")
+    logic_type = models.CharField(max_length=3, choices=[('AND', 'AND'), ('OR', 'OR')], default='AND')
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order']
+
+class MapperFieldRuleCondition(models.Model):
+    """
+    A reusable condition rule to be attached to a MapperFieldRule.
+    Can be expression-based or path/operator-based.
+    """
+    field_rule = models.ForeignKey("MapperFieldRule", on_delete=models.CASCADE, related_name="rule_conditions")
+    group = models.CharField(max_length=50, default="default", help_text="Group name to combine logic (e.g. AND group)")
+
+    # Condition expression
+    condition_expression = models.TextField(null=True, blank=True)
+
+    # Fallback legacy condition
+    condition_path = models.CharField(max_length=255, null=True, blank=True)
+    condition_operator = models.CharField(
+        max_length=20,
+        choices=[
+            ("==", "Equal"),
+            ("!=", "Not equal"),
+            (">", "Greater than"),
+            ("<", "Less than"),
+            ("in", "Contains"),
+            ("not_in", "Does not contain"),
+        ],
+        null=True, blank=True
+    )
+    condition_value = models.CharField(max_length=255, null=True, blank=True)
+
+    def __str__(self):
+        return f"Condition ({self.group}) on rule {self.field_rule_id}"

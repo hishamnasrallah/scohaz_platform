@@ -55,6 +55,7 @@ urlpatterns = [
     path('integration/', include('integration.urls'), name='integartion'),
     path('translations/', include('misc.urls')),  # Include translations app URLs
     path('define/', include("lowcode.urls"), name='Project Design'),
+    path('conditional_approvals/', include("conditional_approval.urls"), name='Conditional Approvals'),
     path('license/', include("license_subscription_manager.urls"), name='license_subscription_manager'),
     path('app-builder/', include('app_builder.urls')),
     # path('my_dynamic_app/', include('my_dynamic_app.urls')),

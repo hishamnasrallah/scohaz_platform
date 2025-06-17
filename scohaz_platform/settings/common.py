@@ -20,6 +20,7 @@ print(BASE_DIR)
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-ei4z7#l_5z^ff)3dam7lc!6vv*byrq(xtp&mwt&g0zs@wl-q2n'
+TRANSLATION_DIR = os.path.join(BASE_DIR, 'local')
 
 # APPEND_SLASH = False
 

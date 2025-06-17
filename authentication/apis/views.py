@@ -2,9 +2,11 @@ import json
 from datetime import datetime
 import pytz
 from coreapi.compat import force_text
+from django.contrib.auth.models import Group
+from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
 from rest_framework.generics import GenericAPIView, RetrieveUpdateAPIView
-from authentication.models import CustomUser, UserPreference, PhoneNumber
+from authentication.models import CustomUser, UserPreference, PhoneNumber, CRUDPermission
 from django.utils.http import (urlsafe_base64_encode,
                                urlsafe_base64_decode)
 from django.utils.encoding import force_bytes
@@ -16,7 +18,7 @@ import os
 # from utils.constant_lists_variables import ErrorCodes
 from utils.send_email import ScohazEmailHelper
 from authentication.tokens import account_activation_token
-from rest_framework import status
+from rest_framework import status, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -31,7 +33,7 @@ from authentication.apis.serializers import (RegistrationSerializer,
                                              ActivateSMSSerializer,
                                              UserPreferenceSerializer,
                                              NewPasswordSerializer,
-                                             UserPhoneNumberSerializer)
+                                             UserPhoneNumberSerializer, GroupSerializer, CRUDPermissionSerializer)
 
 from authentication.tokens import (ScohazToken,
                                    ScohazRefreshToken)
@@ -44,6 +46,14 @@ class ScohazTokenObtainPairView(TokenObtainPairView):
 class ScohazTokenRefreshView(TokenRefreshView):
     serializer_class = ScohazTokenRefreshSerializer
 
+
+class GroupViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    API endpoint to list and retrieve Django groups.
+    """
+    queryset = Group.objects.all()
+    serializer_class = GroupSerializer
+    permission_classes = [IsAuthenticated]
 
 class ActivateEmail(APIView):
     permission_classes = (AllowAny,)
@@ -223,6 +233,77 @@ class UserPreferenceAPIView(RetrieveUpdateAPIView):
     def get_object(self):
         # Return the current user's preference
         return UserPreference.objects.get_or_create(user=self.request.user)[0]
+
+
+class CRUDPermissionViewSet(viewsets.ModelViewSet):
+    """
+    CRUD API for managing group-model-context level permissions.
+    """
+    queryset = CRUDPermission.objects.all()
+    serializer_class = CRUDPermissionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Optional filtering by group_id, content_type_id, or context.
+        """
+        queryset = super().get_queryset()
+        group_id = self.request.query_params.get("group")
+        content_type_id = self.request.query_params.get("content_type")
+        context = self.request.query_params.get("context")
+
+        if group_id:
+            queryset = queryset.filter(group_id=group_id)
+        if content_type_id:
+            queryset = queryset.filter(content_type_id=content_type_id)
+        if context:
+            queryset = queryset.filter(context=context)
+
+        return queryset
+
+
+
+class ContentTypeAppListView(APIView):
+    """
+    GET /content-types/apps/
+    Returns only custom (user-created) app labels — excludes Django/system/third-party apps.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Get all app labels from ContentType table
+        all_content_app_labels = set(ContentType.objects.values_list("app_label", flat=True))
+
+        # Derive your project root (e.g., where manage.py is)
+        project_root = settings.BASE_DIR
+
+        # List of your own apps (assumes they have __init__.py and models.py)
+        custom_apps = []
+        for app in all_content_app_labels:
+            app_path = os.path.join(project_root, app)
+            if os.path.isdir(app_path) and os.path.isfile(os.path.join(app_path, "models.py")):
+                custom_apps.append(app)
+
+        return Response(sorted(custom_apps))
+
+
+class ContentTypeModelListView(APIView):
+    """
+    GET /content-types/models/?app=app_label
+    Returns list of models for a given app label.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        app_label = request.query_params.get("app")
+        if not app_label:
+            return Response(
+                {"detail": "Missing 'app' query parameter."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        models = ContentType.objects.filter(app_label=app_label).values("id", "model", "app_label")
+        return Response(models)
 
 
 class TranslationAPIView(APIView):

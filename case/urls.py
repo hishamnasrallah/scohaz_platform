@@ -2,14 +2,22 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from case.apis.views import (CaseViewSet, SubmitApplication,
                              EmployeeCasesView, AssignCaseView,
-                             ApprovalFlowActionCaseView, UserCaseActionsView)
+                             ApprovalFlowActionCaseView, UserCaseActionsView, RunMapperAPIView, DryRunMapperAPIView,
+                             MapperExecutionLogListAPIView, MapperExecutionLogDetailAPIView, CaseMapperViewSet,
+                             MapperTargetViewSet, MapperFieldRuleViewSet)
 from case.apps import CaseConfig
 
 app_name = CaseConfig.name
 router = DefaultRouter()
-router.register(r'cases', CaseViewSet, basename='case')
+router.register('case-mappers', CaseMapperViewSet, basename='case-mapper')
+router.register('case-targets', MapperTargetViewSet, basename='case-target')
+router.register('case-rules', MapperFieldRuleViewSet, basename='case-rule')
+router.register('cases', CaseViewSet, basename='applicant_cases')
+
 
 urlpatterns = [
+    # path('cases/',
+    #      CaseViewSet.as_view(), name='applicant_cases'),
     path('cases/submit/<int:pk>/',
          SubmitApplication.as_view(), name='submit_beneficiary_application'),
     path('cases/employee/',
@@ -23,9 +31,18 @@ urlpatterns = [
     # path('cases/<int:case>/documents/',
     #      CaseDocumentsAPIView.as_view(), name='case_documents'),
     path('', include(router.urls)),
-
-
 ]
+urlpatterns += router.urls
+# mapping log urls
+urlpatterns += [
+    path('api/mapper/run/', RunMapperAPIView.as_view(), name='run-mapper'),
+    path('api/mapper/dry-run/', DryRunMapperAPIView.as_view(), name='dry-run-mapper'),
+    path('api/mapper/logs/', MapperExecutionLogListAPIView.as_view(), name='mapper-log-list'),
+    path('api/mapper/logs/<int:pk>/', MapperExecutionLogDetailAPIView.as_view(), name='mapper-log-detail'),
+]
+
+
+
 
 #
 # urlpatterns = [

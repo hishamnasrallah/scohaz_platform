@@ -165,21 +165,25 @@ class DynamicFlowValidator:
         return True
 
     def _evaluate_condition_logic(self, condition_logic: List[Dict[str, Any]], merged_data: Dict[str, Any]) -> bool:
-        """
-        Evaluate a list of conditions in the condition logic.
-        """
         try:
             result = True
             for condition in condition_logic:
                 field_name = condition["field"]
                 operation = condition["operation"]
-                value = condition["value"]
-                field_value = merged_data.get(field_name)
+                raw_value = condition["value"]
 
+                # 👇 Check if value is a reference to another field
+                if isinstance(raw_value, dict) and "field" in raw_value:
+                    referenced_field = raw_value["field"]
+                    value = merged_data.get(referenced_field)
+                else:
+                    value = raw_value
+
+                field_value = merged_data.get(field_name)
                 result = result and self._evaluate_single_condition(field_value, operation, value)
 
             return result
-        except Exception:
+        except Exception as e:
             return False
 
     def _evaluate_single_condition(self, field_value: Any, operation: str, value: Any) -> bool:

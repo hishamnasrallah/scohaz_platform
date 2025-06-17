@@ -10,7 +10,7 @@ import os
 from icecream import ic
 from rest_framework.generics import get_object_or_404
 
-from case.models import Case
+from case.models import Case, MapperExecutionLog, MapperFieldRule, MapperTarget, CaseMapper
 from conditional_approval.models import ApprovalStep, Action
 from dynamicflow.utils.dynamicflow_helper import DynamicFlowHelper
 from dynamicflow.utils.dynamicflow_validator_helper import DynamicFlowValidator
@@ -393,3 +393,38 @@ class CaseSerializer(serializers.ModelSerializer):
             f"Updated case with ID {instance.id}"
             f", files: {case_data.get('uploaded_files', [])}")
         return instance
+
+
+
+class MapperExecutionLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MapperExecutionLog
+        fields = '__all__'
+
+class RunMapperInputSerializer(serializers.Serializer):
+    case_id = serializers.IntegerField()
+    mapper_target_id = serializers.IntegerField()
+
+class DryRunMapperInputSerializer(serializers.Serializer):
+    case_id = serializers.IntegerField()
+    mapper_target_id = serializers.IntegerField()
+
+
+class MapperFieldRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MapperFieldRule
+        fields = '__all__'
+
+class MapperTargetSerializer(serializers.ModelSerializer):
+    field_rules = MapperFieldRuleSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = MapperTarget
+        fields = '__all__'
+
+class CaseMapperSerializer(serializers.ModelSerializer):
+    targets = MapperTargetSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CaseMapper
+        fields = '__all__'

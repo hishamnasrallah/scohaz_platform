@@ -1,4 +1,4 @@
-from django.urls import path, re_path
+from django.urls import path, re_path, include
 from authentication.apis.views import (ScohazTokenObtainPairView,
                                        ScohazTokenRefreshView,
                                        RegistrationAPIView,
@@ -11,10 +11,22 @@ from authentication.apis.views import (ScohazTokenObtainPairView,
                                        ChangePasswordView,
                                        UserPreferenceAPIView,
                                        UserPhoneNumberAPIView,
-                                       TranslationAPIView)
+                                       TranslationAPIView, CRUDPermissionViewSet, ContentTypeAppListView,
+                                       ContentTypeModelListView)
 
+from rest_framework.routers import DefaultRouter
+from authentication.apis.views import GroupViewSet
+
+router = DefaultRouter()
+router.register(r'groups', GroupViewSet, basename='group')
+router.register(r'crud-permissions', CRUDPermissionViewSet, basename='crudpermission')
 
 urlpatterns = [
+    path('', include(router.urls)),
+]
+urlpatterns += [
+    path('content-types/apps/', ContentTypeAppListView.as_view(), name='content-type-apps'),
+    path('content-types/models/', ContentTypeModelListView.as_view(), name='content-type-models'),
     path('login/', ScohazTokenObtainPairView.as_view(), name='jwt_login'),
     path('register/', RegistrationAPIView.as_view(), name='register'),
 

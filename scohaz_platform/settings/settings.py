@@ -5,7 +5,7 @@ from .common import (BASE_DIR, INSTALLED_APPS, MIDDLEWARE, DATABASES,
                      WSGI_APPLICATION, DEBUG, ALLOWED_HOSTS,
                      AUTH_PASSWORD_VALIDATORS, LANGUAGE_CODE, TIME_ZONE,
                      USE_I18N, USE_TZ, DEFAULT_AUTO_FIELD,
-                     MEDIA_ROOT, MEDIA_URL, STATIC_ROOT, CSRF_TRUSTED_ORIGINS)
+                     MEDIA_ROOT, MEDIA_URL, STATIC_ROOT, CSRF_TRUSTED_ORIGINS, TRANSLATION_DIR)
 
 from icecream import ic
 from datetime import timedelta
@@ -52,17 +52,7 @@ INSTALLED_APPS += [
 
 CUSTOM_APPS = [
     'ab_app',
-    'bbb_app',
-    'aaa_app',
     'relational_app',
-    'samer_app',
-    'assets_app',
-    'asset_app',
-    'contact2_app',
-    'omar',
-    'testchoice',
-    'hr',
-    'crm',
 
 ]
 INSTALLED_APPS += CUSTOM_APPS + [
@@ -100,18 +90,8 @@ INSTALLED_APPS += CUSTOM_APPS + [
 # }
 APPS_CURRENT_USER_MIDDLEWARE = [
     'ab_app.middleware.CurrentUserMiddleware',
-    'bbb_app.middleware.CurrentUserMiddleware',
-    'aaa_app.middleware.CurrentUserMiddleware',
     'relational_app.middleware.CurrentUserMiddleware',
-    'samer_app.middleware.CurrentUserMiddleware',
-    'assets_app.middleware.CurrentUserMiddleware',
-    'asset_app.middleware.CurrentUserMiddleware',
-    'contact2_app.middleware.CurrentUserMiddleware',
-    'omar.middleware.CurrentUserMiddleware',
-    'testchoice.middleware.CurrentUserMiddleware',
-    'hr.middleware.CurrentUserMiddleware',
     #// TODO: add other modules
-    'crm.middleware.CurrentUserMiddleware',
 ]
 
 APP_MIDDLEWARE_MAPPING = {

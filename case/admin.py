@@ -1,6 +1,15 @@
-from django.contrib import admin
-from .models import Case, ApprovalRecord, MapperFieldRule, MapperTarget, CaseMapper
+import json
+
+from django.contrib import admin, messages
+from django.http import HttpResponse
+from django.shortcuts import redirect
+from django.urls import path
+from django.utils.html import format_html
+
+from .models import Case, ApprovalRecord, MapperFieldRule, MapperTarget, CaseMapper, MapperExecutionLog, \
+    MapperFieldRuleLog
 from lookup.models import Lookup
+from .services import preview_mapping
 
 
 @admin.register(Case)
@@ -17,6 +26,7 @@ class CaseAdmin(admin.ModelAdmin):
                    'assigned_group', 'assigned_emp']
     ordering = ('created_at',)
     date_hierarchy = 'created_at'
+    actions = ['run_mapping']
 
     # Fields for the form in the admin (to display in the add/edit page)
     fields = [
@@ -69,6 +79,16 @@ class CaseAdmin(admin.ModelAdmin):
             return self.readonly_fields + ['serial_number']
         return self.readonly_fields
 
+    def run_mapping(self, request, queryset):
+        from case.plugins.default_plugin import process_records
+        for case in queryset:
+            for target in MapperTarget.objects.filter(case_type=case.case_type):
+                try:
+                    process_records(case, target, found_object=None)
+                except Exception as e:
+                    self.message_user(request, f"❌ Error for Case {case.id}: {e}", level='error')
+        self.message_user(request, "✅ Mapping executed.")
+    run_mapping.short_description = "▶️ Run Mapping for Selected Cases"
 
 @admin.register(ApprovalRecord)
 class ApprovalRecordAdmin(admin.ModelAdmin):
@@ -103,8 +123,10 @@ class MapperTargetInline(admin.TabularInline):
 # 3) CaseMapper Admin
 @admin.register(CaseMapper)
 class CaseMapperAdmin(admin.ModelAdmin):
-    list_display = ("name", "case_type")
+    list_display = ("name", "case_type", "version", "active_ind")
     search_fields = ("name", "case_type")
+    readonly_fields = ("version", "parent")
+    list_filter = ("case_type", "active_ind")
     inlines = [MapperTargetInline]
 
 # 4) MapperTarget Admin
@@ -115,10 +137,48 @@ class MapperTargetAdmin(admin.ModelAdmin):
         "content_type",
         "finder_function_path",
         "processor_function_path",
+        "preview_button",  # ✅ New
     )
     search_fields = ("finder_function_path", "processor_function_path")
     inlines = [MapperFieldRuleInline]
 
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:object_id>/preview/",
+                self.admin_site.admin_view(self.preview_view),
+                name="case_mappertarget_preview",
+            ),
+        ]
+        return custom_urls + urls
+
+    def preview_button(self, obj):
+        return format_html(
+            '<a class="button" href="{}">🔍 Preview</a>',
+            f"{obj.id}/preview/"
+        )
+    preview_button.short_description = "Preview"
+    preview_button.allow_tags = True
+
+    def preview_view(self, request, object_id):
+        from case.models import MapperTarget, Case
+
+        try:
+            target = MapperTarget.objects.get(pk=object_id)
+            case = Case.objects.filter(case_type=target.case_mapper.case_type).first()
+            if not case:
+                messages.warning(request, "No case found for this mapper to preview.")
+                return redirect(request.META.get("HTTP_REFERER"))
+
+            result = preview_mapping(case)
+            return HttpResponse(
+                f"<pre>{format_html(json.dumps(result, indent=2))}</pre>"
+            )
+
+        except Exception as e:
+            messages.error(request, f"Error previewing: {str(e)}")
+            return redirect(request.META.get("HTTP_REFERER"))
 # 5) MapperFieldRule Admin
 @admin.register(MapperFieldRule)
 class MapperFieldRuleAdmin(admin.ModelAdmin):
@@ -127,5 +187,34 @@ class MapperFieldRuleAdmin(admin.ModelAdmin):
         "target_field",
         "json_path",
         "transform_function_path",
+        "source_lookup",
+        "target_lookup",
     )
     search_fields = ("target_field", "json_path")
+
+    def save_model(self, request, obj, form, change):
+        obj.save(user=request.user)
+
+@admin.register(MapperExecutionLog)
+class MapperExecutionLogAdmin(admin.ModelAdmin):
+    list_display = ('case', 'mapper_target', 'executed_at', 'success')
+    list_filter = ('success', 'executed_at', 'mapper_target')
+    search_fields = ('case__serial_number', 'mapper_target__id')
+    readonly_fields = ('case', 'mapper_target', 'executed_at', 'success', 'result_data', 'error_trace')
+
+    fieldsets = (
+        (None, {
+            'fields': ('case', 'mapper_target', 'executed_at', 'success')
+        }),
+        ('Details', {
+            'fields': ('result_data', 'error_trace')
+        }),
+    )
+
+
+@admin.register(MapperFieldRuleLog)
+class MapperFieldRuleLogAdmin(admin.ModelAdmin):
+    list_display = ('rule', 'user', 'changed_at')
+    readonly_fields = ('rule', 'user', 'changed_at', 'old_data', 'new_data')
+    search_fields = ('rule__target_field', 'user__username')
+    list_filter = ('user', 'changed_at')

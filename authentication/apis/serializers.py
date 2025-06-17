@@ -1,4 +1,5 @@
 from django.contrib.auth import authenticate
+from django.contrib.auth.models import Group
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers, exceptions
 # from rest_framework.exceptions import ValidationError
@@ -6,11 +7,15 @@ from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import (PasswordField,
                                                   TokenRefreshSerializer,
                                                   TokenObtainSerializer)
-from authentication.models import CustomUser, UserPreference, PhoneNumber
+from authentication.models import CustomUser, UserPreference, PhoneNumber, CRUDPermission
 from django.utils.translation import gettext_lazy as _
 from authentication.tokens import ScohazRefreshToken
 from lookup.apis.serializers import LookupCategoryMixin
 
+class GroupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Group
+        fields = ['id', 'name']
 
 class RegistrationSerializer(serializers.ModelSerializer):
     """Serializers registration requests and creates a new user."""
@@ -189,3 +194,15 @@ class UserPhoneNumberSerializer(LookupCategoryMixin, serializers.ModelSerializer
         dynamic_fields = self.get_dynamic_lookup_fields(self.Meta.model)
         for field_name, field in dynamic_fields.items():
             self.fields[field_name] = field
+
+
+class CRUDPermissionSerializer(serializers.ModelSerializer):
+    content_type_name = serializers.SerializerMethodField()
+    group_name = serializers.CharField(source="group.name", read_only=True)
+
+    class Meta:
+        model = CRUDPermission
+        fields = '__all__'  # includes group, content_type, object_id, etc.
+
+    def get_content_type_name(self, obj):
+        return f"{obj.content_type.app_label}.{obj.content_type.model}"
