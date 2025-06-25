@@ -74,7 +74,7 @@ class CRUDPermission(models.Model):
     can_delete = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = ('group', 'content_type', 'context', 'object_id')
+        unique_together = ('group', 'content_type', 'context')
         verbose_name = "CRUD Permission"
         verbose_name_plural = "CRUD Permissions"
 

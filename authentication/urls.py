@@ -12,7 +12,7 @@ from authentication.apis.views import (ScohazTokenObtainPairView,
                                        UserPreferenceAPIView,
                                        UserPhoneNumberAPIView,
                                        TranslationAPIView, CRUDPermissionViewSet, ContentTypeAppListView,
-                                       ContentTypeModelListView)
+                                       ContentTypeModelListView, UserDetailAPIView)
 
 from rest_framework.routers import DefaultRouter
 from authentication.apis.views import GroupViewSet
@@ -49,6 +49,8 @@ urlpatterns += [
     ),
     path('resend-activation-link/',
          ResendActivationEmail.as_view(), name='resend_email'),
+
+    path('me/', UserDetailAPIView.as_view(), name='user-detail'),
 
     path('preferences/',
          UserPreferenceAPIView.as_view(), name='user_preferences'),

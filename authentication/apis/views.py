@@ -33,7 +33,8 @@ from authentication.apis.serializers import (RegistrationSerializer,
                                              ActivateSMSSerializer,
                                              UserPreferenceSerializer,
                                              NewPasswordSerializer,
-                                             UserPhoneNumberSerializer, GroupSerializer, CRUDPermissionSerializer)
+                                             UserPhoneNumberSerializer, GroupSerializer, CRUDPermissionSerializer,
+                                             CustomUserDetailSerializer)
 
 from authentication.tokens import (ScohazToken,
                                    ScohazRefreshToken)
@@ -296,11 +297,15 @@ class ContentTypeModelListView(APIView):
 
     def get(self, request):
         app_label = request.query_params.get("app")
+        # if not app_label:
+        #
+        #     return Response(
+        #         {"detail": "Missing 'app' query parameter."},
+        #         status=status.HTTP_400_BAD_REQUEST
+        #     )
         if not app_label:
-            return Response(
-                {"detail": "Missing 'app' query parameter."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            models = ContentType.objects.all().values("id", "model", "app_label")
+            return Response(models)
 
         models = ContentType.objects.filter(app_label=app_label).values("id", "model", "app_label")
         return Response(models)
@@ -381,6 +386,14 @@ class UserPhoneNumberAPIView(APIView):
         phone_number.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+
+
+class UserDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = CustomUserDetailSerializer(request.user)
+        return Response(serializer.data)
 
 # class RequestForgetUsername(GenericAPIView):
 #     permission_classes = [

@@ -10,6 +10,7 @@ from rest_framework_simplejwt.serializers import (PasswordField,
 from authentication.models import CustomUser, UserPreference, PhoneNumber, CRUDPermission
 from django.utils.translation import gettext_lazy as _
 from authentication.tokens import ScohazRefreshToken
+from conditional_approval.apis.serializers import LookupSerializer
 from lookup.apis.serializers import LookupCategoryMixin
 
 class GroupSerializer(serializers.ModelSerializer):
@@ -199,6 +200,7 @@ class UserPhoneNumberSerializer(LookupCategoryMixin, serializers.ModelSerializer
 class CRUDPermissionSerializer(serializers.ModelSerializer):
     content_type_name = serializers.SerializerMethodField()
     group_name = serializers.CharField(source="group.name", read_only=True)
+    object_id = serializers.IntegerField(required=False, allow_null=True)
 
     class Meta:
         model = CRUDPermission
@@ -206,3 +208,24 @@ class CRUDPermissionSerializer(serializers.ModelSerializer):
 
     def get_content_type_name(self, obj):
         return f"{obj.content_type.app_label}.{obj.content_type.model}"
+
+
+class CustomUserDetailSerializer(serializers.ModelSerializer):
+    preference = UserPreferenceSerializer(read_only=True)
+    user_type = LookupSerializer(read_only=True)
+    # crud_permissions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id', 'username', 'first_name', 'second_name', 'third_name', 'last_name',
+            'email', 'is_active', 'is_staff', 'is_superuser', 'is_developer',
+            'user_type', 'preference', # 'crud_permissions'
+        ]
+
+    def get_crud_permissions(self, obj):
+        group = obj.groups.first()
+        if group:
+            perms = CRUDPermission.objects.filter(group=group)
+            return CRUDPermissionSerializer(perms, many=True).data
+        return []
