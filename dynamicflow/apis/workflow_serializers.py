@@ -33,7 +33,7 @@ class WorkflowPageSerializer(serializers.ModelSerializer):
             'service', 'service_id', 'service_name', 'service_code',
             'sequence_number', 'sequence_number_id', 'sequence_number_name', 'sequence_number_code',
             'applicant_type', 'applicant_type_id', 'applicant_type_name', 'applicant_type_code',
-            'active_ind'
+            'workflow', 'position_x', 'position_y', 'is_expanded', 'active_ind'
         ]
 
     def to_representation(self, instance):
@@ -65,7 +65,8 @@ class WorkflowCategorySerializer(serializers.ModelSerializer):
         model = Category
         fields = [
             'id', 'name', 'name_ara', 'code', 'description',
-            'is_repeatable', 'pages', 'page_ids', 'active_ind'
+            'is_repeatable', 'pages', 'page_ids', 'workflow',
+            'relative_position_x', 'relative_position_y', 'active_ind'
         ]
 
     def get_pages(self, obj):
@@ -98,24 +99,24 @@ class WorkflowFieldSerializer(serializers.ModelSerializer):
     categories = serializers.SerializerMethodField()
     sub_fields = serializers.SerializerMethodField()
 
-    class Meta:
-        model = Field
-        fields = [
-            'id', '_field_name', '_field_display_name', '_field_display_name_ara',
-            '_field_type', 'field_type_id', 'field_type_name', 'field_type_code',
-            '_parent_field', 'parent_field_id', 'parent_field_name',
-            '_lookup', 'lookup_id', 'lookup_name', 'lookup_code',
-            '_sequence', '_mandatory', '_is_hidden', '_is_disabled',
-            'services', 'categories', 'sub_fields',
-            '_max_length', '_min_length', '_regex_pattern', '_allowed_characters',
-            '_forbidden_words', '_value_greater_than', '_value_less_than',
-            '_integer_only', '_positive_only', '_date_greater_than', '_date_less_than',
-            '_future_only', '_past_only', '_default_boolean', '_file_types',
-            '_max_file_size', '_image_max_width', '_image_max_height',
-            '_max_selections', '_min_selections', '_precision', '_unique',
-            '_default_value', '_coordinates_format', '_uuid_format',
-            'active_ind'
-        ]
+class Meta:
+    model = Field
+    fields = [
+        'id', '_field_name', '_field_display_name', '_field_display_name_ara',
+        '_field_type', 'field_type_id', 'field_type_name', 'field_type_code',
+        '_parent_field', 'parent_field_id', 'parent_field_name',
+        '_lookup', 'lookup_id', 'lookup_name', 'lookup_code',
+        '_sequence', '_mandatory', '_is_hidden', '_is_disabled',
+        'services', 'categories', 'sub_fields', 'allowed_lookups',
+        '_max_length', '_min_length', '_regex_pattern', '_allowed_characters',
+        '_forbidden_words', '_value_greater_than', '_value_less_than',
+        '_integer_only', '_positive_only', '_date_greater_than', '_date_less_than',
+        '_future_only', '_past_only', '_default_boolean', '_file_types',
+        '_max_file_size', '_image_max_width', '_image_max_height',
+        '_max_selections', '_min_selections', '_precision', '_unique',
+        '_default_value', '_coordinates_format', '_uuid_format',
+        'workflow', 'relative_position_x', 'relative_position_y', 'active_ind'
+    ]
 
     def get_services(self, obj):
         return [{
@@ -168,5 +169,6 @@ class WorkflowConditionSerializer(serializers.ModelSerializer):
         model = Condition
         fields = [
             'id', 'target_field', 'target_field_id', 'target_field_name',
-            'target_field_display_name', 'condition_logic', 'active_ind'
+            'target_field_display_name', 'condition_logic', 'workflow',
+            'position_x', 'position_y', 'active_ind'
         ]

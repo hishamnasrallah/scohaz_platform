@@ -11,7 +11,7 @@ from dynamicflow.apis.workflow_serializers import (
 class WorkflowConnectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkflowConnection
-        fields = ['id', 'source_type', 'source_id', 'target_type', 'target_id', 'connection_metadata']
+        fields = ['id', 'workflow', 'source_type', 'source_id', 'target_type', 'target_id', 'connection_metadata']
 
 
 class WorkflowSerializer(serializers.ModelSerializer):
