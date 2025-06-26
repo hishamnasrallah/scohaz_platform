@@ -7,8 +7,7 @@ from dynamicflow.apis.views import (
     FieldTypeViewSet, PageViewSet, CategoryViewSet,
     FieldViewSet, ConditionViewSet
 )
-from dynamicflow.apis.workflow_container_serializers import WorkflowViewSet
-
+from dynamicflow.apis.workflow_container_views import WorkflowViewSet  # Fixed import
 
 # Original router for existing endpoints
 router = DefaultRouter()
