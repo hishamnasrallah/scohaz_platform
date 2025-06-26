@@ -89,7 +89,7 @@ class DynamicFlowHelper:
             service__code__in=self.query["service__in"],
             active_ind=True
         ).select_related("service").only(
-            "id", "name", "sequence_number", "description", "service__code"
+            "id", "name", "sequence_number","applicant_type", "description", "service__code"
         ).prefetch_related(
             Prefetch('category_set', queryset=Category.objects.filter(active_ind=True))
         )
@@ -210,6 +210,8 @@ class DynamicFlowHelper:
             "sequence_number": page.sequence_number.code if page.sequence_number else None,
             "name": page.name,
             "name_ara": page.name_ara,
+            "applicant_type": page.applicant_type.id,
+            # "service": page.service.id,
             "description": page.description,
             "description_ara": page.description_ara,
             "is_hidden_page": not page.active_ind,
