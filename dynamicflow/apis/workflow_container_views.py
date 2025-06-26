@@ -180,21 +180,41 @@ class WorkflowViewSet(viewsets.ModelViewSet):
 
     def _create_page(self, properties, position, workflow):
         """Helper to create a page"""
+        # Handle service field
+        service_value = properties.get('service')
+        if isinstance(service_value, list):
+            service_id = service_value[0] if service_value else None
+        else:
+            service_id = service_value
+
+        # Handle sequence_number field
+        seq_value = properties.get('sequence_number')
+        if isinstance(seq_value, list):
+            sequence_number_id = seq_value[0] if seq_value else None
+        else:
+            sequence_number_id = seq_value
+
+        # Handle applicant_type field
+        app_value = properties.get('applicant_type')
+        if isinstance(app_value, list):
+            applicant_type_id = app_value[0] if app_value else None
+        else:
+            applicant_type_id = app_value
+
         return Page.objects.create(
             workflow=workflow,
             name=properties.get('name', ''),
             name_ara=properties.get('name_ara', ''),
             description=properties.get('description', ''),
             description_ara=properties.get('description_ara', ''),
-            service_id=properties.get('service'),
-            sequence_number_id=properties.get('sequence_number'),
-            applicant_type_id=properties.get('applicant_type'),
+            service_id=service_id,
+            sequence_number_id=sequence_number_id,
+            applicant_type_id=applicant_type_id,
             position_x=position.get('x', 0),
             position_y=position.get('y', 0),
             is_expanded=properties.get('isExpanded', False),
             active_ind=properties.get('active_ind', True)
         )
-
     def _update_page(self, page, properties, position, workflow):
         """Helper to update a page"""
         page.workflow = workflow
@@ -203,11 +223,23 @@ class WorkflowViewSet(viewsets.ModelViewSet):
         page.description = properties.get('description', page.description)
         page.description_ara = properties.get('description_ara', page.description_ara)
         if 'service' in properties:
-            page.service_id = properties['service']
+            service_value = properties['service']
+            if isinstance(service_value, list):
+                page.service_id = service_value[0] if service_value else None
+            else:
+                page.service_id = service_value
         if 'sequence_number' in properties:
-            page.sequence_number_id = properties['sequence_number']
+            seq_value = properties['sequence_number']
+            if isinstance(seq_value, list):
+                page.sequence_number_id = seq_value[0] if seq_value else None
+            else:
+                page.sequence_number_id = seq_value
         if 'applicant_type' in properties:
-            page.applicant_type_id = properties['applicant_type']
+            app_value = properties['applicant_type']
+            if isinstance(app_value, list):
+                page.applicant_type_id = app_value[0] if app_value else None
+            else:
+                page.applicant_type_id = app_value
         page.position_x = position.get('x', page.position_x)
         page.position_y = position.get('y', page.position_y)
         page.is_expanded = properties.get('isExpanded', page.is_expanded)
