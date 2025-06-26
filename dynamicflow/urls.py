@@ -7,6 +7,8 @@ from dynamicflow.apis.views import (
     FieldTypeViewSet, PageViewSet, CategoryViewSet,
     FieldViewSet, ConditionViewSet
 )
+from dynamicflow.apis.workflow_container_serializers import WorkflowViewSet
+
 
 # Original router for existing endpoints
 router = DefaultRouter()
@@ -16,8 +18,9 @@ router.register(r'categories', CategoryViewSet, basename='category')
 router.register(r'fields', FieldViewSet, basename='field')
 router.register(r'conditions', ConditionViewSet, basename='condition')
 
-# Import workflow urls
-# from dynamicflow.apis import workflow_urls
+# Workflow container router
+workflow_container_router = DefaultRouter()
+workflow_container_router.register(r'workflows', WorkflowViewSet, basename='workflow')
 
 urlpatterns = [
     # Original endpoints (unchanged for eservice)
@@ -26,6 +29,9 @@ urlpatterns = [
 
     # Workflow builder specific endpoints
     path('workflow/', include(workflow_urls)),
+
+    # Workflow container management
+    path('', include(workflow_container_router.urls)),
 ]
 
 app_name = 'form_api'

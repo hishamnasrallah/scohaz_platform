@@ -4,6 +4,65 @@ from django.utils.translation import gettext_lazy as _
 # Create your models here.
 import re
 from django.core.exceptions import ValidationError
+class Workflow(models.Model):
+    """Container model for workflow definitions"""
+    name = models.CharField(max_length=255)
+    description = models.TextField(null=True, blank=True)
+    service = models.ForeignKey(
+        to='lookup.Lookup',
+        limit_choices_to={'parent_lookup__name': 'Service'},
+        related_name='workflows',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
+    service_code = models.CharField(max_length=50, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    is_draft = models.BooleanField(default=False)
+    version = models.IntegerField(default=1)
+
+    # Metadata
+    metadata = models.JSONField(default=dict, blank=True)
+    canvas_state = models.JSONField(default=dict, blank=True)  # Store zoom, pan, etc.
+
+    # Tracking
+    created_by = models.ForeignKey(
+        'authentication.CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='created_workflows'
+    )
+    updated_by = models.ForeignKey(
+        'authentication.CustomUser',
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='updated_workflows'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        unique_together = [('service', 'name', 'version')]
+
+    def __str__(self):
+        return f"{self.name} v{self.version}"
+
+    def clone_as_new_version(self):
+        """Create a new version of this workflow"""
+        new_version = self.version + 1
+        new_workflow = Workflow.objects.create(
+            name=self.name,
+            description=self.description,
+            service=self.service,
+            service_code=self.service_code,
+            version=new_version,
+            is_draft=True,
+            metadata=self.metadata,
+            canvas_state=self.canvas_state,
+            created_by=self.updated_by
+        )
+        return new_workflow
 
 
 class FieldType(models.Model):
@@ -38,10 +97,21 @@ class Page(models.Model):
         related_name='page_service_applicant_type',
         blank=True, null=True,
         on_delete=models.CASCADE)
+    workflow = models.ForeignKey(
+        'Workflow',
+        on_delete=models.CASCADE,
+        related_name='pages',
+        null=True,  # Null for backward compatibility
+        blank=True
+    )
+
     name = models.CharField(max_length=50, null=True, blank=True)
     name_ara = models.CharField(max_length=50, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     description_ara = models.TextField(null=True, blank=True)
+    position_x = models.FloatField(default=0)
+    position_y = models.FloatField(default=0)
+    is_expanded = models.BooleanField(default=False)
     active_ind = models.BooleanField(default=True, null=True, blank=True)
 
     def __str__(self):
@@ -61,6 +131,15 @@ class Category(models.Model):
     is_repeatable = models.BooleanField(default=False)
     description = models.TextField(null=True, blank=True)
     code = models.CharField(max_length=20, null=True, blank=True)
+    workflow = models.ForeignKey(
+        'Workflow',
+        on_delete=models.CASCADE,
+        related_name='categories',
+        null=True,
+        blank=True
+    )
+    relative_position_x = models.FloatField(default=0)
+    relative_position_y = models.FloatField(default=0)
     active_ind = models.BooleanField(default=True, null=True, blank=True)
 
     def __str__(self):
@@ -254,6 +333,15 @@ class Field(models.Model):
         default=False, null=True, blank=True,
         help_text=_("Mark the field as mandatory.")
     )
+    workflow = models.ForeignKey(
+        'Workflow',
+        on_delete=models.CASCADE,
+        related_name='fields',
+        null=True,
+        blank=True
+    )
+    relative_position_x = models.FloatField(default=0)
+    relative_position_y = models.FloatField(default=0)
     active_ind = models.BooleanField(
         default=True, null=True, blank=True,
         help_text=_("Indicate if the field is active.")
@@ -325,7 +413,15 @@ class Condition(models.Model):
             "Example: [{'field': 'salary', 'operation': '+', 'value': 10000}]"
         )
     )  # e.g., [{"field": "salary", "operation": "+", "value": 10000}, ...]
-
+    workflow = models.ForeignKey(
+        'Workflow',
+        on_delete=models.CASCADE,
+        related_name='conditions',
+        null=True,
+        blank=True
+    )
+    position_x = models.FloatField(default=0)
+    position_y = models.FloatField(default=0)
     def evaluate_condition(self, field_data):
         """
         Evaluates the condition based on provided field data.
@@ -419,3 +515,19 @@ class Condition(models.Model):
 
     def __str__(self):
         return self.target_field._field_name
+
+class WorkflowConnection(models.Model):
+    """Store connections between workflow elements"""
+    workflow = models.ForeignKey(
+        'Workflow',
+        on_delete=models.CASCADE,
+        related_name='connections'
+    )
+    source_type = models.CharField(max_length=20)  # 'page', 'category', 'field', 'condition'
+    source_id = models.IntegerField()
+    target_type = models.CharField(max_length=20)
+    target_id = models.IntegerField()
+    connection_metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        unique_together = [('workflow', 'source_type', 'source_id', 'target_type', 'target_id')]
