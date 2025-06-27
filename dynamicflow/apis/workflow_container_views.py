@@ -35,12 +35,21 @@ class WorkflowViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
 
         if self.action == 'retrieve':
-            # Prefetch all related data for detail view
+            # Prefetch all related data for detail view - ensure we get workflow-specific items
             queryset = queryset.prefetch_related(
-                Prefetch('pages', queryset=Page.objects.select_related('service', 'sequence_number', 'applicant_type')),
-                Prefetch('categories', queryset=Category.objects.prefetch_related('page')),
-                Prefetch('fields', queryset=Field.objects.select_related('_field_type', '_lookup', '_parent_field')),
-                Prefetch('conditions', queryset=Condition.objects.select_related('target_field')),
+                Prefetch('pages',
+                         queryset=Page.objects.filter(workflow_id=self.kwargs.get('pk'))
+                         .select_related('service', 'sequence_number', 'applicant_type')),
+                Prefetch('categories',
+                         queryset=Category.objects.filter(workflow_id=self.kwargs.get('pk'))
+                         .prefetch_related('page')),
+                Prefetch('fields',
+                         queryset=Field.objects.filter(workflow_id=self.kwargs.get('pk'))
+                         .select_related('_field_type', '_lookup', '_parent_field')
+                         .prefetch_related('_category')),
+                Prefetch('conditions',
+                         queryset=Condition.objects.filter(workflow_id=self.kwargs.get('pk'))
+                         .select_related('target_field')),
                 'connections'
             )
 
