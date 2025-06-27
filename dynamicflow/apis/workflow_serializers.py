@@ -99,24 +99,24 @@ class WorkflowFieldSerializer(serializers.ModelSerializer):
     categories = serializers.SerializerMethodField()
     sub_fields = serializers.SerializerMethodField()
 
-class Meta:
-    model = Field
-    fields = [
-        'id', '_field_name', '_field_display_name', '_field_display_name_ara',
-        '_field_type', 'field_type_id', 'field_type_name', 'field_type_code',
-        '_parent_field', 'parent_field_id', 'parent_field_name',
-        '_lookup', 'lookup_id', 'lookup_name', 'lookup_code',
-        '_sequence', '_mandatory', '_is_hidden', '_is_disabled',
-        'services', 'categories', 'sub_fields', 'allowed_lookups',
-        '_max_length', '_min_length', '_regex_pattern', '_allowed_characters',
-        '_forbidden_words', '_value_greater_than', '_value_less_than',
-        '_integer_only', '_positive_only', '_date_greater_than', '_date_less_than',
-        '_future_only', '_past_only', '_default_boolean', '_file_types',
-        '_max_file_size', '_image_max_width', '_image_max_height',
-        '_max_selections', '_min_selections', '_precision', '_unique',
-        '_default_value', '_coordinates_format', '_uuid_format',
-        'workflow', 'relative_position_x', 'relative_position_y', 'active_ind'
-    ]
+    class Meta:    # <-- Now at the correct indentation level (inside the class)
+        model = Field
+        fields = [
+            'id', '_field_name', '_field_display_name', '_field_display_name_ara',
+            '_field_type', 'field_type_id', 'field_type_name', 'field_type_code',
+            '_parent_field', 'parent_field_id', 'parent_field_name',
+            '_lookup', 'lookup_id', 'lookup_name', 'lookup_code',
+            '_sequence', '_mandatory', '_is_hidden', '_is_disabled',
+            'services', 'categories', 'sub_fields', 'allowed_lookups',
+            '_max_length', '_min_length', '_regex_pattern', '_allowed_characters',
+            '_forbidden_words', '_value_greater_than', '_value_less_than',
+            '_integer_only', '_positive_only', '_date_greater_than', '_date_less_than',
+            '_future_only', '_past_only', '_default_boolean', '_file_types',
+            '_max_file_size', '_image_max_width', '_image_max_height',
+            '_max_selections', '_min_selections', '_precision', '_unique',
+            '_default_value', '_coordinates_format', '_uuid_format',
+            'workflow', 'relative_position_x', 'relative_position_y', 'active_ind'
+        ]
 
     def get_services(self, obj):
         return [{
@@ -157,7 +157,6 @@ class Meta:
                 data[field] = None
 
         return data
-
 
 class WorkflowConditionSerializer(serializers.ModelSerializer):
     """Condition serializer with target field info for workflow builder"""

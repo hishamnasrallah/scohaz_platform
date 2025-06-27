@@ -92,14 +92,26 @@ class WorkflowViewSet(viewsets.ModelViewSet):
                     position = element_data.get('position', {})
 
                     if element_type == 'page':
-                        page_id = properties.get('page_id')
+                        # Merge root-level fields with properties for backward compatibility
+                        merged_properties = properties.copy()
+
+                        # Check if fields are at root level and merge them
+                        root_fields = ['name', 'name_ara', 'description', 'description_ara',
+                                       'service', 'service_id', 'sequence_number', 'sequence_number_id',
+                                       'applicant_type', 'applicant_type_id', 'active_ind', 'is_hidden_page']
+
+                        for field in root_fields:
+                            if field in element_data and field not in merged_properties:
+                                merged_properties[field] = element_data[field]
+
+                        page_id = merged_properties.get('page_id') or element_data.get('page_id')
                         if page_id:
                             # Update existing page
                             page = Page.objects.get(id=page_id)
-                            self._update_page(page, properties, position, workflow)
+                            self._update_page(page, merged_properties, position, workflow)
                         else:
                             # Create new page
-                            page = self._create_page(properties, position, workflow)
+                            page = self._create_page(merged_properties, position, workflow)
                         element_mapping[frontend_id] = ('page', page.id)
 
                     elif element_type == 'category':
