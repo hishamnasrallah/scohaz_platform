@@ -174,18 +174,37 @@ class WorkflowViewSet(viewsets.ModelViewSet):
                     source_id = conn_data.get('sourceId')
                     target_id = conn_data.get('targetId')
 
-                    if source_id in element_mapping and target_id in element_mapping:
+                    # Handle start and end elements specially
+                    if source_id == 'start':
+                        source_type = 'start'
+                        source_backend_id = 0  # Use 0 for start
+                    elif source_id == 'end':
+                        source_type = 'end'
+                        source_backend_id = 0  # Use 0 for end
+                    elif source_id in element_mapping:
                         source_type, source_backend_id = element_mapping[source_id]
-                        target_type, target_backend_id = element_mapping[target_id]
+                    else:
+                        continue  # Skip if source not found
 
-                        WorkflowConnection.objects.create(
-                            workflow=workflow,
-                            source_type=source_type,
-                            source_id=source_backend_id,
-                            target_type=target_type,
-                            target_id=target_backend_id,
-                            connection_metadata=conn_data.get('metadata', {})
-                        )
+                    if target_id == 'start':
+                        target_type = 'start'
+                        target_backend_id = 0  # Use 0 for start
+                    elif target_id == 'end':
+                        target_type = 'end'
+                        target_backend_id = 0  # Use 0 for end
+                    elif target_id in element_mapping:
+                        target_type, target_backend_id = element_mapping[target_id]
+                    else:
+                        continue  # Skip if target not found
+
+                    WorkflowConnection.objects.create(
+                        workflow=workflow,
+                        source_type=source_type,
+                        source_id=source_backend_id,
+                        target_type=target_type,
+                        target_id=target_backend_id,
+                        connection_metadata=conn_data.get('metadata', {})
+                    )
 
                 # Handle deletions
                 deleted_elements = data.get('deleted_elements', {})
