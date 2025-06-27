@@ -5,6 +5,7 @@ from coreapi.compat import force_text
 from django.contrib.auth.models import Group
 from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import get_object_or_404
+from rest_framework.decorators import action
 from rest_framework.generics import GenericAPIView, RetrieveUpdateAPIView
 from authentication.models import CustomUser, UserPreference, PhoneNumber, CRUDPermission
 from django.utils.http import (urlsafe_base64_encode,
@@ -262,6 +263,132 @@ class CRUDPermissionViewSet(viewsets.ModelViewSet):
 
         return queryset
 
+    @action(detail=False, methods=['post'], url_path='bulk-create')
+    def bulk_create(self, request):
+        """
+        Create multiple permissions at once.
+        Expects: {
+            "group": 1,
+            "content_types": [1, 2, 3],
+            "contexts": ["api", "admin"],
+            "can_create": true,
+            "can_read": true,
+            "can_update": true,
+            "can_delete": false
+        }
+        """
+        data = request.data
+        group_id = data.get('group')
+        content_types = data.get('content_types', [])
+        contexts = data.get('contexts', [])
+
+        if not group_id or not content_types or not contexts:
+            return Response(
+                {"error": "group, content_types, and contexts are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        created_permissions = []
+        errors = []
+
+        for content_type_id in content_types:
+            for context in contexts:
+                permission_data = {
+                    'group': group_id,
+                    'content_type': content_type_id,
+                    'context': context,
+                    'can_create': data.get('can_create', False),
+                    'can_read': data.get('can_read', False),
+                    'can_update': data.get('can_update', False),
+                    'can_delete': data.get('can_delete', False)
+                }
+
+                # Check if permission already exists
+                existing = CRUDPermission.objects.filter(
+                    group_id=group_id,
+                    content_type_id=content_type_id,
+                    context=context
+                ).first()
+
+                if existing:
+                    errors.append(f"Permission already exists for group {group_id}, content_type {content_type_id}, context {context}")
+                    continue
+
+                serializer = self.get_serializer(data=permission_data)
+                if serializer.is_valid():
+                    permission = serializer.save()
+                    created_permissions.append(serializer.data)
+                else:
+                    errors.append(f"Error creating permission: {serializer.errors}")
+
+        return Response({
+            'created': created_permissions,
+            'errors': errors,
+            'created_count': len(created_permissions)
+        }, status=status.HTTP_201_CREATED if created_permissions else status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['put'], url_path='bulk-update')
+    def bulk_update(self, request):
+        """
+        Update multiple permissions at once.
+        Expects: {
+            "permission_ids": [1, 2, 3],
+            "can_create": true,
+            "can_read": true,
+            "can_update": true,
+            "can_delete": false
+        }
+        """
+        data = request.data
+        permission_ids = data.get('permission_ids', [])
+
+        if not permission_ids:
+            return Response(
+                {"error": "permission_ids are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        update_fields = {}
+        for field in ['can_create', 'can_read', 'can_update', 'can_delete']:
+            if field in data:
+                update_fields[field] = data[field]
+
+        if not update_fields:
+            return Response(
+                {"error": "No fields to update"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        updated = CRUDPermission.objects.filter(id__in=permission_ids).update(**update_fields)
+
+        # Get updated permissions
+        updated_permissions = CRUDPermission.objects.filter(id__in=permission_ids)
+        serializer = self.get_serializer(updated_permissions, many=True)
+
+        return Response({
+            'updated': serializer.data,
+            'updated_count': updated
+        })
+
+    @action(detail=False, methods=['delete'], url_path='bulk-delete')
+    def bulk_delete(self, request):
+        """
+        Delete multiple permissions at once.
+        Expects: {"permission_ids": [1, 2, 3]}
+        """
+        permission_ids = request.data.get('permission_ids', [])
+
+        if not permission_ids:
+            return Response(
+                {"error": "permission_ids are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        deleted_count = CRUDPermission.objects.filter(id__in=permission_ids).delete()[0]
+
+        return Response({
+            'deleted_count': deleted_count
+        })
 
 
 class ContentTypeAppListView(APIView):
