@@ -68,7 +68,7 @@ def fix_limited_to_keys(schema_data):
         process_dict(schema_data)
 
 
-@admin.action(description="Generate JSON files (with intelligent ERD conversion)")
+@admin.action(description="Compile (with intelligent ERD conversion)")
 def generate_json_files_with_conversion(modeladmin, request, queryset):
     """
     Enhanced version that uses intelligent converter for ERD imports.
