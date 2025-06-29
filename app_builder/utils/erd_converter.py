@@ -146,12 +146,20 @@ class ERDToDjangoConverter:
         r'(data|metadata|config|settings|options|preferences|properties|attributes|params|extra)$': 'JSONField',
     }
 
+    # Patterns to detect lookup-related fields
+    LOOKUP_FIELD_PATTERNS = [
+        r'_type$', r'_status$', r'_category$', r'_kind$', r'_class$',
+        r'^type$', r'^status$', r'^category$', r'^kind$', r'^class$',
+        r'_lookup$', r'^lookup$'
+    ]
+
     def __init__(self):
         self.warnings = []
         self.field_id_mapping = {}  # Maps field IDs to field info
         self.table_id_mapping = {}  # Maps table IDs to table info
         self.model_name_mapping = {}  # Maps table names to model names
         self.processed_relationships = set()  # Track processed relationships
+        self.lookup_categories = {}  # Track lookup categories by table/field
 
     def convert(self, erd_json: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -162,6 +170,7 @@ class ERDToDjangoConverter:
         self.table_id_mapping = {}
         self.model_name_mapping = {}
         self.processed_relationships = set()
+        self.lookup_categories = {}
 
         # First pass: Build mappings
         self._build_mappings(erd_json)
@@ -305,6 +314,38 @@ class ERDToDjangoConverter:
 
         return None
 
+    def _is_lookup_field(self, field_name: str, table_name: str) -> bool:
+        """Detect if a field is likely a lookup field based on patterns."""
+        field_name_lower = field_name.lower()
+
+        # Check if field name matches lookup patterns
+        for pattern in self.LOOKUP_FIELD_PATTERNS:
+            if re.search(pattern, field_name_lower):
+                return True
+
+        return False
+
+    def _derive_lookup_category(self, field_name: str, table_name: str) -> str:
+        """Derive lookup category name from field and table names."""
+        field_name_lower = field_name.lower()
+        table_name_parts = table_name.split('_')
+
+        # Clean field name by removing common suffixes
+        cleaned_field = re.sub(r'(_type|_status|_category|_kind|_class|_lookup)$', '', field_name_lower)
+
+        # Create category name
+        if cleaned_field in ['type', 'status', 'category', 'kind', 'class']:
+            # Generic field names - use table name for context
+            category_parts = []
+            for part in table_name_parts:
+                category_parts.append(part.capitalize())
+            category_parts.append(field_name.capitalize())
+            return ' '.join(category_parts)
+        else:
+            # Specific field names - use the field name itself
+            parts = cleaned_field.split('_')
+            return ' '.join(part.capitalize() for part in parts) + ' Type'
+
     def _convert_table_to_model(self, table: Dict[str, Any], erd_json: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Convert table to Django model with intelligent field detection."""
         table_info = self.table_id_mapping.get(table.get("id"))
@@ -344,6 +385,10 @@ class ERDToDjangoConverter:
 
             # Skip if used in relationship (will be handled later)
             if field_id in relationship_field_ids:
+                # But store lookup category info if it's a lookup field
+                field_name = field.get("name", "")
+                if self._is_lookup_field(field_name, original_table_name):
+                    self.lookup_categories[field_id] = self._derive_lookup_category(field_name, original_table_name)
                 continue
 
             django_field = self._convert_field(field, table)
@@ -635,7 +680,7 @@ class ERDToDjangoConverter:
             self._process_single_relationship(rel, model_lookup, models)
 
     def _process_single_relationship(self, rel: Dict[str, Any], model_lookup: Dict[str, Any], all_models: List[Dict[str, Any]]) -> None:
-        """Process a single relationship with better error handling."""
+        """Process a single relationship with better error handling and lookup detection."""
         source_table_id = rel.get("sourceTableId")
         target_table_id = rel.get("targetTableId")
         source_field_id = rel.get("sourceFieldId")
@@ -681,12 +726,17 @@ class ERDToDjangoConverter:
         field_info = self.field_id_mapping.get(source_field_id)
         field_name = field_info["sanitized_name"] if field_info else rel.get("name", "related")
 
+        # Check if this is a lookup relationship
+        is_lookup_relationship = target_table_info["full_name"] == "lookup.Lookup"
+
         # Build relationship
         if source_card == "many" and target_card == "one":
             # ForeignKey on source model
             if source_model:
                 self._add_relationship(source_model, field_name, "ForeignKey",
-                                       target_table_info["full_name"], rel)
+                                       target_table_info["full_name"], rel,
+                                       is_lookup=is_lookup_relationship,
+                                       lookup_category=self.lookup_categories.get(source_field_id))
         elif source_card == "one" and target_card == "many":
             # ForeignKey on target model
             if target_model:
@@ -698,7 +748,9 @@ class ERDToDjangoConverter:
             # OneToOneField on source model
             if source_model:
                 self._add_relationship(source_model, field_name, "OneToOneField",
-                                       target_table_info["full_name"], rel)
+                                       target_table_info["full_name"], rel,
+                                       is_lookup=is_lookup_relationship,
+                                       lookup_category=self.lookup_categories.get(source_field_id))
         elif source_card == "many" and target_card == "many":
             # ManyToManyField on source model
             if source_model:
@@ -706,8 +758,9 @@ class ERDToDjangoConverter:
                                        target_table_info["full_name"], rel)
 
     def _add_relationship(self, model: Dict[str, Any], field_name: str, rel_type: str,
-                          related_model: str, rel_data: Dict[str, Any]) -> None:
-        """Add relationship to model."""
+                          related_model: str, rel_data: Dict[str, Any],
+                          is_lookup: bool = False, lookup_category: Optional[str] = None) -> None:
+        """Add relationship to model with special handling for lookup relationships."""
         # Remove any existing field with same name
         model["fields"] = [f for f in model["fields"] if f["name"] != field_name]
 
@@ -726,8 +779,21 @@ class ERDToDjangoConverter:
                 options.append("null=True")
                 options.append("blank=True")
 
-        # Handle limit_choices_to
-        if "limitedTo" in rel_data:
+        # Special handling for lookup relationships
+        if is_lookup and lookup_category:
+            # Add limit_choices_to for lookup relationships
+            limit_choices_dict = {"parent_lookup__name": lookup_category}
+            options.append(f"limit_choices_to={limit_choices_dict}")
+            self.warnings.append(f"Added lookup category '{lookup_category}' for field '{field_name}'")
+        elif is_lookup and not lookup_category:
+            # Try to derive lookup category from field name
+            lookup_category = self._derive_lookup_category(field_name, model["name"])
+            limit_choices_dict = {"parent_lookup__name": lookup_category}
+            options.append(f"limit_choices_to={limit_choices_dict}")
+            self.warnings.append(f"Derived lookup category '{lookup_category}' for field '{field_name}'")
+
+        # Handle limit_choices_to from rel_data if provided
+        if "limitedTo" in rel_data and not is_lookup:
             limited_to = rel_data["limitedTo"]
             # Fix the format for Django
             if isinstance(limited_to, dict):
