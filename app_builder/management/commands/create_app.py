@@ -711,12 +711,14 @@ class ValidationRule(models.Model):
             meta = model.get("meta", {})
             if meta or True:  # Always create Meta class
                 models_code += "    class Meta:\n"
-                # If no db_table is specified, you can explicitly set it
-                if 'db_table' not in meta:
-                    # This will create tables like: monicaao_customer
-                    models_code += f"        db_table = '{app_name}_{model_name.lower()}'\n"
+
+                # Check if there will be any content in Meta
+                has_meta_content = False
 
                 for key, value in meta.items():
+                    if key == "db_table":
+                        continue
+
                     # We'll treat 'indexes' specially, converting them to models.Index
                     if key == "indexes" and isinstance(value, list):
                         # Build a string of real Django Index objects
@@ -737,7 +739,7 @@ class ValidationRule(models.Model):
                             indexes_str = "[]"
 
                         models_code += f"        indexes = {indexes_str}\n"
-
+                        has_meta_content = True
                     else:
                         # Normal meta key, e.g. verbose_name, ordering, etc.
                         # Make sure we quote it if it's a string
@@ -749,9 +751,11 @@ class ValidationRule(models.Model):
                         elif isinstance(value, bool):
                             value = str(value)
                         models_code += f"        {key} = {value}\n"
-
-        # Add dynamic signals for IntegrationConfig
-        models_code += """
+                        has_meta_content = True
+            if not has_meta_content:
+                models_code += "        pass\n"
+            # Add dynamic signals for IntegrationConfig
+            models_code += """
 @receiver(post_save, sender=IntegrationConfig)
 def handle_integration_post_save(sender, instance, created, **kwargs):
     if created:
