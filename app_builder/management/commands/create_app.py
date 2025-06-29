@@ -258,138 +258,156 @@ class Command(BaseCommand):
 
         # Add IntegrationConfig model for API integrations
         models_code += """
-class AutoComputeRule(ModelCommonMixin):
-    \"\"\"
-    Dynamically applies computations/updates to fields across models when certain
-    conditions are met.
-
-    Fields:
-    - model_name: Fully qualified model path, e.g., "billing.Bill"
-    - trigger_fields: List of field names that, when changed, trigger the rule
-    - condition_logic: JSON defining the conditions
-    - action_logic: JSON defining the actions to perform
-    \"\"\"
-    model_name = models.CharField(max_length=100)  # e.g., "billing.Bill"
-    trigger_fields = models.JSONField(default=list)  # e.g., ["amount"]
-    condition_logic = models.JSONField(blank=True, null=True)
-    action_logic = models.JSONField(blank=True, null=True)
-    priority = models.IntegerField(default=100)  # Lower number = higher priority
-
-    def __str__(self):
-        return f"AutoComputeRule for {self.model_name}"
-        
-        
-class IntegrationConfig(models.Model):
-    name = models.CharField(max_length=255)
-    base_url = models.URLField()
-    method = models.CharField(
-        max_length=10,
-        choices=[('GET', 'GET'), ('POST', 'POST'), ('PUT', 'PUT'), ('DELETE', 'DELETE')]
-    )
-    headers = models.JSONField(blank=True, null=True)
-    body = models.JSONField(blank=True, null=True)
-    timeout = models.IntegerField(default=30)
-
-    class Meta:
-        verbose_name = 'Integration Config'
-        verbose_name_plural = 'Integration Configs'
-
-    def __str__(self):
-        return self.name
-
-"""
+    class AutoComputeRule(ModelCommonMixin):
+        \"\"\"
+        Dynamically applies computations/updates to fields across models when certain
+        conditions are met.
+    
+        Fields:
+        - model_name: Fully qualified model path, e.g., "billing.Bill"
+        - trigger_fields: List of field names that, when changed, trigger the rule
+        - condition_logic: JSON defining the conditions
+        - action_logic: JSON defining the actions to perform
+        \"\"\"
+        model_name = models.CharField(max_length=100)  # e.g., "billing.Bill"
+        trigger_fields = models.JSONField(default=list)  # e.g., ["amount"]
+        condition_logic = models.JSONField(blank=True, null=True)
+        action_logic = models.JSONField(blank=True, null=True)
+        priority = models.IntegerField(default=100)  # Lower number = higher priority
+    
+        def __str__(self):
+            return f"AutoComputeRule for {self.model_name}"
+            
+            
+    class IntegrationConfig(models.Model):
+        name = models.CharField(max_length=255)
+        base_url = models.URLField()
+        method = models.CharField(
+            max_length=10,
+            choices=[('GET', 'GET'), ('POST', 'POST'), ('PUT', 'PUT'), ('DELETE', 'DELETE')]
+        )
+        headers = models.JSONField(blank=True, null=True)
+        body = models.JSONField(blank=True, null=True)
+        timeout = models.IntegerField(default=30)
+    
+        class Meta:
+            verbose_name = 'Integration Config'
+            verbose_name_plural = 'Integration Configs'
+    
+        def __str__(self):
+            return self.name
+    
+    """
         # Add ValidationRule model for dynamic validation rules
         models_code += f"""
-class ValidationRule(models.Model):
-    \"\"\"
-    Represents a dynamic validation rule for a specific field in a specific model.
-    Now with support for nested condition logic in a JSON expression.
-    \"\"\"
-    model_name = models.CharField(max_length=100)
-    field_name = models.CharField(max_length=100)
-
-    VALIDATOR_TYPES = [
-        ('regex', 'Regex Validation'),
-        ('function', 'Function Validation'),
-        ('condition', 'Conditional Validation'),
-    ]
-    validator_type = models.CharField(max_length=50, choices=VALIDATOR_TYPES)
-
-    regex_pattern = models.CharField(max_length=255, blank=True, null=True)
-    function_name = models.CharField(max_length=255, blank=True, null=True)
-    function_params = models.JSONField(blank=True, null=True)
-
-    # New: a JSON field for storing the complex nested expression
-    # e.g., `[ {{ "field": "salary", "operation": "=", "value": {{"field": "base_salary", "operation": "+", "value": {{"field": "bonus"}} }} }}]`
-    condition_logic = models.JSONField(blank=True, null=True)
-
-    user_roles = models.ManyToManyField(
-        Group, blank=True, related_name='{app_name}_validation_rule_user_roles',
-        help_text="Only these groups can edit this field."
-    )
-
-    environment = models.CharField(max_length=50, blank=True, null=True)
-
-    # **Dynamic error message**: Displayed when this rule fails
-    error_message = models.TextField(
-        blank=True,
-        null=True,
-        help_text="Custom error message shown if this rule fails. "
-                  "If empty, a default message is used."
-    )
-
-    def __str__(self):
-        return f"{{self.model_name}}.{{self.field_name}} - {{self.validator_type}}"
-"""
+    class ValidationRule(models.Model):
+        \"\"\"
+        Represents a dynamic validation rule for a specific field in a specific model.
+        Now with support for nested condition logic in a JSON expression.
+        \"\"\"
+        model_name = models.CharField(max_length=100)
+        field_name = models.CharField(max_length=100)
+    
+        VALIDATOR_TYPES = [
+            ('regex', 'Regex Validation'),
+            ('function', 'Function Validation'),
+            ('condition', 'Conditional Validation'),
+        ]
+        validator_type = models.CharField(max_length=50, choices=VALIDATOR_TYPES)
+    
+        regex_pattern = models.CharField(max_length=255, blank=True, null=True)
+        function_name = models.CharField(max_length=255, blank=True, null=True)
+        function_params = models.JSONField(blank=True, null=True)
+    
+        # New: a JSON field for storing the complex nested expression
+        # e.g., `[ {{ "field": "salary", "operation": "=", "value": {{"field": "base_salary", "operation": "+", "value": {{"field": "bonus"}} }} }}]`
+        condition_logic = models.JSONField(blank=True, null=True)
+    
+        user_roles = models.ManyToManyField(
+            Group, blank=True, related_name='{app_name}_validation_rule_user_roles',
+            help_text="Only these groups can edit this field."
+        )
+    
+        environment = models.CharField(max_length=50, blank=True, null=True)
+    
+        # **Dynamic error message**: Displayed when this rule fails
+        error_message = models.TextField(
+            blank=True,
+            null=True,
+            help_text="Custom error message shown if this rule fails. "
+                      "If empty, a default message is used."
+        )
+    
+        def __str__(self):
+            return f"{{self.model_name}}.{{self.field_name}} - {{self.validator_type}}"
+    """
 
         # Iterate over models to generate model classes
         for model in models:
             model_name = model["name"]
             models_code += f"\nclass {model_name}(ModelCommonMixin, models.Model):\n"
 
-            # Add fields to the model
+            # Process all fields (including relationships which are now in the fields list)
             all_fields = model.get("fields", []) + model.get("relationships", [])
+
             for field in all_fields:
-            # for field in model["fields"]:
                 field_name = field["name"]
                 field_type = field["type"]
-                print(field_type)
                 options = field.get("options", "")
-                related_model = field.get("related_model", "")
-                lookup = field.get("_lookup", "")
 
-                # Handle static choices
-                if "choices" in field:
-                    choices = field["choices"]
-                    choices_name = f"{field_name.upper()}_CHOICES"
-                    models_code += f"    {choices_name} = {choices}\n"
+                # For relationship fields
+                if field_type in ["ForeignKey", "OneToOneField", "ManyToManyField"]:
+                    related_model = field.get("related_model", "")
 
-                # Handle dynamic choices using ForeignKey if _lookup is specified
-                if "_lookup" in field:
-                    models_code += (
-                        f"    {field_name} = models.ForeignKey(\n"
-                        f"        to='lookup.Lookup',\n"
-                        f"        on_delete=models.CASCADE,\n"
-                        f"        limit_choices_to={{'parent_lookup__code': '{lookup}'}}\n"
-                        f"    )\n"
-                    )
-                elif field_type in ["ForeignKey", "OneToOneField", "ManyToManyField"]:
-                    print("inside foreign key")
-                    related_name = f"{app_name.lower()}_{model_name.lower()}_{field_name}_set"
-                    if 'blank=' not in options:
-                        options += ', blank=True,'
-                    if field_type in ["ManyToManyField"]:
-                        models_code += f"    {field_name} = models.{field_type}(to='{related_model}', related_name='{related_name}'{options})\n"
-                    if field_type in ["ForeignKey", "OneToOneField", ]:
-                        models_code += f"    {field_name} = models.{field_type}(to='{related_model}', related_name='{related_name}', {options})\n"
-                    models_code.replace(', ,', ',')
+                    # Parse options to check for existing related_name
+                    options_parts = [opt.strip() for opt in options.split(',') if opt.strip()]
+                    has_related_name = any('related_name=' in part for part in options_parts)
 
-                    print("inside foreign key, but at the end")
-                else:
-                    if "choices" in field:
-                        models_code += f"    {field_name} = models.{field_type}(choices={choices_name},{options} )\n"
+                    # Only add related_name if it doesn't exist
+                    if not has_related_name:
+                        related_name = f"{app_name.lower()}_{model_name.lower()}_{field_name}_set"
+                        options_parts.append(f"related_name='{related_name}'")
+
+                    # Add blank=True if not present (for backwards compatibility)
+                    if not any('blank=' in part for part in options_parts) and field_type == "ManyToManyField":
+                        options_parts.append("blank=True")
+
+                    # Rebuild options string
+                    clean_options = ", ".join(options_parts)
+
+                    # Generate the field code
+                    if field_type == "ManyToManyField":
+                        models_code += f"    {field_name} = models.{field_type}(to='{related_model}', {clean_options})\n"
                     else:
-                        models_code += f"    {field_name} = models.{field_type}({options})\n"
+                        models_code += f"    {field_name} = models.{field_type}(to='{related_model}', {clean_options})\n"
+
+                else:
+                    # Handle regular fields
+                    # Handle static choices
+                    if "choices" in field:
+                        choices = field["choices"]
+                        choices_name = f"{field_name.upper()}_CHOICES"
+                        models_code += f"    {choices_name} = {choices}\n"
+
+                    # Handle dynamic choices using ForeignKey if _lookup is specified
+                    if "_lookup" in field:
+                        lookup = field.get("_lookup", "")
+                        models_code += (
+                            f"    {field_name} = models.ForeignKey(\n"
+                            f"        to='lookup.Lookup',\n"
+                            f"        on_delete=models.CASCADE,\n"
+                            f"        limit_choices_to={{'parent_lookup__code': '{lookup}'}}\n"
+                            f"    )\n"
+                        )
+                    else:
+                        # Regular field
+                        if "choices" in field:
+                            models_code += f"    {field_name} = models.{field_type}(choices={choices_name}, {options})\n"
+                        else:
+                            if options:
+                                models_code += f"    {field_name} = models.{field_type}({options})\n"
+                            else:
+                                models_code += f"    {field_name} = models.{field_type}()\n"
 
             # If there's a meta object, add the Meta class
             meta = model.get("meta", {})
@@ -404,7 +422,6 @@ class ValidationRule(models.Model):
                             fields_repr = repr(ix["fields"])  # e.g. ['field_2','field_3']
                             name_repr = f"'{ix['name']}'"
                             unique_repr = 'True' if ix.get('unique') else 'False'
-                            # print("unique_repr_____________", unique_repr)
                             line = (
                                 f"models.Index(fields={fields_repr}, "
                                 f"name={name_repr})"
@@ -417,26 +434,31 @@ class ValidationRule(models.Model):
                             indexes_str = "[]"
 
                         models_code += f"        indexes = {indexes_str}\n"
-                        models_code.replace(', ,', ',')
 
                     else:
                         # Normal meta key, e.g. verbose_name, ordering, etc.
                         # Make sure we quote it if it's a string
                         if isinstance(value, str) and not value.startswith("[") and not value.startswith("'"):
                             value = f"'{value}'"
+                        elif isinstance(value, list) and key == "ordering":
+                            # Convert list to string representation
+                            value = repr(value)
+                        elif isinstance(value, bool):
+                            value = str(value)
                         models_code += f"        {key} = {value}\n"
-                        models_code.replace(', ,', ',')
 
-    # Add dynamic signals for IntegrationConfig
+        # Add dynamic signals for IntegrationConfig
         models_code += """
-@receiver(post_save, sender=IntegrationConfig)
-def handle_integration_post_save(sender, instance, created, **kwargs):
-    if created:
-        print(f"IntegrationConfig created: {instance.name}")
-    else:
-        print(f"IntegrationConfig updated: {instance.name}")
-"""
-        models_code.replace(', ,', ',')
+    @receiver(post_save, sender=IntegrationConfig)
+    def handle_integration_post_save(sender, instance, created, **kwargs):
+        if created:
+            print(f"IntegrationConfig created: {instance.name}")
+        else:
+            print(f"IntegrationConfig updated: {instance.name}")
+    """
+
+        # Clean up any formatting issues
+        models_code = models_code.replace(', ,', ',').replace(', )', ')').replace('(, ', '(')
 
         # Write the models to the models.py file
         with open(os.path.join(app_path, "models.py"), "w") as f:
@@ -3502,22 +3524,37 @@ def validate_model_schema(schema):
     """
     required_model_keys = {"name", "fields"}
     required_field_keys = {"name", "type"}
-    # valid_field_types = {
-    #     "CharField", "TextField", "IntegerField", "FloatField", "DecimalField",
-    #     "DateField", "DateTimeField", "BooleanField", "JSONField",  # Add JSONField
-    #     "ForeignKey", "OneToOneField", "ManyToManyField", "PositiveIntegerField", "EmailField"
-    # }
     valid_field_types = {
-        "CharField", "TextField", "IntegerField", "FloatField", "DecimalField",
-        "DateField", "DateTimeField", "BooleanField", "JSONField", "TimeField",
-        "ForeignKey", "OneToOneField", "ManyToManyField", "PositiveIntegerField", "EmailField",
-        # Add these:
-        "BigIntegerField", "AutoField", "BigAutoField", "BinaryField",
-        "DurationField", "GenericIPAddressField", "SlugField", "URLField",
-        "SmallIntegerField", "PositiveSmallIntegerField", "UUIDField", "FileField"
-        # ...any others you need...
-    }
+        # Text types
+        "CharField", "TextField", "SlugField",
 
+        # Numeric types
+        "IntegerField", "BigIntegerField", "SmallIntegerField",
+        "PositiveIntegerField", "PositiveSmallIntegerField", "PositiveBigIntegerField",
+        "FloatField", "DecimalField",
+        "AutoField", "BigAutoField", "SmallAutoField",
+
+        # Boolean/Binary
+        "BooleanField", "BinaryField", "NullBooleanField",
+
+        # Date/Time types
+        "DateField", "DateTimeField", "TimeField", "DurationField",
+
+        # File types
+        "FileField", "ImageField", "FilePathField",
+
+        # Email/URL types
+        "EmailField", "URLField", "GenericIPAddressField",
+
+        # Special types
+        "JSONField", "UUIDField",
+
+        # Relationship types
+        "ForeignKey", "OneToOneField", "ManyToManyField",
+
+        # Image Field
+        "ImageField"
+    }
     valid_relation_types = {"ForeignKey", "OneToOneField", "ManyToManyField"}
     reserved_db_table_names = {"auth_user", "django_migrations", "django_admin_log"}
 

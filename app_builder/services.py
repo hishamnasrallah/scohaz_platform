@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models.functions import Upper
 
 from .models import ApplicationDefinition, ModelDefinition, FieldDefinition, RelationshipDefinition
+from .utils.erd_converter import convert_erd_to_django
 
 # A helper function to map the JSON "type" to your internal field_type
 FIELD_TYPE_MAP = {
@@ -357,375 +358,122 @@ def build_options_str(options_dict):
 
 
 @transaction.atomic
+
+@transaction.atomic
 def create_application_from_diagram(diagram_data):
     """
-    Creates a new ApplicationDefinition and all related ModelDefinitions,
-    FieldDefinitions, and RelationshipDefinitions from the given diagram JSON.
+    Creates ApplicationDefinition and related models using the intelligent ERD converter.
+    This replaces the old basic conversion with smart pattern detection.
     """
 
-    # -----------------
-    # 1) Create the Application
-    # -----------------
-
+    # 1) Extract app name
     app_name = diagram_data.get("name", "untitled_app")
-    # Potentially sanitize the name to be a valid Python identifier:
-    # e.g. replace spaces, uppercase first letter, etc.
-    safe_app_name = app_name.lower().replace(" ", "_")
+    safe_app_name = re.sub(r'[^a-zA-Z0-9_]', '_', app_name.lower())
+
+    # Add unique suffix to avoid collisions
     unique_suffix = str(uuid.uuid4())[:8]
-    safe_app_name += f"_{unique_suffix}"
+    safe_app_name = f"{safe_app_name}_{unique_suffix}"
+
+    # 2) Use the intelligent converter
+    conversion_result = convert_erd_to_django(diagram_data, app_name=safe_app_name)
+
+    # Check for conversion errors
+    if not conversion_result["is_valid"]:
+        error_msg = "ERD conversion failed:\n" + "\n".join(conversion_result["errors"])
+        raise ValidationError(error_msg)
+
+    # Log warnings if any
+    if conversion_result["warnings"]:
+        print("Conversion warnings:")
+        for warning in conversion_result["warnings"]:
+            print(f"  - {warning}")
+
+    # 3) Create ApplicationDefinition
     application = ApplicationDefinition.objects.create(
         app_name=safe_app_name,
-        erd_json = diagram_data,
+        erd_json=diagram_data,
         overwrite=False,
         skip_admin=False,
         skip_tests=False,
         skip_urls=False
     )
 
-    # We'll keep a dict to map: table_json_id -> ModelDefinition instance
-    table_id_to_modeldef = {}
-    # We'll keep another dict to map: field_json_id -> FieldDefinition instance
-    field_id_to_fielddef = {}
+    # 4) Create Django model definitions from converted data
+    django_models = conversion_result["models"]
 
-
-    # A mapping to store relational field names by their IDs
-    relationship_field_names = {}
-
-    # -----------------
-    # 2.1) Preprocess Relational Fields
-    # -----------------
-    # Identify all field IDs that are used as part of relationships to exclude them from regular fields.
-    relational_field_ids = set()
-    for rel in diagram_data.get("relationships", []):
-        source_field_id = rel["sourceFieldId"]
-        target_field_id = rel["targetFieldId"]
-
-        # Add field IDs to the relational field set
-        relational_field_ids.add(source_field_id)
-        relational_field_ids.add(target_field_id)
-
-        # Capture the field names for relational fields
-        for table in diagram_data.get("tables", []):
-            for field in table.get("fields", []):
-                if field["id"] == source_field_id or field["id"] == target_field_id:
-                    field_name = field.get("name", "unnamed_field").replace(" ", "_")
-                    relationship_field_names[field["id"]] = field_name
-
-
-    # -----------------
-    # 2.1) Create ModelDefinitions & Fields
-    # -----------------
-    for table in diagram_data.get("tables", []):
-        table_id = table["id"]
-        table_name = table["name"].replace(" ", "_")
-
-        # Skip creation if table name has a dot, e.g. "lookup.Lookups"
-        if "." in table_name:
-            # We do NOT create a ModelDefinition for such tables
-            print(f"Skipping table '{table_name}' because it contains '.' (external model).")
-            continue
-
-        # Create the model definition
+    for model_data in django_models:
+        # Create ModelDefinition
         model_def = ModelDefinition.objects.create(
             application=application,
-            model_name=table_name,
-            db_table="",
-            verbose_name=table_name.capitalize(),
-            verbose_name_plural=table_name.capitalize() + "s",
-            ordering="",
-            unique_together=None,
-            indexes=None,
-            constraints=None
+            model_name=model_data["name"],
+            db_table=model_data.get("meta", {}).get("db_table", ""),
+            verbose_name=model_data.get("meta", {}).get("verbose_name", ""),
+            verbose_name_plural=model_data.get("meta", {}).get("verbose_name_plural", ""),
+            ordering=",".join(model_data.get("meta", {}).get("ordering", [])) if model_data.get("meta", {}).get("ordering") else "",
+            unique_together=model_data.get("meta", {}).get("unique_together"),
+            indexes=model_data.get("meta", {}).get("indexes"),
+            constraints=model_data.get("meta", {}).get("constraints")
         )
-        table_id_to_modeldef[table_id] = model_def
 
-        # 2A) Create fields
-        for field in table.get("fields", []):
-            field_id = field["id"]
-
-            # If the field is relational, store its name and skip its creation in the fields list
-            if field_id in relational_field_ids:
-                continue
-
-            field_name = field.get("name", "unnamed_field").replace(" ", "_")
-
-            # Map the diagram's type to a Django field type
-            raw_pg_type = field["type"]["id"].lower()  # e.g. "bigint"
-            mapped_field_type = FIELD_TYPE_MAP.get(raw_pg_type, "CharField")
-
-            # Build the "options" string based on unique/nullable, etc.
-            # For example:
-            options_list = []
-
-            # If not nullable => do nothing (Django default is null=False, blank=False)
-            # If it is nullable => add "null=True, blank=True"
-            if field.get("nullable") is True:
-                if mapped_field_type not in ("AutoField", "BigAutoField"):
-                    options_list.append("null=True")
-
-            if field.get("blank") is True:
-                if mapped_field_type not in ("AutoField", "BigAutoField"):
-                    options_list.append("blank=True")
-
-            if field.get("max_length"):
-                if mapped_field_type not in ("AutoField", "BigAutoField"):
-                    options_list.append(f'max_length={int(field["max_length"])}')
-
-            if field.get("max_digits") is not None and field.get("decimal_places") is not None:
-                if mapped_field_type in ("DecimalField", "FloatField"):
-                    try:
-                        options_list.append(f'max_digits={int(field["max_digits"])}')
-                        options_list.append(f"decimal_places={int(field['decimal_places'])}")
-                    except:
-                        pass
-
-            # Add choices to options if provided
-            choices = []
-            if field.get("choices") is not None and mapped_field_type in ("CharField", "IntegerField"):
-                choices = field["choices"]
-
-            # If "unique": True and it's only a single field, we can place "unique=True"
-            if field.get("unique") is True:
-                if mapped_field_type not in ("AutoField", "BigAutoField"):
-                    options_list.append("unique=True")
-
-            # If "primaryKey": True => store "primary_key=True"
-            if field.get("primaryKey") is True and field.get('name') in ['ID', 'Id', 'id', 'iD']:
-                continue
-                # options_list.append("primary_key=True")
-
-            # Build a comma-separated string from options_list
-            options_str = ','.join(options_list)
-
-            # --- Parse to inject default values for CharField/DecimalField ---
-            opt_dict = parse_options_str(options_str)
-
-            if mapped_field_type == "CharField":
-                if "max_length" not in opt_dict:
-                    opt_dict["max_length"] = "255"
-
-            elif mapped_field_type == "DecimalField":
-                if "max_digits" not in opt_dict:
-                    opt_dict["max_digits"] = "10"
-                if "decimal_places" not in opt_dict:
-                    opt_dict["decimal_places"] = "2"
-
-            # Rebuild the final options string
-            final_options_str = build_options_str(opt_dict)
-
+        # Create FieldDefinitions
+        for field_data in model_data.get("fields", []):
             field_def = FieldDefinition.objects.create(
                 model_definition=model_def,
-                field_name=field_name,
-                field_type=mapped_field_type,
-                options=final_options_str,
-                has_choices=True if choices else False,
-                choices_json=choices
+                field_name=field_data["name"],
+                field_type=field_data["type"],
+                options=field_data.get("options", ""),
+                has_choices=bool(field_data.get("choices")),
+                choices_json=field_data.get("choices") if field_data.get("choices") else None
             )
-            field_id_to_fielddef[field_id] = field_def
 
-    # -----------------
-    # 3) Handle Indexes
-    # -----------------
-    # If your diagram JSON includes indexes for each table, you can store
-    # them in ModelDefinition.indexes (JSONField on your model).
-    #     # -----------------
-    #     # 4) Handle Indexes
-    #     # -----------------
-    for table in diagram_data.get("tables", []):
-        table_id = table["id"]
-        if table_id not in table_id_to_modeldef:
-            continue
+        # Create RelationshipDefinitions
+        for rel_data in model_data.get("relationships", []):
+            # Fix related_model references for internal models
+            related_model = rel_data["related_model"]
+            if "." not in related_model:
+                # It's an internal model, add app prefix
+                related_model = f"{safe_app_name}.{related_model}"
 
-        model_def = table_id_to_modeldef[table_id]
-        indexes_json = []
-
-        for index_data in table.get("indexes", []):
-            field_ids = index_data.get("fieldIds", [])
-            fields_names = [
-                field_id_to_fielddef[fid].field_name for fid in field_ids if fid in field_id_to_fielddef
-            ]
-            if not fields_names:
-                continue
-            indexes_json.append({
-                "name": index_data["name"],
-                "fields": fields_names,
-                "unique": index_data.get("unique", False)
-            })
-
-        if indexes_json:
-            model_def.indexes = indexes_json
-            model_def.save()
-    # for table in diagram_data.get("tables", []):
-    #     table_id = table["id"]
-    #     table_name = table["name"].replace(" ", "_")
-    #
-    #     # If we skipped this table earlier, don't do indexes for it
-    #     if "." in table_name:
-    #         continue
-    #
-    #     model_def = table_id_to_modeldef[table_id]
-    #     indexes_json = []
-    #
-    #     for index_data in table.get("indexes", []):
-    #         # "index_data" might look like:
-    #         # {
-    #         #   "id": "74",
-    #         #   "name": "index_1",
-    #         #   "fieldIds": ["70","71"],
-    #         #   "unique": true,
-    #         #   "createdAt": 1737971159389
-    #         # }
-    #         field_ids = index_data.get("fieldIds", [])
-    #         # We must convert these IDs to field names:
-    #         fields_names = []
-    #         for fid in field_ids:
-    #             if fid in field_id_to_fielddef:
-    #                 fields_names.append(field_id_to_fielddef[fid].field_name)
-    #             else:
-    #                 # We can either ignore or raise an error if we can't find the field.
-    #                 raise ValidationError(
-    #                     f"Index references unknown field id={fid} in table {table['name']}"
-    #                 )
-    #
-    #         # Now append this index definition to the model's index list
-    #         indexes_json.append({
-    #             "name": index_data["name"],
-    #             "fields": fields_names,
-    #             "unique": index_data.get("unique", False)
-    #         })
-    #
-    #     # Store the indexes in ModelDefinition.indexes
-    #     if indexes_json:
-    #         model_def.indexes = indexes_json
-    #         model_def.save()
-
-    # -----------------
-    # 4) Create RelationshipDefinitions
-    # -----------------
-    # For relationships, you have:
-    #  {
-    #    "id": "85",
-    #    "name": "table_2_field_2_fk",
-    #    "sourceTableId": "68",
-    #    "targetTableId": "77",
-    #    "sourceFieldId": "70",
-    #    "targetFieldId": "78",
-    #    "sourceCardinality": "one",
-    #    "targetCardinality": "many"
-    #  }
-    # We'll interpret cardinalities as:
-    #  - one-to-many => ForeignKey on the "many" side referencing "one"
-    #  - many-to-many => ManyToManyField
-    #  - one-to-one => OneToOneField
-
-    for rel in diagram_data.get("relationships", []):
-        source_table_id = rel["sourceTableId"]
-        target_table_id = rel["targetTableId"]
-
-        if source_table_id not in table_id_to_modeldef:
-            continue
-        # If the source or target table was skipped, interpret that as an external model
-        if source_table_id in table_id_to_modeldef:
-            source_model_def = table_id_to_modeldef[source_table_id]
-            source_name = source_model_def.model_name
-        else:
-            # We skip creation for that table => get the actual table name from the JSON
-            source_table_json = next(
-                (t for t in diagram_data["tables"] if t["id"] == source_table_id),
-                None
-            )
-            if source_table_json:
-                source_name = source_table_json["name"].replace(" ", "_")
-            else:
-                source_name = f"unknown_source_{source_table_id}"
-            source_model_def = None
-
-        if target_table_id in table_id_to_modeldef:
-            target_model_def = table_id_to_modeldef[target_table_id]
-            target_name = target_model_def.model_name
-        else:
-            # Also interpret it as external model
-            target_table_json = next(
-                (t for t in diagram_data["tables"] if t["id"] == target_table_id),
-                None
-            )
-            if target_table_json:
-                target_name = target_table_json["name"].replace(" ", "_")
-            else:
-                target_name = f"unknown_target_{target_table_id}"
-            target_model_def = None
-
-        source_card = rel.get("sourceCardinality", "many")
-        target_card = rel.get("targetCardinality", "many")
-
-        if source_card == "one" and target_card == "many":
-            relation_type = "ForeignKey"
-            model_with_fk = target_model_def
-            related_model = f"{application.app_name}.{source_name}"
-
-        elif source_card == "many" and target_card == "one":
-            relation_type = "ForeignKey"
-            model_with_fk = source_model_def
-            related_model = f"{application.app_name}.{target_name}"
-
-        elif source_card == "one" and target_card == "one":
-            relation_type = "OneToOneField"
-            model_with_fk = source_model_def  # or target_model_def, your logic
-            related_model = f"{application.app_name}.{target_name}"
-
-        elif source_card == "many" and target_card == "many":
-            relation_type = "ManyToManyField"
-            model_with_fk = source_model_def
-            related_model = f"{application.app_name}.{target_name}"
-
-        else:
-            # If there's some unrecognized combination, default to ManyToMany
-            relation_type = "ManyToManyField"
-            model_with_fk = source_model_def
-            related_model = f"{application.app_name}.{target_name}"
-
-        # If either side is an external model (with dot name), use that dotted name
-        if target_model_def is None and "." in target_name:
-            related_model = target_name
-        if source_model_def is None and "." in source_name:
-            related_model = source_name
-            model_with_fk = target_model_def
-
-        # Build the "options" string. Handle "onDelete" and "limitedTo".
-        if relation_type in ("ForeignKey", "OneToOneField"):
-            on_delete_action = rel.get("onDelete", "CASCADE").upper()  # Default to "CASCADE"
-            if on_delete_action not in ["CASCADE", "SET_NULL", "RESTRICT", "DO_NOTHING", "PROTECT"]:
-                raise ValidationError(f"Invalid onDelete action: {on_delete_action}")
-            options_str = f'on_delete=models.{on_delete_action}'
-            if on_delete_action == 'SET_NULL':
-                options_str += f', null=True'
-
-        else:
-            options_str = ''
-
-        # Add limitedTo to options if provided
-        limited_to = rel.get("limitedTo")
-        print(rel.get("limitedTo"))
-        if limited_to:
-            if options_str:
-                options_str += f', limit_choices_to={limited_to}'
-            else:
-                options_str = f'limit_choices_to={limited_to}'
-
-        # Only create RelationshipDefinition if we have a local model_with_fk
-        if model_with_fk:
             RelationshipDefinition.objects.create(
-                model_definition=model_with_fk,
-                relation_name = relationship_field_names.get(rel["sourceFieldId"], rel["name"]),
-                relation_type=relation_type,
+                model_definition=model_def,
+                relation_name=rel_data["name"],
+                relation_type=rel_data["type"],
                 related_model=related_model,
-                options=options_str
-            )
-        else:
-            print(
-                f"Skipping Relationship '{rel['name']}' because the local model was skipped. "
-                f"(External relation to '{related_model}')"
+                options=rel_data.get("options", "")
             )
 
-    # Return the top-level Application so you can reference it
+    # Log summary
+    print(f"\nSuccessfully created application '{safe_app_name}':")
+    print(f"  - Models: {conversion_result['model_count']}")
+    print(f"  - Fields: {conversion_result['field_count']}")
+    print(f"  - Relationships: {conversion_result['relationship_count']}")
+
     return application
+
+
+# Keep the original helper functions for backward compatibility
+def parse_options_str(options_str):
+    """
+    Convert a string like 'max_length=100,unique=True,choices=[('test1','Test1'),('test2','test2')]'
+    into a dict: {'max_length': '100', 'unique': 'True', 'choices': "[('test1','Test1'),('test2','test2')]"}.
+    """
+    if not options_str.strip():
+        return {}
+
+    result = {}
+    # Use regex to split while keeping values in brackets intact
+    pattern = r'(\w+)=((?:\[[^\]]*\])|(?:[^,]+))'
+    matches = re.findall(pattern, options_str)
+
+    for key, value in matches:
+        result[key.strip()] = value.strip()
+
+    return result
+
+
+def build_options_str(options_dict):
+    """
+    Convert a dict like {'max_length': '100', 'unique': 'True'}
+    back into a string 'max_length=100,unique=True'.
+    """
+    return ",".join(f"{k}={v}" for k, v in options_dict.items())

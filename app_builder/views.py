@@ -25,27 +25,188 @@ from app_builder.serializers.application_serializer import (
     FieldDefinitionSerializer,
     RelationshipDefinitionSerializer, ApplicationERDSerializer,
 )
-from .services import create_application_from_diagram
+# Enhanced version of DiagramImportView in app_builder/views.py
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import AllowAny
+from django.db import transaction
+from django.core.exceptions import ValidationError
+
+from app_builder.services import create_application_from_diagram
+from app_builder.utils.erd_converter import convert_erd_to_django
+
 
 class DiagramImportView(APIView):
+    """
+    Enhanced API endpoint that imports ERD JSON and creates Django application structure.
+    Includes validation, error handling, and detailed feedback.
+    """
     permission_classes = [AllowAny]
+
     def post(self, request, *args, **kwargs):
-        diagram_data = request.data  # The JSON from the request body
+        diagram_data = request.data
 
+        # Validate input
+        if not diagram_data:
+            return Response(
+                {"error": "No data provided"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not isinstance(diagram_data, dict):
+            return Response(
+                {"error": "Invalid data format. Expected JSON object."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # First, validate the conversion without saving
         try:
-            application = create_application_from_diagram(diagram_data)
-        except ValidationError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            app_name = diagram_data.get("name", "untitled_app")
 
-        return Response(
-            {
-                "detail": "Diagram imported successfully!",
-                "application_id": application.id
+            # Test conversion
+            conversion_result = convert_erd_to_django(diagram_data, app_name=app_name)
+
+            # If validation failed, return detailed errors
+            if not conversion_result["is_valid"]:
+                return Response({
+                    "error": "ERD validation failed",
+                    "validation_errors": conversion_result["errors"],
+                    "warnings": conversion_result["warnings"],
+                    "statistics": {
+                        "models_found": conversion_result["model_count"],
+                        "fields_found": conversion_result["field_count"],
+                        "relationships_found": conversion_result["relationship_count"]
+                    }
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response({
+                "error": "Failed to validate ERD structure",
+                "detail": str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # If validation passed, create the application
+        try:
+            with transaction.atomic():
+                application = create_application_from_diagram(diagram_data)
+
+                # Prepare detailed response
+                response_data = {
+                    "success": True,
+                    "message": "Diagram imported successfully!",
+                    "application": {
+                        "id": application.id,
+                        "app_name": application.app_name,
+                        "created_at": application.created_at.isoformat()
+                    },
+                    "statistics": {
+                        "models": conversion_result["model_count"],
+                        "fields": conversion_result["field_count"],
+                        "relationships": conversion_result["relationship_count"]
+                    }
+                }
+
+                # Include warnings if any
+                if conversion_result["warnings"]:
+                    response_data["warnings"] = conversion_result["warnings"]
+
+                # Include next steps
+                response_data["next_steps"] = [
+                    f"Generate Django app: python manage.py create_app {application.app_name} --models-file generated_application_source/{application.app_name}.json",
+                    f"Make migrations: python manage.py makemigrations {application.app_name}",
+                    f"Apply migrations: python manage.py migrate {application.app_name}"
+                ]
+
+                return Response(response_data, status=status.HTTP_201_CREATED)
+
+        except ValidationError as e:
+            return Response({
+                "error": "Validation error during import",
+                "detail": str(e),
+                "warnings": conversion_result.get("warnings", [])
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            # Log the full exception for debugging
+            import traceback
+            traceback.print_exc()
+
+            return Response({
+                "error": "Failed to import diagram",
+                "detail": str(e),
+                "type": type(e).__name__
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def get(self, request, *args, **kwargs):
+        """
+        Provide API documentation when accessed via GET.
+        """
+        return Response({
+            "endpoint": "ERD Diagram Import",
+            "method": "POST",
+            "description": "Import an ERD JSON export and create Django application structure",
+            "request_format": {
+                "id": "string (optional)",
+                "name": "string - will be used as app name",
+                "tables": [
+                    {
+                        "id": "string",
+                        "name": "string",
+                        "fields": [
+                            {
+                                "id": "string",
+                                "name": "string",
+                                "type": {"id": "string", "name": "string"},
+                                "nullable": "boolean",
+                                "unique": "boolean",
+                                "primaryKey": "boolean"
+                            }
+                        ],
+                        "indexes": "array (optional)"
+                    }
+                ],
+                "relationships": [
+                    {
+                        "id": "string",
+                        "name": "string",
+                        "sourceTableId": "string",
+                        "targetTableId": "string",
+                        "sourceFieldId": "string",
+                        "targetFieldId": "string",
+                        "sourceCardinality": "one|many",
+                        "targetCardinality": "one|many"
+                    }
+                ]
             },
-            status=status.HTTP_201_CREATED
-        )
+            "response_format": {
+                "success": {
+                    "success": "boolean",
+                    "message": "string",
+                    "application": {
+                        "id": "number",
+                        "app_name": "string",
+                        "created_at": "ISO 8601 datetime"
+                    },
+                    "statistics": {
+                        "models": "number",
+                        "fields": "number",
+                        "relationships": "number"
+                    },
+                    "warnings": "array of strings (optional)",
+                    "next_steps": "array of strings"
+                },
+                "error": {
+                    "error": "string",
+                    "detail": "string",
+                    "validation_errors": "array (optional)",
+                    "warnings": "array (optional)"
+                }
+            },
+            "example_curl": 'curl -X POST -H "Content-Type: application/json" -d @erd_export.json http://localhost:8000/app_builder/api/diagram/import/'
+        })
+
 # class DiagramImportView(APIView):
 #     """
 #     Handles a POST request with the diagram JSON and maps it
