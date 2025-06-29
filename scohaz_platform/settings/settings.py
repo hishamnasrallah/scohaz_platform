@@ -54,7 +54,6 @@ INSTALLED_APPS += [
 
 CUSTOM_APPS = [
     'ab_app',
-    'relational_app',
 
 ]
 INSTALLED_APPS += CUSTOM_APPS + [
@@ -92,11 +91,13 @@ INSTALLED_APPS += CUSTOM_APPS + [
 # }
 APPS_CURRENT_USER_MIDDLEWARE = [
     'ab_app.middleware.CurrentUserMiddleware',
-    'relational_app.middleware.CurrentUserMiddleware',
     #// TODO: add other modules
 ]
 
 APP_MIDDLEWARE_MAPPING = {
+    'monicaao': [
+        'monicaao.middleware.DynamicModelMiddleware',
+    ],
     'ab_app': [
         'ab_app.middleware.DynamicModelMiddleware',
     ],

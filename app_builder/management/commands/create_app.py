@@ -1238,188 +1238,6 @@ class DynamicAdminMixin:
             form.add_error(None, e)
             raise e
 
-# class DynamicAdminMixin:
-#     context_name = "admin"
-# 
-#     # ---------------
-#     # PERMISSION CHECKS
-#     # ---------------
-#     def has_view_permission(self, request, obj=None):
-#         if request.user.is_superuser:
-#             return True
-#         object_id = obj.pk if obj else None
-#         return user_can(request.user, "read", self.model, self.context_name, object_id)
-# 
-#     def has_add_permission(self, request):
-#         if request.user.is_superuser:
-#             return True
-#         return user_can(request.user, "create", self.model, self.context_name)
-# 
-#     def has_change_permission(self, request, obj=None):
-#         if request.user.is_superuser:
-#             return True
-#         object_id = obj.pk if obj else None
-#         return user_can(request.user, "update", self.model, self.context_name, object_id)
-# 
-#     def has_delete_permission(self, request, obj=None):
-#         if request.user.is_superuser:
-#             return True
-#         object_id = obj.pk if obj else None
-#         return user_can(request.user, "delete", self.model, self.context_name, object_id)
-# 
-#     # ---------------
-#     # DYNAMIC FORM GENERATION
-#     # ---------------
-#     def get_form(self, request, obj=None, **kwargs):
-#         \"\"\"
-#         Return a dynamically built form class with Django admin widgets
-#         and field-level adjustments (e.g., DateTime split, file input, etc.).
-#         \"\"\"
-#         from django import forms
-#         from django.db import models
-#         from django.contrib.admin.widgets import (
-#             AdminDateWidget,
-#             AdminSplitDateTime,
-#             AdminTimeWidget,
-#             FilteredSelectMultiple,
-#         )
-#         from django.utils.dateparse import parse_date, parse_time
-#         from datetime import datetime, date, time
-# 
-#         class CustomDynamicForm(DynamicFormBuilder):
-#             class Meta:
-#                 model = self.model
-#                 fields = "__all__"
-# 
-#             def __init__(self_inner, *args, **inner_kwargs):
-#                 inner_kwargs.setdefault('user', request.user)
-#                 super().__init__(*args, **inner_kwargs)
-# 
-#                 for field_name, field in self_inner.fields.items():
-#                     try:
-#                         model_field = self.model._meta.get_field(field_name)
-# 
-#                         # Date-only field
-#                         if isinstance(model_field, models.DateField) and not isinstance(model_field, models.DateTimeField):
-#                             field.widget = AdminDateWidget()
-# 
-#                         # DateTime field with safe clean() and to_python()
-#                         elif isinstance(model_field, models.DateTimeField):
-#                             field.widget = AdminSplitDateTime()
-#                             original_clean = field.clean
-#                             original_to_python = field.to_python
-# 
-#                             # Patch .clean()
-#                             def split_clean(value, *args, **kwargs):
-#                                 if isinstance(value, list) and len(value) == 2:
-#                                     date_value, time_value = value
-# 
-#                                     if isinstance(date_value, str):
-#                                         date_part = parse_date(date_value)
-#                                     elif isinstance(date_value, date):
-#                                         date_part = date_value
-#                                     else:
-#                                         date_part = None
-# 
-#                                     if isinstance(time_value, str):
-#                                         time_part = parse_time(time_value)
-#                                     elif isinstance(time_value, time):
-#                                         time_part = time_value
-#                                     else:
-#                                         time_part = None
-# 
-#                                     if date_part and time_part:
-#                                         return datetime.combine(date_part, time_part)
-# 
-#                                     return None  # Fail silently with None instead of calling original
-# 
-#                                 return original_clean(value, *args, **kwargs)
-# 
-#                             # Patch .to_python() to support .has_changed() logic
-#                             def split_to_python(value):
-#                                 if isinstance(value, list) and len(value) == 2:
-#                                     date_value, time_value = value
-# 
-#                                     if isinstance(date_value, str):
-#                                         date_part = parse_date(date_value)
-#                                     elif isinstance(date_value, date):
-#                                         date_part = date_value
-#                                     else:
-#                                         date_part = None
-# 
-#                                     if isinstance(time_value, str):
-#                                         time_part = parse_time(time_value)
-#                                     elif isinstance(time_value, time):
-#                                         time_part = time_value
-#                                     else:
-#                                         time_part = None
-# 
-#                                     if date_part and time_part:
-#                                         return datetime.combine(date_part, time_part)
-# 
-#                                     # If it's a list but we can't parse it, return None (not the original method)
-#                                     return None
-# 
-#                                 # Only call the original if NOT a list
-#                                 return original_to_python(value)
-# 
-#                             field.clean = split_clean
-#                             field.to_python = split_to_python
-# 
-#                         # Time-only field
-#                         elif isinstance(model_field, models.TimeField):
-#                             field.widget = AdminTimeWidget()
-# 
-#                         # Text area for long text
-#                         elif isinstance(model_field, models.TextField):
-#                             field.widget = forms.Textarea(attrs={{'rows': 4}})
-# 
-#                         # File/image upload
-#                         elif isinstance(model_field, models.FileField):
-#                             field.widget = forms.ClearableFileInput()
-# 
-#                         # ManyToMany fields with dual select box
-#                         elif isinstance(model_field, models.ManyToManyField):
-#                             field.widget = FilteredSelectMultiple(model_field.verbose_name, is_stacked=False)
-# 
-#                         # Optional enhancements (UX improvements)
-#                         elif isinstance(model_field, models.EmailField):
-#                             field.widget = forms.EmailInput()
-#                         elif isinstance(model_field, models.URLField):
-#                             field.widget = forms.URLInput()
-#                         elif isinstance(model_field, models.IntegerField):
-#                             field.widget = forms.NumberInput()
-#                         elif isinstance(model_field, (models.DecimalField, models.FloatField)):
-#                             field.widget = forms.NumberInput(attrs={{'step': 'any'}})
-# 
-#                     except Exception:
-#                         # Skip virtual or dynamically excluded fields
-#                         continue
-# 
-#         return CustomDynamicForm
-# 
-#     # ---------------
-#     # SAVE MODEL
-#     # ---------------
-#     def save_model(self, request, obj, form, change):
-#         \"\"\"
-#         Inject user into model context and trigger clean validation.
-#         \"\"\"
-#         obj.set_validation_user(request.user)
-# 
-#         if not obj.created_by:
-#             obj.created_by = request.user
-#         obj.updated_by = request.user
-# 
-#         from django.core.exceptions import ValidationError as DjangoValidationError
-#         try:
-#             obj.full_clean()  # triggers your dynamic validation
-#             super().save_model(request, obj, form, change)
-#         except DjangoValidationError as e:
-#             form.add_error(None, e)
-#             raise e
-
-
 
 class ModelCommonMixin(models.Model):
     \"\"\"
@@ -1447,7 +1265,70 @@ class ModelCommonMixin(models.Model):
         abstract = True
 
     def __str__(self):
-        return self.name if self.name else f"{{self.__class__.__name__}} (ID: {{self.id}})"
+        \"\"\"
+        Advanced __str__ method that intelligently finds the best field to display.
+        Tries multiple strategies to find a meaningful representation.
+        \"\"\"
+        # Strategy 1: Check if model has a custom display method
+        if hasattr(self, 'get_display_name') and callable(getattr(self, 'get_display_name')):
+            try:
+                return self.get_display_name()
+            except:
+                pass  # Fall through to other strategies
+        
+        # Strategy 2: Check for model-specific display_fields attribute
+        display_fields = getattr(self, 'display_fields', None)
+        if display_fields:
+            for field in display_fields:
+                value = getattr(self, field, None)
+                if value and str(value).strip():
+                    return str(value)
+        
+        # Strategy 3: Try common field names in priority order
+        common_fields = [
+            'name', 'title', 'label', 'display_name', 'full_name',
+            'username', 'email', 'code', 'slug', 'key', 'identifier',
+            'description', 'text', 'content', 'value', 'term',
+            # Add more based on your domain
+        ]
+        
+        for field in common_fields:
+            value = getattr(self, field, None)
+            if value and str(value).strip():
+                return str(value)
+        
+        # Strategy 4: Intelligently inspect model fields
+        if hasattr(self, '_meta'):
+            # First, try to find short CharFields (likely to be names/titles)
+            char_fields = []
+            for field in self._meta.get_fields():
+                if (field.concrete and not field.many_to_many and 
+                    not field.one_to_many and not field.related_model):
+                    if field.get_internal_type() == 'CharField':
+                        char_fields.append((field, getattr(field, 'max_length', float('inf'))))
+            
+            # Sort by max_length (shorter fields are more likely to be names)
+            char_fields.sort(key=lambda x: x[1])
+            
+            for field, _ in char_fields:
+                value = getattr(self, field.name, None)
+                if value and str(value).strip():
+                    return str(value)
+            
+            # If no CharField found, try TextField
+            for field in self._meta.get_fields():
+                if (field.concrete and not field.many_to_many and 
+                    not field.one_to_many and field.get_internal_type() == 'TextField'):
+                    value = getattr(self, field.name, None)
+                    if value and str(value).strip():
+                        # For TextField, return truncated version
+                        text = str(value).strip()
+                        return text[:50] + '...' if len(text) > 50 else text
+        
+        # Strategy 5: Final fallback with safe ID access
+        class_name = self.__class__.__name__
+        obj_id = getattr(self, 'id', getattr(self, 'pk', 'N/A'))
+        return f"{{class_name}} (ID: {{obj_id}})"
 
     def clean(self):
         \"\"\"
@@ -1545,7 +1426,6 @@ class ModelCommonMixin(models.Model):
         with open(os.path.join(app_path, 'mixins.py'), 'w') as f:
             f.write(mixin_code)
         logger.debug("Generated 'mixins.py'.")
-
     def generate_admin_file(self, app_path, models, app_name):
         """
         Generate admin.py with dynamic registration and configuration,
@@ -2332,10 +2212,8 @@ class DynamicFormBuilder(forms.ModelForm):
             f"import logging\n"
             f"import threading\n"
             f"from django.apps import apps\n"
-            f"from django.db import transaction\n"
+            f"from django.db import transaction, connection\n"
             f"from django.core.exceptions import ObjectDoesNotExist\n"
-
-
             f"logger = logging.getLogger(__name__)\n\n"
         )
 
@@ -2369,11 +2247,45 @@ def post_save_{model_name.lower()}(sender, instance, created, **kwargs):
 # Thread-local storage to hold state flags
 _thread_locals = threading.local()
 
+def table_exists(table_name):
+    \"\"\"Check if a database table exists.\"\"\"
+    try:
+        with connection.cursor() as cursor:
+            tables = connection.introspection.table_names()
+            return table_name in tables
+    except:
+        return False
+
+def is_app_ready():
+    \"\"\"Check if the app's models are ready and tables exist.\"\"\"
+    try:
+        # Check if the app is ready
+        app_config = apps.get_app_config('{app_name}')
+        if not app_config.models_ready:
+            return False
+        
+        # Check if AutoComputeRule table exists
+        return table_exists(AutoComputeRule._meta.db_table)
+    except:
+        return False
+
 @receiver(pre_save)
-def pre_save_auto_copute_handler(sender, instance, **kwargs):
+def pre_save_auto_compute_handler(sender, instance, **kwargs):
     \"\"\"
     pre_save handler to store the previous state of the instance.
     \"\"\"
+    # Only process models from this app
+    if sender._meta.app_label != '{app_name}':
+        return
+    
+    # Skip if app is not ready or table doesn't exist
+    if not is_app_ready():
+        return
+    
+    # Skip the AutoComputeRule model itself
+    if sender.__name__ == 'AutoComputeRule':
+        return
+    
     # Initialize the flag if not present
     if not hasattr(_thread_locals, 'auto_compute_running'):
         _thread_locals.auto_compute_running = False
@@ -2400,102 +2312,133 @@ def pre_save_auto_copute_handler(sender, instance, **kwargs):
 def post_save_auto_compute_handler(sender, instance, created, **kwargs):
     \"\"\"
     post_save handler to process AutoComputeRules for any model.
-        \"\"\"
+    \"\"\"
+    # Only process models from this app
+    if sender._meta.app_label != '{app_name}':
+        return
+    
+    # Skip if app is not ready or table doesn't exist
+    if not is_app_ready():
+        return
+    
+    # Skip the AutoComputeRule model itself to avoid recursion
+    if sender.__name__ == 'AutoComputeRule':
+        return
+    
     model_label = f"{{sender._meta.app_label}}.{{sender.__name__}}"
 
-    # 1. Find all rules for the model, ordered by priority
-    rules = AutoComputeRule.objects.filter(model_name=model_label).order_by('priority')
+    try:
+        # 1. Find all rules for the model, ordered by priority
+        rules = AutoComputeRule.objects.filter(model_name=model_label).order_by('priority')
 
-    if not rules.exists():
-        return  # No rules to process
+        if not rules.exists():
+            return  # No rules to process
 
-    # 2. Determine if any trigger_fields were changed
-    changed_fields = []
-    previous = getattr(_thread_locals, 'previous_instance', None)
+        # 2. Determine if any trigger_fields were changed
+        changed_fields = []
+        previous = getattr(_thread_locals, 'previous_instance', None)
 
-    if previous:
-        # Aggregate all trigger_fields from all applicable rules
-        all_trigger_fields = set()
-        for rule in rules:
-            all_trigger_fields.update(rule.trigger_fields)
+        if previous:
+            # Aggregate all trigger_fields from all applicable rules
+            all_trigger_fields = set()
+            for rule in rules:
+                all_trigger_fields.update(rule.trigger_fields)
 
-        for field in all_trigger_fields:
-            old_value = getattr(previous, field, None)
-            new_value = getattr(instance, field, None)
-            if old_value != new_value:
-                changed_fields.append(field)
-    else:
-        # If created, consider all trigger_fields as changed
-        for rule in rules:
-            changed_fields.extend(rule.trigger_fields)
-
-    # Remove duplicates
-    changed_fields = list(set(changed_fields))
-
-    # Reset the previous_instance to avoid stale data
-    _thread_locals.previous_instance = None
-
-    if not changed_fields and not created:
-        return  # No relevant fields changed and it's not a creation
-
-    logger.debug(f"Changed fields for {{model_label}} (ID: {{instance.pk}}): {{changed_fields}}")
-
-    # 3. Evaluate each rule
-    for rule in rules:
-        # Check if any of the trigger fields are in changed_fields
-        if not set(rule.trigger_fields).intersection(changed_fields) and not created:
-            continue  # Skip if no relevant fields changed and it's not a creation
-
-        logger.debug(f"Evaluating rule: {{rule}}")
-
-        # 4. Gather record data
-        record_data = {{}}
-        for field in instance._meta.fields:
-            record_data[field.name] = getattr(instance, field.name, None)
-
-        # 5. Gather related objects if needed
-        context_objects = {{sender.__name__.lower(): instance}}
-
-        # Include related objects based on ForeignKey and OneToOne relationships
-        for rel in instance._meta.related_objects:
-            related_name = rel.get_accessor_name()
-            related_manager = getattr(instance, related_name, None)
-            if rel.one_to_one:
-                related_obj = related_manager
-                if related_obj:
-                    context_objects[related_obj.__class__.__name__.lower()] = related_obj
-            else:
-                # For reverse ForeignKey relationships, you might get a queryset
-                if related_manager.exists():
-                    context_objects[related_name] = related_manager.all()
-
-        # 6. Initialize the evaluator
-        evaluator = AutoValueEvaluator(record_data)
-
-        # 7. Evaluate condition
-        condition_passed = True  # Default if no condition
-        if rule.condition_logic:
-            condition_passed = evaluator.evaluate(rule.condition_logic, context_objects)
-
-        logger.debug(f"Condition passed for rule {{rule.id}}: {{condition_passed}}")
-
-        # 8. Execute actions if condition is met
-        if condition_passed and rule.action_logic:
-            logger.debug(f"Executing actions for rule {{rule.id}}")
-            # Apply actions within an atomic transaction
-            with transaction.atomic():
+            for field in all_trigger_fields:
                 try:
-                    # Set the flag to indicate AutoCompute is running
-                    _thread_locals.auto_compute_running = True
+                    old_value = getattr(previous, field, None)
+                    new_value = getattr(instance, field, None)
+                    if old_value != new_value:
+                        changed_fields.append(field)
+                except AttributeError:
+                    # Field might not exist on the model
+                    pass
+        else:
+            # If created, consider all trigger_fields as changed
+            for rule in rules:
+                changed_fields.extend(rule.trigger_fields)
 
-                    evaluator.apply_actions(rule.action_logic, context_objects)
+        # Remove duplicates
+        changed_fields = list(set(changed_fields))
 
-                    logger.debug(f"Actions executed successfully for rule {{rule.id}}")
+        # Reset the previous_instance to avoid stale data
+        _thread_locals.previous_instance = None
+
+        if not changed_fields and not created:
+            return  # No relevant fields changed and it's not a creation
+
+        logger.debug(f"Changed fields for {{model_label}} (ID: {{instance.pk}}): {{changed_fields}}")
+
+        # 3. Evaluate each rule
+        for rule in rules:
+            # Check if any of the trigger fields are in changed_fields
+            if not set(rule.trigger_fields).intersection(changed_fields) and not created:
+                continue  # Skip if no relevant fields changed and it's not a creation
+
+            logger.debug(f"Evaluating rule: {{rule}}")
+
+            # 4. Gather record data
+            record_data = {{}}
+            for field in instance._meta.fields:
+                record_data[field.name] = getattr(instance, field.name, None)
+
+            # 5. Gather related objects if needed
+            context_objects = {{sender.__name__.lower(): instance}}
+
+            # Include related objects based on ForeignKey and OneToOne relationships
+            for rel in instance._meta.related_objects:
+                if rel.related_model._meta.app_label != '{app_name}':
+                    continue  # Skip relationships to models outside this app
+                    
+                related_name = rel.get_accessor_name()
+                try:
+                    related_manager = getattr(instance, related_name, None)
+                    if rel.one_to_one:
+                        if related_manager:
+                            context_objects[related_manager.__class__.__name__.lower()] = related_manager
+                    else:
+                        # For reverse ForeignKey relationships
+                        if related_manager and hasattr(related_manager, 'exists') and related_manager.exists():
+                            context_objects[related_name] = related_manager.all()
+                except:
+                    # Skip if there's any error accessing the related manager
+                    pass
+
+            # 6. Initialize the evaluator
+            evaluator = AutoValueEvaluator(record_data)
+
+            # 7. Evaluate condition
+            condition_passed = True  # Default if no condition
+            if rule.condition_logic:
+                try:
+                    condition_passed = evaluator.evaluate(rule.condition_logic, context_objects)
                 except Exception as e:
-                    logger.error(f"Error executing actions for rule {{rule.id}}: {{e}}")
-                finally:
-                    # Unset the flag after actions are executed
-                    _thread_locals.auto_compute_running = False
+                    logger.error(f"Error evaluating condition for rule {{rule.id}}: {{e}}")
+                    condition_passed = False
+
+            logger.debug(f"Condition passed for rule {{rule.id}}: {{condition_passed}}")
+
+            # 8. Execute actions if condition is met
+            if condition_passed and rule.action_logic:
+                logger.debug(f"Executing actions for rule {{rule.id}}")
+                # Apply actions within an atomic transaction
+                with transaction.atomic():
+                    try:
+                        # Set the flag to indicate AutoCompute is running
+                        _thread_locals.auto_compute_running = True
+
+                        evaluator.apply_actions(rule.action_logic, context_objects)
+
+                        logger.debug(f"Actions executed successfully for rule {{rule.id}}")
+                    except Exception as e:
+                        logger.error(f"Error executing actions for rule {{rule.id}}: {{e}}")
+                    finally:
+                        # Unset the flag after actions are executed
+                        _thread_locals.auto_compute_running = False
+    except Exception as e:
+        # Log the error but don't raise it to avoid breaking the save operation
+        logger.error(f"Error in auto compute handler for {{sender._meta.app_label}}.{{sender.__name__}}: {{e}}")
+        return
                     
 """
         # Write the signals file
@@ -2503,7 +2446,6 @@ def post_save_auto_compute_handler(sender, instance, created, **kwargs):
         with open(signals_file_path, 'w') as f:
             f.write(signal_code)
         logger.debug("Generated 'signals.py'.")
-
     def generate_utils_folder(self, app_path, app_name):
         """
         Generate a utils folder with modular validation, condition evaluation, and API call logic.
