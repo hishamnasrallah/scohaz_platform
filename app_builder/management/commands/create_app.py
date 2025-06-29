@@ -6,6 +6,7 @@ import ast
 import logging
 from pathlib import Path
 from time import sleep
+from typing import List, Dict, Tuple
 
 from django.core.management.base import BaseCommand, CommandError
 from django.core.management import call_command
@@ -22,6 +23,270 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+
+class InteractiveErrorHandler:
+    """
+    Handles errors interactively, giving users choices on how to proceed.
+    """
+
+    def __init__(self, command_instance):
+        self.command = command_instance
+        self.resolved_issues = {}
+
+    def check_dependencies(self, models: List[Dict]) -> Dict[str, List[str]]:
+        """
+        Check for missing dependencies based on field types used.
+        Returns dict of {dependency: [fields_that_need_it]}
+        """
+        missing_deps = {}
+
+        # Check for ImageField usage
+        image_fields = []
+        for model in models:
+            for field in model.get("fields", []):
+                if field.get("type") == "ImageField":
+                    image_fields.append(f"{model['name']}.{field['name']}")
+
+        if image_fields:
+            try:
+                import PIL
+            except ImportError:
+                missing_deps['Pillow'] = image_fields
+
+        return missing_deps
+
+    def check_field_issues(self, models: List[Dict]) -> Dict[str, List[Dict]]:
+        """
+        Check for field-related issues.
+        Returns dict of {issue_type: [field_details]}
+        """
+        issues = {
+            'id_fields': [],
+            'long_index_names': []
+        }
+
+        # Check for ID fields without primary_key=True
+        for model in models:
+            for field in model.get("fields", []):
+                if field.get("name", "").lower() == "id" and "primary_key=True" not in field.get("options", ""):
+                    issues['id_fields'].append({
+                        'model': model['name'],
+                        'field': field['name'],
+                        'current_options': field.get("options", "")
+                    })
+
+            # Check for long index names
+            meta = model.get("meta", {})
+            if "indexes" in meta:
+                for idx in meta["indexes"]:
+                    if len(idx.get("name", "")) > 30:
+                        issues['long_index_names'].append({
+                            'model': model['name'],
+                            'index_name': idx['name'],
+                            'length': len(idx['name'])
+                        })
+
+        return issues
+
+    def prompt_user_choice(self, message: str, choices: List[str]) -> int:
+        """
+        Prompt user to make a choice.
+        Returns the index of the chosen option.
+        """
+        self.command.stdout.write(self.command.style.WARNING(f"\n{message}"))
+        for i, choice in enumerate(choices, 1):
+            self.command.stdout.write(f"  {i}. {choice}")
+
+        while True:
+            try:
+                choice = input("\nEnter your choice (number): ").strip()
+                choice_idx = int(choice) - 1
+                if 0 <= choice_idx < len(choices):
+                    return choice_idx
+                else:
+                    self.command.stdout.write(self.command.style.ERROR("Invalid choice. Please try again."))
+            except (ValueError, KeyboardInterrupt):
+                self.command.stdout.write(self.command.style.ERROR("\nInvalid input. Please enter a number."))
+
+    def handle_missing_dependencies(self, missing_deps: Dict[str, List[str]]) -> Dict[str, str]:
+        """
+        Handle missing dependencies interactively.
+        Returns dict of {dependency: action_taken}
+        """
+        actions = {}
+
+        for dep, fields in missing_deps.items():
+            if dep == 'Pillow':
+                message = (
+                    f"ImageField is used in {len(fields)} field(s) but Pillow is not installed.\n"
+                    f"Affected fields: {', '.join(fields[:5])}"
+                    f"{' and more...' if len(fields) > 5 else ''}"
+                )
+
+                choices = [
+                    "Install Pillow now (recommended)",
+                    "Convert all ImageFields to FileFields",
+                    "Convert ImageFields to CharField (for paths/URLs)",
+                    "Cancel and fix manually"
+                ]
+
+                choice = self.prompt_user_choice(message, choices)
+
+                if choice == 0:  # Install Pillow
+                    self.command.stdout.write("Installing Pillow...")
+                    try:
+                        subprocess.check_call([sys.executable, "-m", "pip", "install", "Pillow"])
+                        self.command.stdout.write(self.command.style.SUCCESS("✓ Pillow installed successfully!"))
+                        actions[dep] = 'installed'
+                    except subprocess.CalledProcessError:
+                        self.command.stdout.write(self.command.style.ERROR("Failed to install Pillow."))
+                        actions[dep] = 'install_failed'
+
+                elif choice == 1:  # Convert to FileField
+                    actions[dep] = 'convert_to_filefield'
+
+                elif choice == 2:  # Convert to CharField
+                    actions[dep] = 'convert_to_charfield'
+
+                else:  # Cancel
+                    raise CommandError("User cancelled due to missing dependencies.")
+
+        return actions
+
+    def handle_field_issues(self, issues: Dict[str, List[Dict]]) -> Dict[str, str]:
+        """
+        Handle field-related issues interactively.
+        Returns dict of {issue_type: action_taken}
+        """
+        actions = {}
+
+        # Handle ID fields
+        if issues.get('id_fields'):
+            id_fields = issues['id_fields']
+            message = (
+                f"Found {len(id_fields)} field(s) named 'id' without primary_key=True.\n"
+                "Django automatically creates an 'id' field, so this will cause errors."
+            )
+
+            choices = [
+                "Remove these 'id' fields (recommended - Django will create its own)",
+                "Rename these fields to 'custom_id'",
+                "Add primary_key=True to these fields",
+                "Cancel and fix manually"
+            ]
+
+            choice = self.prompt_user_choice(message, choices)
+
+            if choice == 0:
+                actions['id_fields'] = 'remove'
+            elif choice == 1:
+                actions['id_fields'] = 'rename'
+            elif choice == 2:
+                actions['id_fields'] = 'make_primary'
+            else:
+                raise CommandError("User cancelled due to ID field issues.")
+
+        # Handle long index names
+        if issues.get('long_index_names'):
+            long_indexes = issues['long_index_names']
+            message = (
+                f"Found {len(long_indexes)} index name(s) longer than 30 characters.\n"
+                "Some databases have a 30-character limit for index names."
+            )
+
+            choices = [
+                "Automatically truncate index names",
+                "Generate new shorter names",
+                "Cancel and fix manually"
+            ]
+
+            choice = self.prompt_user_choice(message, choices)
+
+            if choice == 0:
+                actions['long_index_names'] = 'truncate'
+            elif choice == 1:
+                actions['long_index_names'] = 'regenerate'
+            else:
+                raise CommandError("User cancelled due to long index name issues.")
+
+        return actions
+
+    def apply_fixes(self, models: List[Dict], dep_actions: Dict[str, str],
+                    field_actions: Dict[str, str]) -> List[Dict]:
+        """
+        Apply the chosen fixes to the models.
+        Returns modified models list.
+        """
+        # Deep copy to avoid modifying original
+        import copy
+        fixed_models = copy.deepcopy(models)
+
+        # Apply dependency fixes
+        if 'Pillow' in dep_actions:
+            action = dep_actions['Pillow']
+            if action == 'convert_to_filefield':
+                for model in fixed_models:
+                    for field in model.get("fields", []):
+                        if field.get("type") == "ImageField":
+                            field["type"] = "FileField"
+                            self.command.stdout.write(
+                                f"  Changed {model['name']}.{field['name']} from ImageField to FileField"
+                            )
+            elif action == 'convert_to_charfield':
+                for model in fixed_models:
+                    for field in model.get("fields", []):
+                        if field.get("type") == "ImageField":
+                            field["type"] = "CharField"
+                            # Add max_length if not present
+                            if "max_length" not in field.get("options", ""):
+                                field["options"] = field.get("options", "") + ", max_length=255"
+                            self.command.stdout.write(
+                                f"  Changed {model['name']}.{field['name']} from ImageField to CharField"
+                            )
+
+        # Apply field fixes
+        if field_actions.get('id_fields') == 'remove':
+            for model in fixed_models:
+                model['fields'] = [f for f in model.get('fields', [])
+                                   if f.get('name', '').lower() != 'id'
+                                   or 'primary_key=True' in f.get('options', '')]
+                self.command.stdout.write(f"  Removed non-primary 'id' fields from {model['name']}")
+
+        elif field_actions.get('id_fields') == 'rename':
+            for model in fixed_models:
+                for field in model.get('fields', []):
+                    if field.get('name', '').lower() == 'id' and 'primary_key=True' not in field.get('options', ''):
+                        field['name'] = 'custom_id'
+                        self.command.stdout.write(f"  Renamed 'id' to 'custom_id' in {model['name']}")
+
+        elif field_actions.get('id_fields') == 'make_primary':
+            for model in fixed_models:
+                for field in model.get('fields', []):
+                    if field.get('name', '').lower() == 'id' and 'primary_key=True' not in field.get('options', ''):
+                        field['options'] = field.get('options', '') + ', primary_key=True'
+                        self.command.stdout.write(f"  Added primary_key=True to id field in {model['name']}")
+
+        # Apply index name fixes
+        if field_actions.get('long_index_names'):
+            import hashlib
+            for model in fixed_models:
+                meta = model.get('meta', {})
+                if 'indexes' in meta:
+                    for idx in meta['indexes']:
+                        if len(idx.get('name', '')) > 30:
+                            old_name = idx['name']
+                            if field_actions['long_index_names'] == 'truncate':
+                                idx['name'] = old_name[:27] + '_ix'
+                            else:  # regenerate
+                                # Create meaningful short name
+                                fields_str = '_'.join(idx['fields'][:2])
+                                hash_suffix = hashlib.md5(old_name.encode()).hexdigest()[:4]
+                                idx['name'] = f"{fields_str}_{hash_suffix}_idx"[:30]
+                            self.command.stdout.write(
+                                f"  Renamed index '{old_name}' to '{idx['name']}' in {model['name']}"
+                            )
+
+        return fixed_models
 
 class Command(BaseCommand):
     help = 'Create a new Django app dynamically with comprehensive configurations.'
@@ -54,6 +319,38 @@ class Command(BaseCommand):
 
         # Step 1: Load and validate model definitions
         models = self.load_model_definitions(models_definition, models_file)
+
+        # NEW: Interactive error checking and fixing
+        error_handler = InteractiveErrorHandler(self)
+
+        # Check for dependency issues (like missing Pillow for ImageField)
+        self.stdout.write(self.style.NOTICE("\nChecking for potential issues..."))
+        missing_deps = error_handler.check_dependencies(models)
+
+        if missing_deps:
+            self.stdout.write(self.style.WARNING("\n⚠ Dependency issues found:"))
+            dep_actions = error_handler.handle_missing_dependencies(missing_deps)
+        else:
+            dep_actions = {}
+            self.stdout.write(self.style.SUCCESS("✓ No dependency issues found"))
+
+        # Check for field issues (like 'id' fields, long index names)
+        field_issues = error_handler.check_field_issues(models)
+
+        if any(field_issues.values()):
+            self.stdout.write(self.style.WARNING("\n⚠ Field configuration issues found:"))
+            field_actions = error_handler.handle_field_issues(field_issues)
+        else:
+            field_actions = {}
+            self.stdout.write(self.style.SUCCESS("✓ No field configuration issues found"))
+
+        # Apply fixes if any were chosen
+        if dep_actions or field_actions:
+            self.stdout.write("\nApplying your chosen fixes...")
+            models = error_handler.apply_fixes(models, dep_actions, field_actions)
+            self.stdout.write(self.style.SUCCESS("✓ All fixes applied successfully!\n"))
+
+        # Continue with validation
         try:
             logger.info(f"Validating schema for '{app_name}'...")
             validate_model_schema(models)
@@ -257,89 +554,90 @@ class Command(BaseCommand):
         models_code += f"from .mixins import ModelCommonMixin\n\n"  # Include ModelCommonMixin
 
         # Add IntegrationConfig model for API integrations
+        # IMPORTANT: Start the string from the beginning of the line (no spaces before class)
         models_code += """
-    class AutoComputeRule(ModelCommonMixin):
-        \"\"\"
-        Dynamically applies computations/updates to fields across models when certain
-        conditions are met.
-    
-        Fields:
-        - model_name: Fully qualified model path, e.g., "billing.Bill"
-        - trigger_fields: List of field names that, when changed, trigger the rule
-        - condition_logic: JSON defining the conditions
-        - action_logic: JSON defining the actions to perform
-        \"\"\"
-        model_name = models.CharField(max_length=100)  # e.g., "billing.Bill"
-        trigger_fields = models.JSONField(default=list)  # e.g., ["amount"]
-        condition_logic = models.JSONField(blank=True, null=True)
-        action_logic = models.JSONField(blank=True, null=True)
-        priority = models.IntegerField(default=100)  # Lower number = higher priority
-    
-        def __str__(self):
-            return f"AutoComputeRule for {self.model_name}"
-            
-            
-    class IntegrationConfig(models.Model):
-        name = models.CharField(max_length=255)
-        base_url = models.URLField()
-        method = models.CharField(
-            max_length=10,
-            choices=[('GET', 'GET'), ('POST', 'POST'), ('PUT', 'PUT'), ('DELETE', 'DELETE')]
-        )
-        headers = models.JSONField(blank=True, null=True)
-        body = models.JSONField(blank=True, null=True)
-        timeout = models.IntegerField(default=30)
-    
-        class Meta:
-            verbose_name = 'Integration Config'
-            verbose_name_plural = 'Integration Configs'
-    
-        def __str__(self):
-            return self.name
-    
+class AutoComputeRule(ModelCommonMixin):
+    \"\"\"
+    Dynamically applies computations/updates to fields across models when certain
+    conditions are met.
+
+    Fields:
+    - model_name: Fully qualified model path, e.g., "billing.Bill"
+    - trigger_fields: List of field names that, when changed, trigger the rule
+    - condition_logic: JSON defining the conditions
+    - action_logic: JSON defining the actions to perform
+    \"\"\"
+    model_name = models.CharField(max_length=100)  # e.g., "billing.Bill"
+    trigger_fields = models.JSONField(default=list)  # e.g., ["amount"]
+    condition_logic = models.JSONField(blank=True, null=True)
+    action_logic = models.JSONField(blank=True, null=True)
+    priority = models.IntegerField(default=100)  # Lower number = higher priority
+
+    def __str__(self):
+        return f"AutoComputeRule for {self.model_name}"
+        
+        
+class IntegrationConfig(models.Model):
+    name = models.CharField(max_length=255)
+    base_url = models.URLField()
+    method = models.CharField(
+        max_length=10,
+        choices=[('GET', 'GET'), ('POST', 'POST'), ('PUT', 'PUT'), ('DELETE', 'DELETE')]
+    )
+    headers = models.JSONField(blank=True, null=True)
+    body = models.JSONField(blank=True, null=True)
+    timeout = models.IntegerField(default=30)
+
+    class Meta:
+        verbose_name = 'Integration Config'
+        verbose_name_plural = 'Integration Configs'
+
+    def __str__(self):
+        return self.name
+
     """
         # Add ValidationRule model for dynamic validation rules
         models_code += f"""
-    class ValidationRule(models.Model):
-        \"\"\"
-        Represents a dynamic validation rule for a specific field in a specific model.
-        Now with support for nested condition logic in a JSON expression.
-        \"\"\"
-        model_name = models.CharField(max_length=100)
-        field_name = models.CharField(max_length=100)
-    
-        VALIDATOR_TYPES = [
-            ('regex', 'Regex Validation'),
-            ('function', 'Function Validation'),
-            ('condition', 'Conditional Validation'),
-        ]
-        validator_type = models.CharField(max_length=50, choices=VALIDATOR_TYPES)
-    
-        regex_pattern = models.CharField(max_length=255, blank=True, null=True)
-        function_name = models.CharField(max_length=255, blank=True, null=True)
-        function_params = models.JSONField(blank=True, null=True)
-    
-        # New: a JSON field for storing the complex nested expression
-        # e.g., `[ {{ "field": "salary", "operation": "=", "value": {{"field": "base_salary", "operation": "+", "value": {{"field": "bonus"}} }} }}]`
-        condition_logic = models.JSONField(blank=True, null=True)
-    
-        user_roles = models.ManyToManyField(
-            Group, blank=True, related_name='{app_name}_validation_rule_user_roles',
-            help_text="Only these groups can edit this field."
-        )
-    
-        environment = models.CharField(max_length=50, blank=True, null=True)
-    
-        # **Dynamic error message**: Displayed when this rule fails
-        error_message = models.TextField(
-            blank=True,
-            null=True,
-            help_text="Custom error message shown if this rule fails. "
-                      "If empty, a default message is used."
-        )
-    
-        def __str__(self):
-            return f"{{self.model_name}}.{{self.field_name}} - {{self.validator_type}}"
+class ValidationRule(models.Model):
+    \"\"\"
+    Represents a dynamic validation rule for a specific field in a specific model.
+    Now with support for nested condition logic in a JSON expression.
+    \"\"\"
+    model_name = models.CharField(max_length=100)
+    field_name = models.CharField(max_length=100)
+
+    VALIDATOR_TYPES = [
+        ('regex', 'Regex Validation'),
+        ('function', 'Function Validation'),
+        ('condition', 'Conditional Validation'),
+    ]
+    validator_type = models.CharField(max_length=50, choices=VALIDATOR_TYPES)
+
+    regex_pattern = models.CharField(max_length=255, blank=True, null=True)
+    function_name = models.CharField(max_length=255, blank=True, null=True)
+    function_params = models.JSONField(blank=True, null=True)
+
+    # New: a JSON field for storing the complex nested expression
+    # e.g., `[ {{ "field": "salary", "operation": "=", "value": {{"field": "base_salary", "operation": "+", "value": {{"field": "bonus"}} }} }}]`
+    condition_logic = models.JSONField(blank=True, null=True)
+
+    user_roles = models.ManyToManyField(
+        Group, blank=True, related_name='{app_name}_validation_rule_user_roles',
+        help_text="Only these groups can edit this field."
+    )
+
+    environment = models.CharField(max_length=50, blank=True, null=True)
+
+    # **Dynamic error message**: Displayed when this rule fails
+    error_message = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Custom error message shown if this rule fails. "
+                  "If empty, a default message is used."
+    )
+
+    def __str__(self):
+        return f"{{self.model_name}}.{{self.field_name}} - {{self.validator_type}}"
     """
 
         # Iterate over models to generate model classes
@@ -449,12 +747,12 @@ class Command(BaseCommand):
 
         # Add dynamic signals for IntegrationConfig
         models_code += """
-    @receiver(post_save, sender=IntegrationConfig)
-    def handle_integration_post_save(sender, instance, created, **kwargs):
-        if created:
-            print(f"IntegrationConfig created: {instance.name}")
-        else:
-            print(f"IntegrationConfig updated: {instance.name}")
+@receiver(post_save, sender=IntegrationConfig)
+def handle_integration_post_save(sender, instance, created, **kwargs):
+    if created:
+        print(f"IntegrationConfig created: {instance.name}")
+    else:
+        print(f"IntegrationConfig updated: {instance.name}")
     """
 
         # Clean up any formatting issues
