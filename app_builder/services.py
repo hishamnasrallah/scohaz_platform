@@ -146,219 +146,6 @@ FIELD_TYPE_MAP = {
     "user-defined": "CharField",
 }
 
-def parse_options_str(options_str):
-    """
-    Convert a string like 'max_length=100,unique=True,choices=[('test1','Test1'),('test2','test2')]'
-    into a dict: {'max_length': '100', 'unique': 'True', 'choices': "[('test1','Test1'),('test2','test2')]"}.
-    """
-    if not options_str.strip():
-        return {}
-
-    result = {}
-    key_value_pairs = []
-
-    # Use regex to split while keeping values in brackets intact
-    pattern = r'(\w+)=((?:\[[^\]]*\])|(?:[^,]+))'
-    matches = re.findall(pattern, options_str)
-
-    for key, value in matches:
-        result[key.strip()] = value.strip()
-
-    return result
-
-def build_options_str(options_dict):
-    """
-    Convert a dict like {'max_length': '100', 'unique': 'True'}
-    back into a string 'max_length=100,unique=True'.
-    """
-    return ",".join(f"{k}={v}" for k, v in options_dict.items())
-
-# def create_application_from_diagram(diagram_data):
-#     """
-#     Creates a new ApplicationDefinition and all relaservices.pyted ModelDefinitions,
-#     FieldDefinitions, and RelationshipDefinitions from the given diagram JSON.
-#     """
-#
-#     # -----------------
-#     # 1) Create the Application
-#     # -----------------
-#     # Extract the application name from the diagram data or use a default name.
-#     app_name = diagram_data.get("name", "untitled_app")
-#     # Sanitize the name to ensure it is a valid Python identifier.
-#     safe_app_name = app_name.lower().replace(" ", "_")
-#     # Add a unique suffix to avoid name collisions.
-#     unique_suffix = str(uuid.uuid4())[:8]
-#     safe_app_name += f"_{unique_suffix}"
-#
-#     # Create the ApplicationDefinition object.
-#     application = ApplicationDefinition.objects.create(
-#         app_name=safe_app_name,
-#         overwrite=False,
-#         skip_admin=False,
-#         skip_tests=False,
-#         skip_urls=False
-#     )
-#
-#     # Maps to track relationships between table IDs and model definitions, and field IDs and field definitions.
-#     table_id_to_modeldef = {}
-#     field_id_to_fielddef = {}
-#
-#     # -----------------
-#     # 2) Preprocess Relational Fields
-#     # -----------------
-#     # Identify all field IDs that are used as part of relationships to exclude them from regular fields.
-#     relational_field_ids = set()
-#     for rel in diagram_data.get("relationships", []):
-#         relational_field_ids.add(rel["sourceFieldId"])
-#         relational_field_ids.add(rel["targetFieldId"])
-#
-#     # -----------------
-#     # 3) Create ModelDefinitions & Fields
-#     # -----------------
-#     for table in diagram_data.get("tables", []):
-#         table_id = table["id"]
-#         table_name = table["name"].replace(" ", "_")
-#
-#         # Skip tables that have a dot in their name (e.g., external models).
-#         if "." in table_name:
-#             print(f"Skipping table '{table_name}' because it contains '.' (external model).")
-#             continue
-#
-#         # Create the ModelDefinition for this table.
-#         model_def = ModelDefinition.objects.create(
-#             application=application,
-#             model_name=table_name,
-#             db_table="",
-#             verbose_name=table_name.capitalize(),
-#             verbose_name_plural=table_name.capitalize() + "s",
-#             ordering="",
-#             unique_together=None,
-#             indexes=None,
-#             constraints=None
-#         )
-#         table_id_to_modeldef[table_id] = model_def
-#
-#         # Process fields for this table.
-#         for field in table.get("fields", []):
-#             field_id = field["id"]
-#
-#             # Skip relational fields as they are handled separately in relationships.
-#             if field_id in relational_field_ids:
-#                 continue
-#
-#             field_name = field.get("name", "unnamed_field").replace(" ", "_")
-#             raw_pg_type = field["type"]["id"].lower()
-#             mapped_field_type = FIELD_TYPE_MAP.get(raw_pg_type, "CharField")
-#
-#             # Build the "options" string based on field attributes.
-#             options_list = []
-#             if field.get("nullable"):
-#                 options_list.append("null=True")
-#                 options_list.append("blank=True")
-#             if field.get("unique"):
-#                 options_list.append("unique=True")
-#             if field.get("primaryKey"):
-#                 options_list.append("primary_key=True")
-#
-#             options_str = ",".join(options_list)
-#             opt_dict = parse_options_str(options_str)
-#
-#             # Add default values for specific field types.
-#             if mapped_field_type == "CharField" and "max_length" not in opt_dict:
-#                 opt_dict["max_length"] = "255"
-#             if mapped_field_type == "DecimalField":
-#                 opt_dict.setdefault("max_digits", "10")
-#                 opt_dict.setdefault("decimal_places", "2")
-#
-#             final_options_str = build_options_str(opt_dict)
-#
-#             # Create the FieldDefinition for this field.
-#             field_def = FieldDefinition.objects.create(
-#                 model_definition=model_def,
-#                 field_name=field_name,
-#                 field_type=mapped_field_type,
-#                 options=final_options_str,
-#                 has_choices=False,
-#                 choices_json=None
-#             )
-#             field_id_to_fielddef[field_id] = field_def
-#
-#     # -----------------
-#     # 4) Handle Indexes
-#     # -----------------
-#     for table in diagram_data.get("tables", []):
-#         table_id = table["id"]
-#         if table_id not in table_id_to_modeldef:
-#             continue
-#
-#         model_def = table_id_to_modeldef[table_id]
-#         indexes_json = []
-#
-#         for index_data in table.get("indexes", []):
-#             field_ids = index_data.get("fieldIds", [])
-#             fields_names = [
-#                 field_id_to_fielddef[fid].field_name for fid in field_ids if fid in field_id_to_fielddef
-#             ]
-#             if not fields_names:
-#                 continue
-#             indexes_json.append({
-#                 "name": index_data["name"],
-#                 "fields": fields_names,
-#                 "unique": index_data.get("unique", False)
-#             })
-#
-#         if indexes_json:
-#             model_def.indexes = indexes_json
-#             model_def.save()
-#
-#     # -----------------
-#     # 5) Create RelationshipDefinitions
-#     # -----------------
-#     for rel in diagram_data.get("relationships", []):
-#         source_table_id = rel["sourceTableId"]
-#         target_table_id = rel["targetTableId"]
-#         source_field_id = rel["sourceFieldId"]
-#
-#         if source_table_id not in table_id_to_modeldef:
-#             continue
-#
-#         source_model_def = table_id_to_modeldef[source_table_id]
-#         target_model_def = table_id_to_modeldef.get(target_table_id)
-#
-#         # Use the field name from FieldDefinition if it exists, otherwise use the relationship name.
-#         field_name = field_id_to_fielddef[source_field_id].field_name if source_field_id in field_id_to_fielddef else rel["name"]
-#
-#         source_card = rel.get("sourceCardinality", "many")
-#         target_card = rel.get("targetCardinality", "many")
-#
-#         # Determine the relationship type and options.
-#         if source_card == "one" and target_card == "many":
-#             relation_type = "ForeignKey"
-#             options_str = "on_delete=models.CASCADE"
-#         elif source_card == "one" and target_card == "one":
-#             relation_type = "OneToOneField"
-#             options_str = "on_delete=models.CASCADE"
-#         else:
-#             relation_type = "ManyToManyField"
-#             options_str = ""
-#
-#         related_model = f"{application.app_name}.{target_model_def.model_name}" if target_model_def else "unknown"
-#
-#         # Create the RelationshipDefinition for this relationship.
-#         RelationshipDefinition.objects.create(
-#             model_definition=source_model_def,
-#             relation_name=field_name,
-#             relation_type=relation_type,
-#             related_model=related_model,
-#             options=options_str
-#         )
-#
-#     # Return the top-level Application so you can reference it.
-#     return application
-
-
-@transaction.atomic
-
 @transaction.atomic
 def create_application_from_diagram(diagram_data):
     """
@@ -451,29 +238,88 @@ def create_application_from_diagram(diagram_data):
     return application
 
 
-# Keep the original helper functions for backward compatibility
-def parse_options_str(options_str):
-    """
-    Convert a string like 'max_length=100,unique=True,choices=[('test1','Test1'),('test2','test2')]'
-    into a dict: {'max_length': '100', 'unique': 'True', 'choices': "[('test1','Test1'),('test2','test2')]"}.
-    """
-    if not options_str.strip():
-        return {}
-
-    result = {}
-    # Use regex to split while keeping values in brackets intact
-    pattern = r'(\w+)=((?:\[[^\]]*\])|(?:[^,]+))'
-    matches = re.findall(pattern, options_str)
-
-    for key, value in matches:
-        result[key.strip()] = value.strip()
-
-    return result
-
-
 def build_options_str(options_dict):
     """
     Convert a dict like {'max_length': '100', 'unique': 'True'}
     back into a string 'max_length=100,unique=True'.
     """
     return ",".join(f"{k}={v}" for k, v in options_dict.items())
+
+
+def compile_application_programmatically(application_id):
+    """
+    Compile application without using Django admin/messages framework.
+    Returns a dict with success status and any messages.
+    """
+    import json
+    import os
+    from django.conf import settings
+
+    result = {
+        'success': False,
+        'messages': [],
+        'errors': [],
+        'file_path': None
+    }
+
+    try:
+        app = ApplicationDefinition.objects.get(id=application_id)
+        app_name = app.app_name
+
+        # Check if this was imported from ERD
+        if app.erd_json:
+            result['messages'].append(f"Converting ERD for '{app_name}' using intelligent converter...")
+
+            conversion_result = convert_erd_to_django(app.erd_json, app_name=app_name)
+
+            if not conversion_result["is_valid"]:
+                result['errors'].extend(conversion_result["errors"][:3])
+                return result
+
+            schema_data = conversion_result["models"]
+
+            # Collect warnings
+            if conversion_result["warnings"]:
+                result['messages'].extend([f"[{app_name}] {w}" for w in conversion_result["warnings"]])
+
+            # Show statistics
+            result['messages'].append(
+                f"Converted '{app_name}': {conversion_result['model_count']} models, "
+                f"{conversion_result['field_count']} fields, {conversion_result['relationship_count']} relationships"
+            )
+        else:
+            # Use original compile_schema for manually created definitions
+            result['messages'].append(f"Compiling schema for '{app_name}' (manual definition)...")
+            schema_data = app.compile_schema()
+
+            # Apply the limit_choices_to fix
+            from app_builder.admin import fix_limited_to_keys
+            fix_limited_to_keys(schema_data)
+
+        # Write JSON file
+        output_dir = os.path.join(settings.BASE_DIR, "generated_application_source")
+        os.makedirs(output_dir, exist_ok=True)
+
+        file_path = os.path.join(output_dir, f"{app_name}.json")
+        with open(file_path, "w", encoding="utf-8") as json_file:
+            json.dump(schema_data, json_file, indent=4, ensure_ascii=False)
+
+        result['messages'].append(f"Generated JSON for '{app_name}' at {file_path}")
+        result['file_path'] = file_path
+        result['success'] = True
+
+        # Also save a detailed report for ERD imports
+        if app.erd_json:
+            report_path = os.path.join(output_dir, f"{app_name}_conversion_report.json")
+            with open(report_path, "w", encoding="utf-8") as report_file:
+                json.dump(conversion_result, report_file, indent=4, ensure_ascii=False)
+            result['messages'].append(f"Saved conversion report at {report_path}")
+
+    except ApplicationDefinition.DoesNotExist:
+        result['errors'].append(f"Application with ID {application_id} not found")
+    except Exception as e:
+        result['errors'].append(f"Failed to process application: {str(e)}")
+        import traceback
+        result['errors'].append(traceback.format_exc())
+
+    return result

@@ -29,3 +29,8 @@ urlpatterns += [
     path('api/diagram/import/', DiagramImportView.as_view(), name='diagram-import'),
 
 ]
+urlpatterns += [
+    path('api/compile-create/', views.compile_and_create_app_api, name='compile-create-api'),
+    path('api/compile-only/', views.compile_only_api, name='compile-only-api'),
+    path('api/job-status/<str:job_id>/', views.check_job_status_api, name='job-status-api'),
+]

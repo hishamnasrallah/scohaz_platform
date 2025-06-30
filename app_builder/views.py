@@ -388,3 +388,288 @@ def delete_application(request, pk):
     return render(request, 'app_builder/confirm_delete.html', {
         'app_def': app_def
     })
+
+
+# Add these imports at the top of the file with other imports
+import subprocess
+import sys
+import json
+import os
+import uuid
+import time
+from django.conf import settings
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def compile_and_create_app_api(request):
+    """
+    API endpoint that compiles and creates app without blocking.
+    Returns immediately with a job ID that can be used to check status.
+    """
+    app_id = request.data.get('application_id')
+    create_options = request.data.get('create_options', {})
+
+    if not app_id:
+        return Response({"error": "application_id is required"}, status=400)
+
+    try:
+        app = ApplicationDefinition.objects.get(id=app_id)
+        app_name = app.app_name
+    except ApplicationDefinition.DoesNotExist:
+        return Response({"error": "Application not found"}, status=404)
+
+    # Generate job ID and create job directory
+    job_id = str(uuid.uuid4())[:8]
+    jobs_dir = os.path.join(settings.BASE_DIR, '.app_builder_jobs')
+    os.makedirs(jobs_dir, exist_ok=True)
+
+    # Create job status file
+    job_file = os.path.join(jobs_dir, f'{job_id}.json')
+    job_data = {
+        'job_id': job_id,
+        'app_id': app_id,
+        'app_name': app_name,
+        'status': 'started',
+        'created_at': time.time(),
+        'steps': []
+    }
+
+    with open(job_file, 'w') as f:
+        json.dump(job_data, f)
+
+    # Create the script that will run in background
+    script_content = f'''#!/usr/bin/env python
+import os
+import sys
+import json
+import time
+import django
+
+# Setup Django
+sys.path.insert(0, r'{settings.BASE_DIR}')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', '{os.environ.get("DJANGO_SETTINGS_MODULE", "settings")}')
+django.setup()
+
+from app_builder.models import ApplicationDefinition
+from app_builder.admin import generate_json_files_with_conversion
+from django.contrib.admin.sites import site
+from django.core.management import call_command
+
+job_file = r'{job_file}'
+
+def update_status(status, step=None, error=None):
+    try:
+        with open(job_file, 'r') as f:
+            data = json.load(f)
+        data['status'] = status
+        data['last_updated'] = time.time()
+        if step:
+            data['steps'].append({{'step': step, 'status': status, 'time': time.time()}})
+        if error:
+            data['error'] = error
+        with open(job_file, 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"Error updating status: {{e}}")
+
+try:
+    # Step 1: Compile
+    update_status('compiling', 'compile')
+    print("Starting compilation...")
+    
+    # Use programmatic compilation instead of admin action
+    from app_builder.services import compile_application_programmatically
+    
+    compile_result = compile_application_programmatically({app_id})
+    
+    if not compile_result['success']:
+        error_msg = '; '.join(compile_result['errors'])
+        update_status('failed', 'compile', error_msg)
+        print(f"Compilation failed: {{error_msg}}")
+        raise Exception(error_msg)
+    
+    # Log messages
+    for msg in compile_result['messages']:
+        print(msg)
+    
+    # Get the compiled file path
+    models_file = compile_result['file_path']
+    
+    update_status('compiled', 'compile')
+    print("Compilation completed!")
+    
+    # Step 2: Create app
+    update_status('creating_app', 'create_app')
+    print("Creating Django app...")
+    
+    # models_file is already set from compile_result above
+    # app_name is available from the beginning of the script
+    
+    # Build create_app command with options
+    cmd_args = ['create_app', '{app_name}', f'--models-file={{models_file}}']
+    
+    if {create_options.get('overwrite', False)}:
+        cmd_args.append('--overwrite')
+    if {create_options.get('skip_admin', False)}:
+        cmd_args.append('--skip-admin')
+    if {create_options.get('skip_tests', False)}:
+        cmd_args.append('--skip-tests')
+    if {create_options.get('skip_urls', False)}:
+        cmd_args.append('--skip-urls')
+    
+# Handle interactive prompts by providing defaults
+    os.environ['DJANGO_SUPERUSER_PASSWORD'] = 'yes'  # Auto-confirm prompts
+    
+    # Use subprocess to handle interactive prompts
+    import subprocess
+    
+    # Build the full command
+    full_cmd = [sys.executable, 'manage.py'] + cmd_args
+    
+    # Run with input for interactive prompts
+    # Choice 1 = Remove ID fields (recommended)
+    process = subprocess.Popen(
+        full_cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+    
+    # Send "1" to select the first option (remove ID fields)
+    stdout, _ = process.communicate(input="1\\n")
+    
+    # Log the output
+    print("Command output:")
+    print(stdout)
+    
+    if process.returncode != 0:
+        raise Exception(f"create_app failed with return code {{process.returncode}}")
+    
+    update_status('completed', 'create_app')
+    print("App creation completed!")
+    
+    # The server will auto-restart due to file changes
+    print("Server will restart automatically...")
+    
+except Exception as e:
+    print(f"Error: {{e}}")
+    import traceback
+    traceback.print_exc()
+    update_status('failed', error=str(e))
+'''
+
+    # Save script to file
+    script_path = os.path.join(jobs_dir, f'job_{job_id}.py')
+    with open(script_path, 'w') as f:
+        f.write(script_content)
+
+    # Make script executable
+    os.chmod(script_path, 0o755)
+
+    # Run script in background using subprocess
+    log_file = os.path.join(jobs_dir, f'job_{job_id}.log')
+    with open(log_file, 'w') as log:
+        subprocess.Popen(
+            [sys.executable, script_path],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True  # Detach from parent process
+        )
+
+    # Return immediately
+    return Response({
+        'job_id': job_id,
+        'status': 'started',
+        'message': 'Compilation and app creation started. Server may restart.',
+        'check_status_url': f'/app_builder/api/job-status/{job_id}/',
+        'log_file': log_file
+    }, status=202)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def check_job_status_api(request, job_id):
+    """
+    Check the status of a compile and create job.
+    """
+    jobs_dir = os.path.join(settings.BASE_DIR, '.app_builder_jobs')
+    job_file = os.path.join(jobs_dir, f'{job_id}.json')
+    log_file = os.path.join(jobs_dir, f'job_{job_id}.log')
+
+    if not os.path.exists(job_file):
+        return Response({'error': 'Job not found'}, status=404)
+
+    try:
+        with open(job_file, 'r') as f:
+            job_data = json.load(f)
+
+        # Add log content if requested
+        if request.GET.get('include_log') == 'true' and os.path.exists(log_file):
+            with open(log_file, 'r') as f:
+                job_data['log'] = f.read()
+
+        # Calculate elapsed time
+        job_data['elapsed_time'] = time.time() - job_data['created_at']
+
+        return Response(job_data)
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+
+# Command line wrapper for handling interactive prompts
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def compile_only_api(request):
+    """
+    API endpoint that only runs the compile step (no app creation).
+    This is safer as it doesn't trigger server restart.
+    """
+    app_id = request.data.get('application_id')
+
+    if not app_id:
+        return Response({"error": "application_id is required"}, status=400)
+
+    try:
+        from app_builder.admin import generate_json_files_with_conversion
+        from django.contrib.admin.sites import site
+
+        app = ApplicationDefinition.objects.get(id=app_id)
+        queryset = ApplicationDefinition.objects.filter(id=app_id)
+
+        # Create fake request
+        class FakeRequest:
+            class User:
+                is_superuser = True
+            user = User()
+
+        request_obj = FakeRequest()
+        modeladmin = site._registry.get(ApplicationDefinition)
+
+        # Run compile
+        generate_json_files_with_conversion(modeladmin, request_obj, queryset)
+
+        # Get the output file path
+        output_file = os.path.join(
+            settings.BASE_DIR,
+            'generated_application_source',
+            f'{app.app_name}.json'
+        )
+
+        return Response({
+            'success': True,
+            'app_name': app.app_name,
+            'output_file': output_file,
+            'message': 'Compilation completed successfully'
+        })
+
+    except ApplicationDefinition.DoesNotExist:
+        return Response({'error': 'Application not found'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+

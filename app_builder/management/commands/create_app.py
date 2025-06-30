@@ -97,6 +97,11 @@ class InteractiveErrorHandler:
         for i, choice in enumerate(choices, 1):
             self.command.stdout.write(f"  {i}. {choice}")
 
+        # In non-interactive mode, automatically choose the first (recommended) option
+        if hasattr(self.command, 'non_interactive') and self.command.non_interactive:
+            self.command.stdout.write(self.command.style.SUCCESS("\nNon-interactive mode: Automatically selecting option 1 (recommended)"))
+            return 0  # First choice (index 0)
+
         while True:
             try:
                 choice = input("\nEnter your choice (number): ").strip()
@@ -310,6 +315,11 @@ class Command(BaseCommand):
         skip_tests = kwargs.get('skip_tests')
         skip_admin = kwargs.get('skip_admin')
         skip_urls = kwargs.get('skip_urls')
+
+        # Check if running in non-interactive mode (from API)
+        self.non_interactive = os.environ.get('DJANGO_SUPERUSER_PASSWORD') == 'yes'
+        if self.non_interactive:
+            self.stdout.write(self.style.NOTICE("Running in non-interactive mode"))
 
         logger.info(f"Starting creation of app '{app_name}'...")
 
