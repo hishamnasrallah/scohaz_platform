@@ -46,6 +46,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('auth/', include("authentication.urls")),
     path('authentication/', include("authentication.urls")),
+    path('reports/', include("reporting.urls")),
     path('app_builder/', include("app_builder.urls")),
     path('lookups/', include("lookup.urls")),
     path('case/', include("case.urls")),
