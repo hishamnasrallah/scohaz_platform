@@ -92,12 +92,17 @@ INSTALLED_APPS += CUSTOM_APPS + [
 # }
 APPS_CURRENT_USER_MIDDLEWARE = [
     'ab_app.middleware.CurrentUserMiddleware',
+    'reporting.middleware.CurrentUserMiddleware',
     #// TODO: add other modules
 ]
 
 APP_MIDDLEWARE_MAPPING = {
     'ab_app': [
         'ab_app.middleware.DynamicModelMiddleware',
+    ],
+
+    'reporting': [
+        'reporting.middleware.DynamicModelMiddleware',
     ]
 
 }
