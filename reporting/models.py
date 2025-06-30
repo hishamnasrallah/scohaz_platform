@@ -1,8 +1,8 @@
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
-from django.apps import apps
-import json
+import pytz
 
 from reporting.mixins import ModelCommonMixin
 
@@ -60,8 +60,14 @@ class Report(ModelCommonMixin):
 class ReportDataSource(ModelCommonMixin):
     """Links reports to specific models/apps"""
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='data_sources')
-    app_name = models.CharField(max_length=100)
-    model_name = models.CharField(max_length=100)
+
+    # Using ContentType instead of free text fields
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        help_text="Select the model for this data source"
+    )
+
     alias = models.CharField(max_length=50)  # For JOIN references (e.g., 'customer', 'order')
     is_primary = models.BooleanField(default=False)
 
@@ -72,21 +78,31 @@ class ReportDataSource(ModelCommonMixin):
     class Meta:
         unique_together = [['report', 'alias']]
         ordering = ['-is_primary', 'alias']
+        indexes = [
+            models.Index(fields=['content_type', 'report']),
+        ]
 
     def __str__(self):
-        return f"{self.app_name}.{self.model_name} as {self.alias}"
+        return f"{self.content_type.app_label}.{self.content_type.model} as {self.alias}"
 
     def get_model_class(self):
         """Get the actual Django model class"""
-        try:
-            return apps.get_model(self.app_name, self.model_name)
-        except LookupError:
-            return None
+        return self.content_type.model_class()
+
+    @property
+    def app_name(self):
+        """Backward compatibility property"""
+        return self.content_type.app_label
+
+    @property
+    def model_name(self):
+        """Backward compatibility property"""
+        return self.content_type.model
 
     def clean(self):
         # Validate model exists
         if not self.get_model_class():
-            raise ValidationError(f"Model {self.app_name}.{self.model_name} does not exist")
+            raise ValidationError(f"Model for {self.content_type} does not exist")
 
         # Ensure only one primary source per report
         if self.is_primary:
@@ -110,12 +126,40 @@ class ReportField(ModelCommonMixin):
         ('group_by', 'Group By'),
     ]
 
+    # Common Django field types
+    FIELD_TYPE_CHOICES = [
+        ('CharField', 'Character Field'),
+        ('TextField', 'Text Field'),
+        ('IntegerField', 'Integer Field'),
+        ('BigIntegerField', 'Big Integer Field'),
+        ('SmallIntegerField', 'Small Integer Field'),
+        ('FloatField', 'Float Field'),
+        ('DecimalField', 'Decimal Field'),
+        ('BooleanField', 'Boolean Field'),
+        ('DateField', 'Date Field'),
+        ('DateTimeField', 'DateTime Field'),
+        ('TimeField', 'Time Field'),
+        ('EmailField', 'Email Field'),
+        ('URLField', 'URL Field'),
+        ('UUIDField', 'UUID Field'),
+        ('JSONField', 'JSON Field'),
+        ('ForeignKey', 'Foreign Key'),
+        ('ManyToManyField', 'Many to Many Field'),
+        ('OneToOneField', 'One to One Field'),
+    ]
+
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='fields')
     data_source = models.ForeignKey(ReportDataSource, on_delete=models.CASCADE)
+
+    # These will be validated against actual model fields
     field_name = models.CharField(max_length=100)
     field_path = models.CharField(max_length=255)  # For nested fields (e.g., 'customer__name')
     display_name = models.CharField(max_length=255)
-    field_type = models.CharField(max_length=50)  # Store Django field type
+    field_type = models.CharField(
+        max_length=50,
+        choices=FIELD_TYPE_CHOICES,
+        help_text="Django field type"
+    )
 
     # Display options
     aggregation = models.CharField(max_length=20, blank=True, choices=AGGREGATION_CHOICES)
@@ -134,6 +178,23 @@ class ReportField(ModelCommonMixin):
 
     def __str__(self):
         return f"{self.display_name} ({self.field_path})"
+
+    def clean(self):
+        """Validate that the field exists on the model"""
+        if self.data_source_id:
+            model_class = self.data_source.get_model_class()
+            if model_class:
+                # Basic validation - check if field path is valid
+                parts = self.field_path.split('__')
+                current_model = model_class
+
+                try:
+                    for part in parts:
+                        field = current_model._meta.get_field(part)
+                        if field.is_relation and len(parts) > 1:
+                            current_model = field.related_model
+                except Exception as e:
+                    raise ValidationError(f"Invalid field path: {self.field_path}")
 
 
 class ReportFilter(ModelCommonMixin):
@@ -172,8 +233,11 @@ class ReportFilter(ModelCommonMixin):
 
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='filters')
     data_source = models.ForeignKey(ReportDataSource, on_delete=models.CASCADE)
+
+    # Field selection - will be validated
     field_name = models.CharField(max_length=100)
     field_path = models.CharField(max_length=255)
+
     operator = models.CharField(max_length=20, choices=OPERATOR_CHOICES)
     value = models.JSONField(null=True, blank=True)  # Flexible value storage
     value_type = models.CharField(max_length=20, choices=VALUE_TYPE_CHOICES, default='static')
@@ -192,6 +256,23 @@ class ReportFilter(ModelCommonMixin):
 
     def __str__(self):
         return f"{self.field_path} {self.operator} {self.value}"
+
+    def clean(self):
+        """Validate that the field exists on the model"""
+        if self.data_source_id:
+            model_class = self.data_source.get_model_class()
+            if model_class:
+                # Validate field path
+                parts = self.field_path.split('__')
+                current_model = model_class
+
+                try:
+                    for part in parts:
+                        field = current_model._meta.get_field(part)
+                        if field.is_relation and len(parts) > 1:
+                            current_model = field.related_model
+                except Exception as e:
+                    raise ValidationError(f"Invalid field path: {self.field_path}")
 
 
 class ReportJoin(ModelCommonMixin):
@@ -326,6 +407,9 @@ class ReportSchedule(ModelCommonMixin):
         ('html', 'HTML Email'),
     ]
 
+    # Timezone choices - using pytz
+    TIMEZONE_CHOICES = [(tz, tz) for tz in pytz.all_timezones]
+
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='schedules')
     name = models.CharField(max_length=255)
     schedule_type = models.CharField(max_length=20, choices=SCHEDULE_TYPE_CHOICES)
@@ -335,7 +419,12 @@ class ReportSchedule(ModelCommonMixin):
     time_of_day = models.TimeField(null=True, blank=True)  # For daily schedules
     day_of_week = models.IntegerField(null=True, blank=True)  # 0-6 for weekly
     day_of_month = models.IntegerField(null=True, blank=True)  # 1-31 for monthly
-    timezone = models.CharField(max_length=50, default='UTC')
+    timezone = models.CharField(
+        max_length=50,
+        choices=TIMEZONE_CHOICES,
+        default='UTC',
+        help_text="Select timezone for schedule execution"
+    )
 
     # Execution settings
     parameters = models.JSONField(default=dict)  # Default parameters for execution

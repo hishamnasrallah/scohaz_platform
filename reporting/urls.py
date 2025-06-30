@@ -5,7 +5,7 @@ from reporting.apis.views import (
     ReportViewSet, ReportDataSourceViewSet, ReportFieldViewSet,
     ReportFilterViewSet, ReportJoinViewSet, ReportParameterViewSet,
     ReportExecutionViewSet, ReportScheduleViewSet, SavedReportResultViewSet,
-    FieldLookupView, ModelFieldsView
+    FieldLookupView, ModelFieldsView, AvailableContentTypesView, ContentTypeFieldsView, TimezoneChoicesView
 )
 
 app_name = 'reporting'
@@ -29,4 +29,9 @@ urlpatterns = [
     # Utility endpoints
     path('api/field-lookups/', FieldLookupView.as_view(), name='field-lookups'),
     path('api/model-fields/', ModelFieldsView.as_view(), name='model-fields'),
+
+    # New dropdown support endpoints
+    path('api/content-types/', AvailableContentTypesView.as_view(), name='available-content-types'),
+    path('api/content-type-fields/', ContentTypeFieldsView.as_view(), name='content-type-fields'),
+    path('api/timezone-choices/', TimezoneChoicesView.as_view(), name='timezone-choices'),
 ]

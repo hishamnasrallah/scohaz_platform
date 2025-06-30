@@ -7,7 +7,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse
+from django.contrib.contenttypes.models import ContentType
+from django.conf import settings
 import json
+import pytz
 
 from reporting.models import (
     Report, ReportDataSource, ReportField, ReportFilter,
@@ -20,7 +23,7 @@ from reporting.apis.serializers import (
     ReportParameterSerializer, ReportExecutionSerializer,
     ReportScheduleSerializer, SavedReportResultSerializer,
     ReportBuilderSerializer, ReportExecutionRequestSerializer,
-    ReportPreviewSerializer
+    ReportPreviewSerializer, ContentTypeSerializer
 )
 from reporting.utils.model_inspector import DynamicModelInspector
 from reporting.utils.query_builder import ReportQueryBuilder
@@ -202,8 +205,7 @@ class ReportViewSet(viewsets.ModelViewSet):
         for source in original_report.data_sources.all():
             new_source = ReportDataSource.objects.create(
                 report=new_report,
-                app_name=source.app_name,
-                model_name=source.model_name,
+                content_type=source.content_type,
                 alias=source.alias,
                 is_primary=source.is_primary,
                 select_related=source.select_related,
@@ -298,10 +300,27 @@ class ReportViewSet(viewsets.ModelViewSet):
         """
         report_id = request.query_params.get('report_id')
 
-        inspector = DynamicModelInspector()
+        # Get available content types (excluding system models)
+        exclude_apps = getattr(settings, 'REPORT_EXCLUDE_APPS', [
+            'admin', 'auth', 'contenttypes', 'sessions', 'migrations'
+        ])
+
+        content_types = ContentType.objects.exclude(
+            app_label__in=exclude_apps
+        ).order_by('app_label', 'model')
+
         builder_data = {
-            'available_apps': inspector.get_all_apps_and_models(),
-            'available_aggregations': ['count', 'count_distinct', 'sum', 'avg', 'min', 'max', 'group_by'],
+            'available_content_types': ContentTypeSerializer(content_types, many=True).data,
+            'available_aggregations': [
+                {'value': '', 'label': 'None'},
+                {'value': 'count', 'label': 'Count'},
+                {'value': 'count_distinct', 'label': 'Count Distinct'},
+                {'value': 'sum', 'label': 'Sum'},
+                {'value': 'avg', 'label': 'Average'},
+                {'value': 'min', 'label': 'Minimum'},
+                {'value': 'max', 'label': 'Maximum'},
+                {'value': 'group_by', 'label': 'Group By'},
+            ],
             'available_operators': [
                 {'value': 'eq', 'label': 'Equals'},
                 {'value': 'ne', 'label': 'Not Equals'},
@@ -320,6 +339,25 @@ class ReportViewSet(viewsets.ModelViewSet):
                 {'value': 'isnotnull', 'label': 'Is Not Null'},
                 {'value': 'between', 'label': 'Between'},
                 {'value': 'date_range', 'label': 'Date Range'},
+            ],
+            'available_field_types': [
+                {'value': 'CharField', 'label': 'Character Field'},
+                {'value': 'TextField', 'label': 'Text Field'},
+                {'value': 'IntegerField', 'label': 'Integer Field'},
+                {'value': 'FloatField', 'label': 'Float Field'},
+                {'value': 'DecimalField', 'label': 'Decimal Field'},
+                {'value': 'BooleanField', 'label': 'Boolean Field'},
+                {'value': 'DateField', 'label': 'Date Field'},
+                {'value': 'DateTimeField', 'label': 'DateTime Field'},
+                {'value': 'EmailField', 'label': 'Email Field'},
+                {'value': 'URLField', 'label': 'URL Field'},
+                {'value': 'ForeignKey', 'label': 'Foreign Key'},
+                {'value': 'ManyToManyField', 'label': 'Many to Many Field'},
+                {'value': 'OneToOneField', 'label': 'One to One Field'},
+            ],
+            'available_timezones': [
+                {'value': tz, 'label': tz.replace('_', ' ')}
+                for tz in pytz.common_timezones
             ],
         }
 
@@ -515,7 +553,159 @@ class SavedReportResultViewSet(viewsets.ModelViewSet):
         return response
 
 
-# Utility views
+# New API Views for dropdown support
+
+class AvailableContentTypesView(APIView):
+    """
+    API view to get available ContentTypes for model selection.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get all content types suitable for reporting."""
+        # Get exclude list from settings
+        exclude_apps = getattr(settings, 'REPORT_EXCLUDE_APPS', [
+            'admin', 'auth', 'contenttypes', 'sessions', 'migrations',
+            'sites', 'messages', 'staticfiles'
+        ])
+
+        # Filter content types
+        content_types = ContentType.objects.exclude(
+            app_label__in=exclude_apps
+        ).order_by('app_label', 'model')
+
+        # Group by app
+        apps = {}
+        for ct in content_types:
+            if ct.app_label not in apps:
+                apps[ct.app_label] = {
+                    'label': ct.app_label,
+                    'content_types': []
+                }
+
+            model_class = ct.model_class()
+            if model_class:
+                apps[ct.app_label]['content_types'].append({
+                    'id': ct.id,
+                    'model': ct.model,
+                    'verbose_name': str(model_class._meta.verbose_name),
+                    'verbose_name_plural': str(model_class._meta.verbose_name_plural),
+                })
+
+        return Response(apps)
+
+
+class ContentTypeFieldsView(APIView):
+    """
+    API view to get fields for a specific ContentType.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get fields for a specific content type."""
+        content_type_id = request.query_params.get('content_type_id')
+
+        if not content_type_id:
+            return Response(
+                {'error': 'content_type_id parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            ct = ContentType.objects.get(id=content_type_id)
+            model_class = ct.model_class()
+
+            if not model_class:
+                return Response(
+                    {'error': 'Model class not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            inspector = DynamicModelInspector()
+            fields = []
+
+            # Get direct fields
+            for field in model_class._meta.get_fields():
+                if not field.auto_created or field.concrete:
+                    field_info = {
+                        'name': field.name,
+                        'path': field.name,
+                        'verbose_name': str(field.verbose_name),
+                        'type': field.get_internal_type(),
+                        'is_relation': field.is_relation,
+                    }
+                    fields.append(field_info)
+
+                    # Add related fields (one level deep)
+                    if field.is_relation and not field.many_to_many:
+                        related_model = field.related_model
+                        for rel_field in related_model._meta.get_fields():
+                            if not rel_field.auto_created or rel_field.concrete:
+                                fields.append({
+                                    'name': f"{field.name}__{rel_field.name}",
+                                    'path': f"{field.name}__{rel_field.name}",
+                                    'verbose_name': f"{field.verbose_name} → {rel_field.verbose_name}",
+                                    'type': rel_field.get_internal_type(),
+                                    'is_relation': False,
+                                })
+
+            return Response({
+                'content_type': ContentTypeSerializer(ct).data,
+                'fields': fields
+            })
+
+        except ContentType.DoesNotExist:
+            return Response(
+                {'error': 'ContentType not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class TimezoneChoicesView(APIView):
+    """
+    API view to get available timezones for dropdown.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get grouped timezone choices."""
+        # Group timezones by region
+        timezones = {}
+
+        for tz in pytz.common_timezones:
+            parts = tz.split('/')
+            region = parts[0] if len(parts) > 1 else 'Other'
+
+            if region not in timezones:
+                timezones[region] = []
+
+            timezones[region].append({
+                'value': tz,
+                'label': tz.replace('_', ' '),
+                'offset': self._get_timezone_offset(tz)
+            })
+
+        # Sort regions and timezones
+        sorted_timezones = {}
+        for region in sorted(timezones.keys()):
+            sorted_timezones[region] = sorted(
+                timezones[region],
+                key=lambda x: x['offset']
+            )
+
+        return Response(sorted_timezones)
+
+    def _get_timezone_offset(self, timezone_name):
+        """Get current UTC offset for a timezone."""
+        try:
+            import datetime
+            tz = pytz.timezone(timezone_name)
+            now = datetime.datetime.now(tz)
+            offset = now.strftime('%z')
+            return f"UTC{offset[:3]}:{offset[3:]}" if offset else "UTC"
+        except:
+            return "UTC"
+
 
 class FieldLookupView(APIView):
     """
@@ -539,7 +729,7 @@ class FieldLookupView(APIView):
 
 class ModelFieldsView(APIView):
     """
-    API view to get fields for a specific model.
+    API view to get fields for a specific model (legacy support).
     """
     permission_classes = [IsAuthenticated]
 
