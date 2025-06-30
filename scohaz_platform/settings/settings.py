@@ -95,50 +95,9 @@ APPS_CURRENT_USER_MIDDLEWARE = [
 ]
 
 APP_MIDDLEWARE_MAPPING = {
-    'monicaao': [
-        'monicaao.middleware.DynamicModelMiddleware',
-    ],
     'ab_app': [
         'ab_app.middleware.DynamicModelMiddleware',
-    ],
-    'bbb_app': [
-        'bbb_app.middleware.DynamicModelMiddleware',
-    ],
-    'aaa_app': [
-        'aaa_app.middleware.DynamicModelMiddleware',
-    ],
-    'relational_app': [
-        'relational_app.middleware.DynamicModelMiddleware',
-    ],
-    'samer_app': [
-        'samer_app.middleware.DynamicModelMiddleware',
-    ],
-    'assets_app': [
-        'assets_app.middleware.DynamicModelMiddleware',
-    ],
-    'asset_app': [
-        'asset_app.middleware.DynamicModelMiddleware',
-    ],
-    'contact2_app': [
-        'contact2_app.middleware.DynamicModelMiddleware',
-    ],
-
-    'omar': [
-        'omar.middleware.DynamicModelMiddleware',
-    ],
-
-
-    'testchoice': [
-        'testchoice.middleware.DynamicModelMiddleware',
-    ],
-    'hr': [
-        'hr.middleware.DynamicModelMiddleware',
-    ],
-
-    'crm': [
-        'crm.middleware.DynamicModelMiddleware',
-    ],
-
+    ]
 
 }
 

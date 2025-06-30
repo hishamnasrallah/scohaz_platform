@@ -7,7 +7,7 @@ from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import (PasswordField,
                                                   TokenRefreshSerializer,
                                                   TokenObtainSerializer)
-from authentication.models import CustomUser, UserPreference, PhoneNumber, CRUDPermission
+from authentication.models import CustomUser, UserPreference, PhoneNumber, CRUDPermission, UserType
 from django.utils.translation import gettext_lazy as _
 from authentication.tokens import ScohazRefreshToken
 from conditional_approval.apis.serializers import LookupSerializer
@@ -229,3 +229,74 @@ class CustomUserDetailSerializer(serializers.ModelSerializer):
             perms = CRUDPermission.objects.filter(group=group)
             return CRUDPermissionSerializer(perms, many=True).data
         return []
+
+class CustomUserManagementSerializer(serializers.ModelSerializer):
+    """Serializer for user management (CRUD operations)"""
+    groups = GroupSerializer(many=True, read_only=True)
+    group_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Group.objects.all(),
+        write_only=True,
+        source='groups',
+        required=False
+    )
+    user_type = LookupSerializer(read_only=True)
+    user_type_id = serializers.PrimaryKeyRelatedField(
+        queryset=UserType.objects.all(),
+        write_only=True,
+        source='user_type',
+        required=False,
+        allow_null=True
+    )
+    preference = UserPreferenceSerializer(read_only=True)
+    phone_numbers = UserPhoneNumberSerializer(many=True, read_only=True, source='phonenumber_set')
+
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id', 'username', 'email', 'first_name', 'second_name',
+            'third_name', 'last_name', 'is_active', 'is_staff',
+            'is_superuser', 'is_developer', 'user_type', 'user_type_id',
+            'groups', 'group_ids', 'preference', 'phone_numbers',
+            'activated_account', 'date_joined', 'last_login'
+        ]
+        read_only_fields = ['id', 'date_joined', 'last_login', 'activated_account']
+        extra_kwargs = {
+            'password': {'write_only': True, 'required': False}
+        }
+
+    def create(self, validated_data):
+        groups = validated_data.pop('groups', [])
+        password = validated_data.pop('password', None)
+
+        user = CustomUser.objects.create(**validated_data)
+
+        if password:
+            user.set_password(password)
+            user.save()
+
+        if groups:
+            user.groups.set(groups)
+
+        # Create user preference
+        UserPreference.objects.get_or_create(user=user)
+
+        return user
+
+    def update(self, instance, validated_data):
+        groups = validated_data.pop('groups', None)
+        password = validated_data.pop('password', None)
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        if password:
+            instance.set_password(password)
+
+        instance.save()
+
+        if groups is not None:
+            instance.groups.set(groups)
+
+        return instance
+

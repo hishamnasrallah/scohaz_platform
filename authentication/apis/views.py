@@ -4,10 +4,13 @@ import pytz
 from coreapi.compat import force_text
 from django.contrib.auth.models import Group
 from django.contrib.contenttypes.models import ContentType
+from django.db import models
 from django.shortcuts import get_object_or_404
 from rest_framework.decorators import action
 from rest_framework.generics import GenericAPIView, RetrieveUpdateAPIView
-from authentication.models import CustomUser, UserPreference, PhoneNumber, CRUDPermission
+
+from ab_app.crud.managers import user_can
+from authentication.models import CustomUser, UserPreference, PhoneNumber, CRUDPermission, UserType
 from django.utils.http import (urlsafe_base64_encode,
                                urlsafe_base64_decode)
 from django.utils.encoding import force_bytes
@@ -20,7 +23,7 @@ import os
 from utils.send_email import ScohazEmailHelper
 from authentication.tokens import account_activation_token
 from rest_framework import status, viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import (TokenObtainPairView,
@@ -35,7 +38,7 @@ from authentication.apis.serializers import (RegistrationSerializer,
                                              UserPreferenceSerializer,
                                              NewPasswordSerializer,
                                              UserPhoneNumberSerializer, GroupSerializer, CRUDPermissionSerializer,
-                                             CustomUserDetailSerializer)
+                                             CustomUserDetailSerializer, CustomUserManagementSerializer)
 
 from authentication.tokens import (ScohazToken,
                                    ScohazRefreshToken)
@@ -639,3 +642,215 @@ class ChangePasswordView(GenericAPIView):
         request.user.save()
         # serializer.save()
         return Response({"status": "success"}, status=status.HTTP_200_OK)
+
+class CustomUserViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing users (CRUD operations).
+    Follows the same pattern as generated ViewSets.
+    """
+    queryset = CustomUser.objects.all()
+    serializer_class = CustomUserManagementSerializer
+    permission_classes = (IsAuthenticated,)  # You can change to CRUDPermissionDRF if you have it
+
+    def get_queryset(self):
+        """Add filtering capabilities"""
+        queryset = super().get_queryset()
+
+        # Filter by user_type
+        user_type = self.request.query_params.get('user_type')
+        if user_type:
+            queryset = queryset.filter(user_type__code=user_type)
+
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+
+        # Filter by group
+        group_id = self.request.query_params.get('group')
+        if group_id:
+            queryset = queryset.filter(groups__id=group_id)
+
+        # Search functionality
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                models.Q(username__icontains=search) |
+                models.Q(email__icontains=search) |
+                models.Q(first_name__icontains=search) |
+                models.Q(last_name__icontains=search)
+            )
+
+        return queryset.distinct()
+
+    def list(self, request, *args, **kwargs):
+        """Custom list with filtering"""
+        queryset = self.get_queryset()
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='activate')
+    def activate_user(self, request, pk=None):
+        """Activate a user account"""
+        user = self.get_object()
+        user.is_active = True
+        user.activated_account = True
+        user.save()
+        return Response({'message': f'User {user.username} activated successfully'})
+
+    @action(detail=True, methods=['post'], url_path='deactivate')
+    def deactivate_user(self, request, pk=None):
+        """Deactivate a user account"""
+        user = self.get_object()
+        user.is_active = False
+        user.save()
+        return Response({'message': f'User {user.username} deactivated successfully'})
+
+    @action(detail=True, methods=['post'], url_path='reset-password')
+    def reset_password(self, request, pk=None):
+        """Reset user password"""
+        user = self.get_object()
+        new_password = request.data.get('password')
+
+        if not new_password:
+            return Response(
+                {'error': 'Password is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user.set_password(new_password)
+        user.save()
+
+        # Optionally send SMS/email notification
+        try:
+            user.reset_sms_code()
+            user.sms()
+        except:
+            pass
+
+        return Response({'message': 'Password reset successfully'})
+
+    @action(detail=True, methods=['post'], url_path='assign-groups')
+    def assign_groups(self, request, pk=None):
+        """Assign groups to user"""
+        user = self.get_object()
+        group_ids = request.data.get('group_ids', [])
+
+        if not isinstance(group_ids, list):
+            return Response(
+                {'error': 'group_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        groups = Group.objects.filter(id__in=group_ids)
+        user.groups.set(groups)
+
+        return Response({
+            'message': f'Groups assigned successfully',
+            'groups': GroupSerializer(groups, many=True).data
+        })
+
+    @action(detail=False, methods=['get'], url_path='user-types')
+    def get_user_types(self, request):
+        """Get all available user types"""
+        user_types = UserType.objects.filter(active_ind=True)
+        data = [
+            {
+                'id': ut.id,
+                'name': ut.name,
+                'name_ara': ut.name_ara,
+                'code': ut.code,
+                'group': ut.group.name if ut.group else None
+            }
+            for ut in user_types
+        ]
+        return Response(data)
+
+    @action(detail=False, methods=['post'], url_path='bulk-activate')
+    def bulk_activate(self, request):
+        """Bulk activate users"""
+        user_ids = request.data.get('user_ids', [])
+
+        if not isinstance(user_ids, list):
+            return Response(
+                {'error': 'user_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        updated = CustomUser.objects.filter(id__in=user_ids).update(
+            is_active=True,
+            activated_account=True
+        )
+
+        return Response({
+            'message': f'{updated} users activated successfully'
+        })
+
+    @action(detail=False, methods=['post'], url_path='bulk-deactivate')
+    def bulk_deactivate(self, request):
+        """Bulk deactivate users"""
+        user_ids = request.data.get('user_ids', [])
+
+        if not isinstance(user_ids, list):
+            return Response(
+                {'error': 'user_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        updated = CustomUser.objects.filter(id__in=user_ids).update(is_active=False)
+
+        return Response({
+            'message': f'{updated} users deactivated successfully'
+        })
+
+    def destroy(self, request, *args, **kwargs):
+        """Override destroy to prevent actual deletion - just deactivate"""
+        instance = self.get_object()
+        instance.is_active = False
+        instance.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# If you want to use CRUDPermissionDRF, create this permission class
+class CRUDPermissionDRF(BasePermission):
+    """
+    Custom permission class for user management
+    """
+    def has_permission(self, request, view):
+        if request.user.is_superuser:
+            return True
+
+        model = CustomUser
+
+        if view.action == 'create':
+            return user_can(request.user, 'create', model, context='api')
+        elif view.action in ['list', 'retrieve']:
+            return user_can(request.user, 'read', model, context='api')
+        elif view.action in ['update', 'partial_update']:
+            return user_can(request.user, 'update', model, context='api')
+        elif view.action == 'destroy':
+            return user_can(request.user, 'delete', model, context='api')
+
+        # For custom actions, default to requiring read permission
+        return user_can(request.user, 'read', model, context='api')
+
+    def has_object_permission(self, request, view, obj):
+        if request.user.is_superuser:
+            return True
+
+        model = type(obj)
+        action_map = {
+            'retrieve': 'read',
+            'update': 'update',
+            'partial_update': 'update',
+            'destroy': 'delete',
+        }
+        crud_action = action_map.get(view.action, 'read')
+
+        return user_can(request.user, crud_action, model, context='api', object_id=obj.pk)
