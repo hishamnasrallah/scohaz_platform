@@ -4,10 +4,12 @@ from django.core.exceptions import ValidationError
 from django.apps import apps
 import json
 
+from reporting.mixins import ModelCommonMixin
+
 User = get_user_model()
 
 
-class Report(models.Model):
+class Report(ModelCommonMixin):
     """Main report definition"""
     REPORT_TYPE_CHOICES = [
         ('ad_hoc', 'Ad Hoc Report'),
@@ -27,13 +29,13 @@ class Report(models.Model):
     category = models.CharField(max_length=100, blank=True)
 
     # Permissions
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_reports')
+    # created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_reports')
     shared_with_users = models.ManyToManyField(User, blank=True, related_name='shared_reports')
     shared_with_groups = models.ManyToManyField('auth.Group', blank=True, related_name='shared_reports')
 
-    # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    # # Timestamps
+    # created_at = models.DateTimeField(auto_now_add=True)
+    # updated_at = models.DateTimeField(auto_now=True)
 
     # Configuration
     config = models.JSONField(default=dict, blank=True)  # Additional configuration
@@ -55,7 +57,7 @@ class Report(models.Model):
             raise ValidationError("Report must have at least one primary data source")
 
 
-class ReportDataSource(models.Model):
+class ReportDataSource(ModelCommonMixin):
     """Links reports to specific models/apps"""
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='data_sources')
     app_name = models.CharField(max_length=100)
@@ -95,7 +97,7 @@ class ReportDataSource(models.Model):
                 raise ValidationError("Report can only have one primary data source")
 
 
-class ReportField(models.Model):
+class ReportField(ModelCommonMixin):
     """Selected fields for the report"""
     AGGREGATION_CHOICES = [
         ('', 'None'),
@@ -134,7 +136,7 @@ class ReportField(models.Model):
         return f"{self.display_name} ({self.field_path})"
 
 
-class ReportFilter(models.Model):
+class ReportFilter(ModelCommonMixin):
     """Filter conditions for reports"""
     OPERATOR_CHOICES = [
         ('eq', 'Equals'),
@@ -192,7 +194,7 @@ class ReportFilter(models.Model):
         return f"{self.field_path} {self.operator} {self.value}"
 
 
-class ReportJoin(models.Model):
+class ReportJoin(ModelCommonMixin):
     """Define relationships between data sources"""
     JOIN_TYPE_CHOICES = [
         ('inner', 'Inner Join'),
@@ -218,7 +220,7 @@ class ReportJoin(models.Model):
         return f"{self.left_source.alias}.{self.left_field} {self.join_type} {self.right_source.alias}.{self.right_field}"
 
 
-class ReportParameter(models.Model):
+class ReportParameter(ModelCommonMixin):
     """Dynamic parameters for reports"""
     PARAMETER_TYPE_CHOICES = [
         ('text', 'Text'),
@@ -262,7 +264,7 @@ class ReportParameter(models.Model):
         return f"{self.display_name} ({self.name})"
 
 
-class ReportExecution(models.Model):
+class ReportExecution(ModelCommonMixin):
     """Track report executions for auditing and performance monitoring"""
     STATUS_CHOICES = [
         ('success', 'Success'),
@@ -305,7 +307,7 @@ class ReportExecution(models.Model):
         return f"{self.report.name} - {self.executed_at}"
 
 
-class ReportSchedule(models.Model):
+class ReportSchedule(ModelCommonMixin):
     """Schedule reports for automatic execution"""
     SCHEDULE_TYPE_CHOICES = [
         ('once', 'One Time'),
@@ -341,8 +343,8 @@ class ReportSchedule(models.Model):
 
     # Recipients
     recipient_emails = models.JSONField(default=list)  # List of emails
-    recipient_users = models.ManyToManyField(User, blank=True)
-    recipient_groups = models.ManyToManyField('auth.Group', blank=True)
+    recipient_users = models.ManyToManyField(User, blank=True, related_name='schedule_recipients')
+    recipient_groups = models.ManyToManyField('auth.Group', blank=True, related_name='schedule_recipient_groups')
 
     # Email settings
     email_subject = models.CharField(max_length=255, blank=True)
@@ -357,10 +359,10 @@ class ReportSchedule(models.Model):
     retry_on_failure = models.BooleanField(default=True)
     max_retries = models.IntegerField(default=3)
 
-    # Metadata
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    # # Metadata
+    # created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    # created_at = models.DateTimeField(auto_now_add=True)
+    # updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['name']
@@ -386,7 +388,7 @@ class ReportSchedule(models.Model):
         return list(emails)
 
 
-class SavedReportResult(models.Model):
+class SavedReportResult(ModelCommonMixin):
     """Store saved report results for quick access"""
     report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='saved_results')
     name = models.CharField(max_length=255)
