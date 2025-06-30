@@ -68,7 +68,8 @@ INSTALLED_APPS += CUSTOM_APPS + [
     "integration",
     "license_subscription_manager",
     "app_builder",
-    "version_control"
+    "version_control",
+    "reporting"
     # "lowcode",
 ]
 
