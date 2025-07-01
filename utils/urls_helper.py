@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 
 logger = logging.getLogger(__name__)
 
-EXCLUDED_APPS = {'admin', 'silk', '', 'define', 'app_builder', 'license'}
+EXCLUDED_APPS = {'admin', 'silk', '', 'define', 'app_builder', 'license', 'reporting'}
 
 
 def _get_request_methods(callback):
@@ -450,9 +450,15 @@ def get_categorized_urls(application_name=None, user=None):  # <-- ADDED: user p
                 # Build the app_name from prefix
                 app_name = prefix.split('/')[0] if '/' in prefix else prefix
 
-                # Exclude apps in EXCLUDED_APPS
+                # Exclude apps in EXCLUDED_APPS - check both prefix and actual app
                 if app_name in EXCLUDED_APPS:
                     continue
+
+                # Also check if this URL belongs to an excluded app by checking the view's module
+                if hasattr(pattern.callback, '__module__'):
+                    module_parts = pattern.callback.__module__.split('.')
+                    if module_parts[0] in EXCLUDED_APPS:
+                        continue
 
                 # If application_name is specified, skip if it doesn't match
                 if application_name and app_name != application_name:
