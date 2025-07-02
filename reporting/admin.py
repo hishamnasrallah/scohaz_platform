@@ -1,6 +1,8 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.http import HttpResponseRedirect
+from django.shortcuts import get_object_or_404
 from django.utils.html import format_html
-from django.urls import reverse
+from django.urls import reverse, path
 from django.db.models import Count
 from django import forms
 from django.contrib.contenttypes.models import ContentType
@@ -256,6 +258,80 @@ class ReportAdmin(admin.ModelAdmin):
             reverse('admin:reporting_report_duplicate', args=[obj.pk])
         )
     actions_column.short_description = 'Actions'
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                '<int:report_id>/execute/',
+                self.admin_site.admin_view(self.execute_view),
+                name='reporting_report_execute',
+            ),
+            path(
+                '<int:report_id>/duplicate/',
+                self.admin_site.admin_view(self.duplicate_view),
+                name='reporting_report_duplicate',
+            ),
+        ]
+        return custom_urls + urls
+
+    def execute_view(self, request, report_id):
+        """Handle report execution from admin"""
+        report = get_object_or_404(Report, pk=report_id)
+
+        # For now, redirect to the API endpoint or show a message
+        # You can implement a full execution interface here later
+        messages.info(request, f"Report '{report.name}' execution is available through the API.")
+        return HttpResponseRedirect(reverse('admin:reporting_report_change', args=[report_id]))
+
+    def duplicate_view(self, request, report_id):
+        """Handle report duplication from admin"""
+        original_report = get_object_or_404(Report, pk=report_id)
+
+        # Create a duplicate
+        new_report = Report.objects.create(
+            name=f"{original_report.name} (Copy)",
+            description=original_report.description,
+            report_type=original_report.report_type,
+            is_active=True,
+            is_public=False,
+            tags=original_report.tags,
+            category=original_report.category,
+            created_by=request.user,
+            config=original_report.config
+        )
+
+        # Copy data sources
+        source_mapping = {}
+        for source in original_report.data_sources.all():
+            new_source = ReportDataSource.objects.create(
+                report=new_report,
+                content_type=source.content_type,
+                alias=source.alias,
+                is_primary=source.is_primary,
+                select_related=source.select_related,
+                prefetch_related=source.prefetch_related
+            )
+            source_mapping[source.id] = new_source
+
+        # Copy fields
+        for field in original_report.fields.all():
+            ReportField.objects.create(
+                report=new_report,
+                data_source=source_mapping.get(field.data_source_id),
+                field_name=field.field_name,
+                field_path=field.field_path,
+                display_name=field.display_name,
+                field_type=field.field_type,
+                aggregation=field.aggregation,
+                order=field.order,
+                is_visible=field.is_visible,
+                width=field.width,
+                formatting=field.formatting
+            )
+
+        messages.success(request, f"Report '{original_report.name}' has been duplicated.")
+        return HttpResponseRedirect(reverse('admin:reporting_report_change', args=[new_report.pk]))
 
     def save_model(self, request, obj, form, change):
         if not change:
