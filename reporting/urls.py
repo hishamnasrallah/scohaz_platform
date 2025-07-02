@@ -5,7 +5,8 @@ from reporting.apis.views import (
     ReportViewSet, ReportDataSourceViewSet, ReportFieldViewSet,
     ReportFilterViewSet, ReportJoinViewSet, ReportParameterViewSet,
     ReportExecutionViewSet, ReportScheduleViewSet, SavedReportResultViewSet,
-    FieldLookupView, ModelFieldsView, AvailableContentTypesView, ContentTypeFieldsView, TimezoneChoicesView
+    FieldLookupView, ModelFieldsView, AvailableContentTypesView, ContentTypeFieldsView, TimezoneChoicesView,
+    ReportingFieldTypeViewSet
 )
 
 app_name = 'reporting'
@@ -21,6 +22,8 @@ router.register(r'parameters', ReportParameterViewSet, basename='parameter')
 router.register(r'executions', ReportExecutionViewSet, basename='execution')
 router.register(r'schedules', ReportScheduleViewSet, basename='schedule')
 router.register(r'saved-results', SavedReportResultViewSet, basename='savedresult')
+router.register(r'field-types', ReportingFieldTypeViewSet, basename='fieldtype')
+
 
 urlpatterns = [
     # API endpoints

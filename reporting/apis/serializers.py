@@ -2,6 +2,8 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.contrib.contenttypes.models import ContentType
+
+from dynamicflow.models import FieldType
 from reporting.models import (
     Report, ReportDataSource, ReportField, ReportFilter,
     ReportJoin, ReportParameter, ReportExecution, ReportSchedule,
@@ -593,3 +595,12 @@ class ReportPreviewSerializer(serializers.Serializer):
     preview_data = serializers.ListField()
     columns = serializers.ListField()
     warnings = serializers.ListField()
+
+
+
+class ReportingFieldTypeSerializer(serializers.ModelSerializer):
+    """Field type serializer with consistent structure for reporting builder"""
+    class Meta:
+        model = FieldType
+        fields = ['id', 'name', 'name_ara', 'code', 'active_ind']
+

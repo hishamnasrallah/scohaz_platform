@@ -12,6 +12,7 @@ from django.conf import settings
 import json
 import pytz
 
+from dynamicflow.models import FieldType
 from reporting.models import (
     Report, ReportDataSource, ReportField, ReportFilter,
     ReportJoin, ReportParameter, ReportExecution, ReportSchedule,
@@ -23,7 +24,7 @@ from reporting.apis.serializers import (
     ReportParameterSerializer, ReportExecutionSerializer,
     ReportScheduleSerializer, SavedReportResultSerializer,
     ReportBuilderSerializer, ReportExecutionRequestSerializer,
-    ReportPreviewSerializer, ContentTypeSerializer
+    ReportPreviewSerializer, ContentTypeSerializer, ReportingFieldTypeSerializer
 )
 from reporting.utils.model_inspector import DynamicModelInspector
 from reporting.utils.query_builder import ReportQueryBuilder
@@ -759,3 +760,15 @@ class ModelFieldsView(APIView):
             'fields': fields,
             'relationships': relationships
         })
+
+
+
+
+class ReportingFieldTypeViewSet(viewsets.ModelViewSet):
+    """Field types API for workflow builder"""
+    queryset = FieldType.objects.all()
+    serializer_class = ReportingFieldTypeSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['active_ind']
+    ordering = ['name']
