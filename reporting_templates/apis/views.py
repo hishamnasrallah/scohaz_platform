@@ -1,8 +1,11 @@
+# reporting_templates/apis/views.py
+
 from django.http import HttpResponse, FileResponse
 from django.shortcuts import get_object_or_404
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Q
-from rest_framework import viewsets, status
+from django.contrib.auth import get_user_model
+from django.db.models import Q, Prefetch
+from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -13,17 +16,22 @@ from datetime import datetime
 
 from authentication.crud.managers import user_can
 from reporting_templates.models import (
-    PDFTemplate, PDFTemplateElement,
-    PDFTemplateVariable, PDFGenerationLog
+    PDFTemplate, PDFTemplateElement, PDFTemplateVariable,
+    PDFTemplateParameter, PDFTemplateDataSource, PDFGenerationLog
 )
+from reporting_templates.services.data_service import DataFetchingService
+from reporting_templates.services.pdf_generator import PDFGenerator, PDFTemplateService
 from .serializers import (
     PDFTemplateSerializer, PDFTemplateCreateSerializer,
     PDFTemplateElementSerializer, PDFTemplateVariableSerializer,
+    PDFTemplateParameterSerializer, PDFTemplateDataSourceSerializer,
     PDFGenerationLogSerializer, PDFGenerateSerializer,
-    TemplatePreviewSerializer, ContentTypeSerializer
+    TemplatePreviewSerializer, ContentTypeSerializer,
+    ParameterSchemaSerializer
 )
-from reporting_templates.services.pdf_generator import PDFGenerator, PDFTemplateService
 from .permissions import PDFTemplatePermission
+
+User = get_user_model()
 
 
 class PDFTemplateFilter(filters.FilterSet):
@@ -37,10 +45,16 @@ class PDFTemplateFilter(filters.FilterSet):
     content_type = filters.NumberFilter(field_name='content_type__id')
     created_by = filters.NumberFilter(field_name='created_by__id')
     active = filters.BooleanFilter(field_name='active_ind')
+    requires_parameters = filters.BooleanFilter()
+    allow_self = filters.BooleanFilter(field_name='allow_self_generation')
+    allow_others = filters.BooleanFilter(field_name='allow_other_generation')
 
     class Meta:
         model = PDFTemplate
-        fields = ['name', 'code', 'language', 'content_type', 'created_by', 'active']
+        fields = [
+            'name', 'code', 'language', 'content_type', 'created_by',
+            'active', 'requires_parameters', 'allow_self', 'allow_others'
+        ]
 
 
 class PDFTemplateViewSet(viewsets.ModelViewSet):
@@ -64,6 +78,16 @@ class PDFTemplateViewSet(viewsets.ModelViewSet):
         """Filter templates based on user permissions"""
         queryset = super().get_queryset()
         user = self.request.user
+
+        # Prefetch related data
+        queryset = queryset.prefetch_related(
+            'elements',
+            'variables',
+            'parameters',
+            'data_sources',
+            'groups',
+            Prefetch('generation_logs', queryset=PDFGenerationLog.objects.order_by('-created_at')[:5])
+        )
 
         if not user.is_superuser:
             # Filter by user's groups or created by user
@@ -98,62 +122,183 @@ class PDFTemplateViewSet(viewsets.ModelViewSet):
             )
 
     @action(detail=True, methods=['get'])
-    def preview_data(self, request, pk=None):
-        """Get sample data for template preview"""
+    def parameter_schema(self, request, pk=None):
+        """Get parameter schema for template"""
         template = self.get_object()
 
-        # Build sample data based on template variables
-        sample_data = {
-            'user': {
-                'username': request.user.username,
-                'email': request.user.email,
-                'first_name': request.user.first_name,
-                'last_name': request.user.last_name,
-                'full_name': request.user.get_full_name(),
+        schema = {
+            'template': {
+                'id': template.id,
+                'name': template.name,
+                'requires_parameters': template.requires_parameters,
+                'allow_self_generation': template.allow_self_generation,
+                'allow_other_generation': template.allow_other_generation,
             },
-            'current_date': datetime.now().strftime('%Y-%m-%d'),
-            'current_time': datetime.now().strftime('%H:%M:%S'),
-        }
-
-        # Add sample data for template variables
-        for variable in template.variables.all():
-            if variable.default_value:
-                sample_data[variable.variable_key] = variable.default_value
-            else:
-                # Generate sample based on data type
-                if variable.data_type == 'text':
-                    sample_data[variable.variable_key] = f"Sample {variable.display_name}"
-                elif variable.data_type == 'number':
-                    sample_data[variable.variable_key] = 123
-                elif variable.data_type == 'date':
-                    sample_data[variable.variable_key] = datetime.now().strftime('%Y-%m-%d')
-                elif variable.data_type == 'boolean':
-                    sample_data[variable.variable_key] = True
-
-        return Response({
-            'template': PDFTemplateSerializer(
-                template,
+            'parameters': PDFTemplateParameterSerializer(
+                template.parameters.filter(active_ind=True),
+                many=True,
                 context={'request': request}
             ).data,
-            'sample_data': sample_data
-        })
+            'sample_values': {}
+        }
+
+        # Add sample values if requested
+        if request.query_params.get('include_samples', 'false').lower() == 'true':
+            for param in template.parameters.filter(active_ind=True):
+                if param.default_value:
+                    schema['sample_values'][param.parameter_key] = param.default_value
+                elif param.parameter_type == 'integer':
+                    schema['sample_values'][param.parameter_key] = 123
+                elif param.parameter_type == 'string':
+                    schema['sample_values'][param.parameter_key] = f"Sample {param.display_name}"
+                elif param.parameter_type == 'date':
+                    schema['sample_values'][param.parameter_key] = datetime.now().strftime('%Y-%m-%d')
+                elif param.parameter_type == 'boolean':
+                    schema['sample_values'][param.parameter_key] = True
+
+        return Response(schema)
+
+    @action(detail=True, methods=['get'])
+    def available_data(self, request, pk=None):
+        """Get available data structure for template"""
+        template = self.get_object()
+
+        # Simulate data fetching to show structure
+        try:
+            service = DataFetchingService(
+                template=template,
+                user=request.user,
+                parameters={}
+            )
+
+            # Get structure without actually fetching data
+            available_data = {
+                'main_data_source': {
+                    'type': template.data_source_type,
+                    'model': template.content_type.model if template.content_type else None,
+                    'fields': []
+                },
+                'additional_sources': {},
+                'variables': {}
+            }
+
+            # Add model fields if model-based
+            if template.content_type:
+                model_class = template.content_type.model_class()
+                if model_class:
+                    fields = []
+                    for field in model_class._meta.fields:
+                        fields.append({
+                            'name': field.name,
+                            'type': field.__class__.__name__,
+                            'verbose_name': str(field.verbose_name)
+                        })
+                    available_data['main_data_source']['fields'] = fields
+
+            # Add additional data sources
+            for source in template.data_sources.filter(active_ind=True):
+                available_data['additional_sources'][source.source_key] = {
+                    'display_name': source.display_name,
+                    'fetch_method': source.fetch_method,
+                    'model': source.content_type.model if source.content_type else None
+                }
+
+            # Add variables
+            for var in template.variables.all():
+                available_data['variables'][var.variable_key] = {
+                    'display_name': var.display_name,
+                    'data_type': var.data_type,
+                    'data_source': var.data_source,
+                    'default_value': var.default_value
+                }
+
+            return Response(available_data)
+
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'])
+    def validate_parameters(self, request, pk=None):
+        """Validate parameters without generating PDF"""
+        template = self.get_object()
+        parameters = request.data.get('parameters', {})
+
+        try:
+            service = DataFetchingService(
+                template=template,
+                user=request.user,
+                parameters=parameters
+            )
+
+            # This will validate parameters
+            service._validate_parameters()
+
+            return Response({
+                'valid': True,
+                'message': 'All parameters are valid'
+            })
+
+        except ValueError as e:
+            return Response({
+                'valid': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def preview_data(self, request, pk=None):
+        """Preview data that will be used in template"""
+        template = self.get_object()
+        parameters = request.data.get('parameters', {})
+
+        try:
+            service = DataFetchingService(
+                template=template,
+                user=request.user,
+                parameters=parameters
+            )
+
+            # Fetch all data
+            context_data = service.fetch_all_data()
+
+            # Convert model instances to dictionaries for JSON serialization
+            preview_data = self._serialize_context_data(context_data)
+
+            return Response({
+                'template': PDFTemplateSerializer(
+                    template,
+                    context={'request': request}
+                ).data,
+                'data': preview_data,
+                'parameters_used': parameters
+            })
+
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @action(detail=True, methods=['post'])
     def test_generate(self, request, pk=None):
-        """Test generate PDF with sample data"""
+        """Test generate PDF with provided or sample data"""
         template = self.get_object()
 
-        # Get sample data
-        context_data = request.data.get('context_data', {})
-        if not context_data:
-            # Use preview data
-            preview_response = self.preview_data(request, pk)
-            context_data = preview_response.data['sample_data']
-
-        # Add user to context
-        context_data['user'] = request.user
+        # Get parameters
+        parameters = request.data.get('parameters', {})
+        use_sample_data = request.data.get('use_sample_data', False)
 
         try:
+            # Fetch data
+            service = DataFetchingService(
+                template=template,
+                user=request.user,
+                parameters=parameters
+            )
+            context_data = service.fetch_all_data()
+
             # Generate PDF
             generator = PDFGenerator(
                 template,
@@ -175,6 +320,64 @@ class PDFTemplateViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    def _serialize_context_data(self, context_data):
+        """Convert context data to JSON-serializable format"""
+        serialized = {}
+
+        for key, value in context_data.items():
+            if hasattr(value, '_meta'):  # Django model instance
+                serialized[key] = {
+                    'model': value._meta.label,
+                    'pk': value.pk,
+                    'str': str(value),
+                    # Add more fields as needed
+                }
+            elif hasattr(value, 'all'):  # QuerySet
+                serialized[key] = [
+                    {'pk': obj.pk, 'str': str(obj)}
+                    for obj in value[:10]  # Limit to 10 for preview
+                ]
+            elif isinstance(value, (dict, list, str, int, float, bool, type(None))):
+                serialized[key] = value
+            else:
+                serialized[key] = str(value)
+
+        return serialized
+
+
+class PDFTemplateParameterViewSet(viewsets.ModelViewSet):
+    """ViewSet for template parameters"""
+    queryset = PDFTemplateParameter.objects.all()
+    serializer_class = PDFTemplateParameterSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Filter by template if provided"""
+        queryset = super().get_queryset()
+        template_id = self.request.query_params.get('template')
+
+        if template_id:
+            queryset = queryset.filter(template_id=template_id)
+
+        return queryset.order_by('order', 'parameter_key')
+
+
+class PDFTemplateDataSourceViewSet(viewsets.ModelViewSet):
+    """ViewSet for template data sources"""
+    queryset = PDFTemplateDataSource.objects.all()
+    serializer_class = PDFTemplateDataSourceSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Filter by template if provided"""
+        queryset = super().get_queryset()
+        template_id = self.request.query_params.get('template')
+
+        if template_id:
+            queryset = queryset.filter(template_id=template_id)
+
+        return queryset.order_by('order', 'source_key')
+
 
 class PDFTemplateElementViewSet(viewsets.ModelViewSet):
     """ViewSet for template elements"""
@@ -189,6 +392,9 @@ class PDFTemplateElementViewSet(viewsets.ModelViewSet):
 
         if template_id:
             queryset = queryset.filter(template_id=template_id)
+
+        # Include child elements
+        queryset = queryset.prefetch_related('child_elements')
 
         return queryset.order_by('page_number', 'z_index', 'y_position')
 
@@ -215,7 +421,7 @@ class PDFGenerationLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PDFGenerationLog.objects.all()
     serializer_class = PDFGenerationLogSerializer
     permission_classes = [IsAuthenticated]
-    filterset_fields = ['template', 'status', 'generated_by']
+    filterset_fields = ['template', 'status', 'generated_by', 'generated_for']
     ordering = ['-created_at']
 
     def get_queryset(self):
@@ -224,8 +430,10 @@ class PDFGenerationLogViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.request.user
 
         if not user.is_superuser:
-            # Only show user's own logs
-            queryset = queryset.filter(generated_by=user)
+            # Only show user's own logs or logs they generated
+            queryset = queryset.filter(
+                Q(generated_by=user) | Q(generated_for=user)
+            )
 
         return queryset
 
@@ -242,31 +450,55 @@ class GeneratePDFView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
-        # Get template
-        template = PDFTemplate.objects.get(
-            id=serializer.validated_data['template_id']
-        )
+        # Get validated data
+        template = serializer.template
+        parameters = serializer.validated_data.get('parameters', {})
+        language = serializer.validated_data.get('language', template.primary_language)
+        filename = serializer.validated_data.get('filename')
+        generate_for_user_id = serializer.validated_data.get('generate_for_user_id')
 
-        # Get context data
-        context_data = serializer.validated_data['context_data']
-        context_data['user'] = request.user
+        # Determine target user
+        if generate_for_user_id:
+            target_user = get_object_or_404(User, id=generate_for_user_id)
+        else:
+            target_user = request.user
 
-        # Get language
-        language = serializer.validated_data.get(
-            'language',
-            template.primary_language
+        # Create log entry
+        log_entry = PDFGenerationLog.objects.create(
+            template=template,
+            generated_by=request.user,
+            generated_for=target_user if target_user != request.user else None,
+            parameters=parameters,
+            status='processing'
         )
 
         try:
+            # Fetch data
+            service = DataFetchingService(
+                template=template,
+                user=target_user,
+                parameters=parameters
+            )
+            context_data = service.fetch_all_data()
+
+            # Store context data in log
+            log_entry.context_data = self._sanitize_context_data(context_data)
+            log_entry.save()
+
             # Generate PDF
             generator = PDFGenerator(template, language=language)
             pdf_buffer = generator.generate_pdf(context_data)
 
+            # Update log
+            log_entry.status = 'completed'
+            log_entry.completed_at = datetime.now()
+            log_entry.file_size = pdf_buffer.tell()
+            log_entry.save()
+
             # Prepare filename
-            filename = serializer.validated_data.get(
-                'filename',
-                f"{template.code}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-            )
+            if not filename:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"{template.code}_{timestamp}.pdf"
 
             # Return PDF
             response = HttpResponse(
@@ -277,62 +509,120 @@ class GeneratePDFView(APIView):
             return response
 
         except Exception as e:
+            # Update log with error
+            log_entry.status = 'failed'
+            log_entry.error_message = str(e)
+            log_entry.completed_at = datetime.now()
+            log_entry.save()
+
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    def _sanitize_context_data(self, context_data):
+        """Remove sensitive data from context before storing"""
+        sanitized = {}
 
-class PreviewPDFView(APIView):
-    """API view for previewing PDF design"""
+        for key, value in context_data.items():
+            if key == 'user':
+                # Store only basic user info
+                sanitized[key] = {
+                    'id': value.id,
+                    'username': value.username,
+                    'email': value.email
+                }
+            elif hasattr(value, '_meta'):
+                # Model instance - store only ID
+                sanitized[key] = {
+                    'model': value._meta.label,
+                    'pk': value.pk
+                }
+            elif hasattr(value, 'count'):
+                # QuerySet - store count only
+                sanitized[key] = {
+                    'type': 'queryset',
+                    'count': value.count()
+                }
+            else:
+                sanitized[key] = value
+
+        return sanitized
+
+
+class MyTemplatesView(APIView):
+    """Get templates available to current user"""
     permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        """Preview PDF without saving template"""
-        serializer = TemplatePreviewSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+    def get(self, request):
+        """Get categorized templates"""
+        user = request.user
+        user_groups = user.groups.all()
 
-        # Create temporary template
-        temp_template = PDFTemplate(
-            name="Preview Template",
-            code="preview",
-            page_size=serializer.validated_data['page_size'],
-            orientation=serializer.validated_data['orientation'],
-            primary_language=serializer.validated_data['language']
-        )
+        # Base queryset
+        templates = PDFTemplate.objects.filter(active_ind=True)
 
-        try:
-            # Generate PDF with temporary elements
-            generator = PDFGenerator(temp_template)
+        # Categorize templates
+        response_data = {
+            'self_service': [],
+            'my_templates': [],
+            'shared_templates': [],
+            'system_templates': []
+        }
 
-            # Temporarily assign elements
-            temp_template._temp_elements = serializer.validated_data['elements']
+        # Self-service templates (user can generate for themselves)
+        self_service = templates.filter(
+            allow_self_generation=True
+        ).filter(
+            Q(groups__in=user_groups) | Q(groups__isnull=True)
+        ).distinct()
 
-            # Override the elements property for preview
-            original_elements = PDFTemplateElement.objects.none()
-            PDFTemplateElement.objects.filter = lambda **kwargs: [
-                PDFTemplateElement(**elem) for elem in temp_template._temp_elements
-            ]
+        response_data['self_service'] = PDFTemplateSerializer(
+            self_service,
+            many=True,
+            context={'request': request}
+        ).data
 
-            # Generate preview
-            context_data = serializer.validated_data.get('context_data', {})
-            context_data['user'] = request.user
+        # Templates created by user
+        my_templates = templates.filter(created_by=user)
+        response_data['my_templates'] = PDFTemplateSerializer(
+            my_templates,
+            many=True,
+            context={'request': request}
+        ).data
 
-            pdf_buffer = generator.generate_pdf(context_data)
+        # Shared templates (via groups)
+        if not user.is_superuser:
+            shared = templates.filter(
+                groups__in=user_groups
+            ).exclude(
+                created_by=user
+            ).distinct()
+        else:
+            shared = templates.exclude(created_by=user)
 
-            # Return preview
-            response = HttpResponse(
-                pdf_buffer.getvalue(),
-                content_type='application/pdf'
-            )
-            response['Content-Disposition'] = 'inline; filename="preview.pdf"'
-            return response
+        response_data['shared_templates'] = PDFTemplateSerializer(
+            shared,
+            many=True,
+            context={'request': request}
+        ).data
 
-        except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        # System templates
+        system = templates.filter(is_system_template=True)
+        response_data['system_templates'] = PDFTemplateSerializer(
+            system,
+            many=True,
+            context={'request': request}
+        ).data
+
+        # Add summary
+        response_data['summary'] = {
+            'total': sum(len(v) for v in response_data.values() if isinstance(v, list)),
+            'can_create': user.has_perm('reporting_templates.can_design_template'),
+            'can_generate_others': user.has_perm('reporting_templates.can_generate_others_pdf')
+        }
+
+        return Response(response_data)
 
 
 class ContentTypeListView(APIView):
@@ -345,8 +635,11 @@ class ContentTypeListView(APIView):
         from django.conf import settings
 
         # Filter to only show models from custom apps
-        custom_apps = getattr(settings, 'CUSTOM_APPS', [])
-        custom_apps.extend(['authentication', 'case'])  # Add your core apps
+        custom_apps = ['authentication', 'case', 'lookup']  # Add your apps
+
+        # You can also read from settings
+        if hasattr(settings, 'REPORTING_ENABLED_APPS'):
+            custom_apps = settings.REPORTING_ENABLED_APPS
 
         content_types = ContentType.objects.filter(
             app_label__in=custom_apps
@@ -376,19 +669,27 @@ class TemplateDesignerDataView(APIView):
                 {'value': 'text', 'label': 'Text', 'icon': 'text'},
                 {'value': 'dynamic_text', 'label': 'Dynamic Text', 'icon': 'variable'},
                 {'value': 'image', 'label': 'Image', 'icon': 'image'},
+                {'value': 'dynamic_image', 'label': 'Dynamic Image', 'icon': 'image-plus'},
                 {'value': 'line', 'label': 'Line', 'icon': 'minus'},
                 {'value': 'rectangle', 'label': 'Rectangle', 'icon': 'square'},
                 {'value': 'circle', 'label': 'Circle', 'icon': 'circle'},
                 {'value': 'table', 'label': 'Table', 'icon': 'table'},
+                {'value': 'chart', 'label': 'Chart', 'icon': 'chart-bar'},
                 {'value': 'barcode', 'label': 'Barcode', 'icon': 'barcode'},
                 {'value': 'qrcode', 'label': 'QR Code', 'icon': 'qrcode'},
                 {'value': 'signature', 'label': 'Signature Field', 'icon': 'signature'},
+                {'value': 'loop', 'label': 'Loop Container', 'icon': 'repeat'},
+                {'value': 'conditional', 'label': 'Conditional Container', 'icon': 'filter'},
             ],
             'page_sizes': [
                 {'value': 'A4', 'label': 'A4 (210 × 297 mm)'},
                 {'value': 'A3', 'label': 'A3 (297 × 420 mm)'},
                 {'value': 'letter', 'label': 'Letter (8.5 × 11 in)'},
                 {'value': 'legal', 'label': 'Legal (8.5 × 14 in)'},
+            ],
+            'orientations': [
+                {'value': 'portrait', 'label': 'Portrait'},
+                {'value': 'landscape', 'label': 'Landscape'},
             ],
             'text_aligns': [
                 {'value': 'left', 'label': 'Left'},
@@ -404,6 +705,48 @@ class TemplateDesignerDataView(APIView):
                 {'value': 'boolean', 'label': 'Yes/No'},
                 {'value': 'image', 'label': 'Image'},
                 {'value': 'list', 'label': 'List'},
+                {'value': 'model', 'label': 'Model Instance'},
+            ],
+            'parameter_types': [
+                {'value': 'integer', 'label': 'Integer'},
+                {'value': 'string', 'label': 'Text'},
+                {'value': 'date', 'label': 'Date'},
+                {'value': 'datetime', 'label': 'Date & Time'},
+                {'value': 'boolean', 'label': 'Yes/No'},
+                {'value': 'float', 'label': 'Decimal'},
+                {'value': 'uuid', 'label': 'UUID'},
+                {'value': 'model_id', 'label': 'Model Reference'},
+                {'value': 'user_id', 'label': 'User Reference'},
+            ],
+            'widget_types': [
+                {'value': 'text', 'label': 'Text Input'},
+                {'value': 'number', 'label': 'Number Input'},
+                {'value': 'date', 'label': 'Date Picker'},
+                {'value': 'datetime', 'label': 'DateTime Picker'},
+                {'value': 'select', 'label': 'Dropdown'},
+                {'value': 'radio', 'label': 'Radio Buttons'},
+                {'value': 'checkbox', 'label': 'Checkbox'},
+                {'value': 'user_search', 'label': 'User Search'},
+                {'value': 'model_search', 'label': 'Model Search'},
+            ],
+            'query_operators': [
+                {'value': 'exact', 'label': 'Equals'},
+                {'value': 'iexact', 'label': 'Equals (case-insensitive)'},
+                {'value': 'contains', 'label': 'Contains'},
+                {'value': 'icontains', 'label': 'Contains (case-insensitive)'},
+                {'value': 'gt', 'label': 'Greater than'},
+                {'value': 'gte', 'label': 'Greater than or equal'},
+                {'value': 'lt', 'label': 'Less than'},
+                {'value': 'lte', 'label': 'Less than or equal'},
+                {'value': 'in', 'label': 'In list'},
+                {'value': 'range', 'label': 'In range'},
+            ],
+            'fetch_methods': [
+                {'value': 'model_query', 'label': 'Model Query'},
+                {'value': 'raw_sql', 'label': 'Raw SQL'},
+                {'value': 'custom_function', 'label': 'Custom Function'},
+                {'value': 'related_field', 'label': 'Related Field'},
+                {'value': 'prefetch', 'label': 'Prefetch Related'},
             ],
             'default_colors': [
                 '#000000', '#FFFFFF', '#FF0000', '#00FF00', '#0000FF',

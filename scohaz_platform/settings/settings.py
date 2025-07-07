@@ -229,3 +229,131 @@ LOGGING = {
         },
     },
 }
+
+
+# Reporting Templates Configuration
+REPORTING_TEMPLATES = {
+    # Apps that can be used in reporting
+    'ENABLED_APPS': INSTALLED_APPS,
+    # ENABLED_APPS': [
+    #     'authentication',
+    #     'case',
+    #     'lookup',
+    #     'conditional_approval',
+    #     # Add other apps you want to enable for reporting
+    # ],
+
+    # Default settings for new templates
+    'DEFAULTS': {
+        'PAGE_SIZE': 'A4',
+        'ORIENTATION': 'portrait',
+        'MARGINS': {
+            'TOP': 72,    # 1 inch in points
+            'BOTTOM': 72,
+            'LEFT': 72,
+            'RIGHT': 72,
+        },
+        'FONT_SIZE': 12,
+        'FONT_FAMILY': 'Helvetica',
+    },
+
+    # Security settings
+    'SECURITY': {
+        # Maximum number of parameters allowed per template
+        'MAX_PARAMETERS': 20,
+
+        # Maximum execution time for data fetching (seconds)
+        'DATA_FETCH_TIMEOUT': 30,
+
+        # Maximum file size for generated PDFs (MB)
+        'MAX_PDF_SIZE': 10,
+
+        # Allow raw SQL queries
+        'ALLOW_RAW_SQL': True,
+
+        # Allow custom functions
+        'ALLOW_CUSTOM_FUNCTIONS': True,
+    },
+
+    # Caching settings
+    'CACHE': {
+        # Cache backend to use for data sources
+        'BACKEND': 'default',
+
+        # Default cache timeout (seconds)
+        'DEFAULT_TIMEOUT': 300,
+
+        # Cache key prefix
+        'KEY_PREFIX': 'pdf_report_',
+    },
+
+    # File storage settings
+    'STORAGE': {
+        # Storage backend for generated PDFs
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+
+        # Path for storing generated PDFs
+        'LOCATION': 'media/pdf_reports/',
+
+        # Keep generated files for this many days
+        'RETENTION_DAYS': 30,
+    },
+
+    # Font configuration
+    'FONTS': {
+        # Directory containing custom fonts
+        'FONT_DIR': 'fonts/',
+
+        # Arabic fonts configuration
+        'ARABIC_FONTS': {
+            'Arabic': 'NotoSansArabic-Regular.ttf',
+            'Arabic-Bold': 'NotoSansArabic-Bold.ttf',
+            'Arabic-Light': 'NotoSansArabic-Light.ttf',
+        },
+
+        # Additional fonts
+        'CUSTOM_FONTS': {
+            # 'FontName': 'filename.ttf',
+        },
+    },
+
+    # Custom function modules
+    'CUSTOM_FUNCTIONS': [
+        'reporting_templates.custom_functions',
+        # Add your custom function modules here
+    ],
+
+    # Parameter validation
+    'PARAMETER_VALIDATION': {
+        # Regex patterns for parameter types
+        'PATTERNS': {
+            'email': r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+            'phone': r'^\+?1?\d{9,15}$',
+            'url': r'^https?://[^\s]+$',
+        },
+
+        # Default validation rules
+        'DEFAULTS': {
+            'string': {'max_length': 255},
+            'integer': {'min': -2147483648, 'max': 2147483647},
+            'float': {'min': -999999999.99, 'max': 999999999.99},
+        },
+    },
+}
+
+# Add reporting permissions to default groups (optional)
+DEFAULT_GROUP_PERMISSIONS = {
+    'Managers': [
+        'reporting_templates.can_design_template',
+        'reporting_templates.can_generate_pdf',
+        'reporting_templates.can_generate_others_pdf',
+    ],
+    'emp1': [
+        'reporting_templates.can_generate_pdf',
+        'reporting_templates.can_generate_pdf',
+        'reporting_templates.can_generate_others_pdf',
+    ],
+    'Users': [
+        'reporting_templates.can_generate_pdf',
+    ],
+}

@@ -147,9 +147,10 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-# STATICFILES_DIRS = [
-#     os.path.join(BASE_DIR, 'dynamicflow/static'),
-# ]
+STATICFILES_DIRS = [
+    os.path.join(BASE_DIR, 'fonts'),
+    # os.path.join(BASE_DIR, 'dynamicflow/static'),
+]
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static_root')
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')

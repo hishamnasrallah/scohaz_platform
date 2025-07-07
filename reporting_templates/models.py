@@ -1,3 +1,5 @@
+# reporting_templates/models.py
+
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
@@ -21,6 +23,13 @@ class PDFTemplate(models.Model):
         ('A3', 'A3'),
         ('letter', 'Letter'),
         ('legal', 'Legal'),
+    ]
+
+    DATA_SOURCE_TYPE_CHOICES = [
+        ('model', 'Model Query'),
+        ('raw_sql', 'Raw SQL'),
+        ('custom_function', 'Custom Function'),
+        ('api', 'External API'),
     ]
 
     # Basic Information
@@ -60,6 +69,42 @@ class PDFTemplate(models.Model):
     watermark_enabled = models.BooleanField(default=False)
     watermark_text = models.CharField(max_length=100, blank=True)
 
+    # Data Source Configuration
+    data_source_type = models.CharField(
+        max_length=20,
+        choices=DATA_SOURCE_TYPE_CHOICES,
+        default='model'
+    )
+
+    # Model-based data source
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text='Primary model this template queries data from'
+    )
+
+    # Query configuration
+    query_filter = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Default filter conditions for queries'
+    )
+
+    # Custom function path
+    custom_function_path = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text='Python path to custom data fetching function'
+    )
+
+    # Raw SQL query
+    raw_sql_query = models.TextField(
+        blank=True,
+        help_text='Raw SQL query for data fetching'
+    )
+
     # Permissions & Ownership
     created_by = models.ForeignKey(
         User,
@@ -73,13 +118,25 @@ class PDFTemplate(models.Model):
         help_text='Groups that can use this template'
     )
 
-    # Model Integration
-    content_type = models.ForeignKey(
-        ContentType,
-        on_delete=models.SET_NULL,
-        null=True,
+    # Access Control
+    requires_parameters = models.BooleanField(
+        default=False,
+        help_text='Whether this template requires parameters to generate'
+    )
+    allow_self_generation = models.BooleanField(
+        default=True,
+        help_text='Whether users can generate reports about themselves'
+    )
+    allow_other_generation = models.BooleanField(
+        default=False,
+        help_text='Whether users can generate reports about others'
+    )
+
+    # Related models configuration
+    related_models = models.JSONField(
+        default=dict,
         blank=True,
-        help_text='Model this template is associated with'
+        help_text='Configuration for fetching related model data'
     )
 
     # Metadata
@@ -96,6 +153,7 @@ class PDFTemplate(models.Model):
         permissions = [
             ('can_design_template', 'Can design PDF templates'),
             ('can_generate_pdf', 'Can generate PDFs from templates'),
+            ('can_generate_others_pdf', 'Can generate PDFs for other users'),
         ]
 
     def __str__(self):
@@ -106,6 +164,200 @@ class PDFTemplate(models.Model):
         if language == 'ar' and self.name_ara:
             return self.name_ara
         return self.name
+
+
+class PDFTemplateParameter(models.Model):
+    """
+    Define parameters that can be passed to templates
+    """
+    PARAMETER_TYPE_CHOICES = [
+        ('integer', 'Integer'),
+        ('string', 'String'),
+        ('date', 'Date'),
+        ('datetime', 'DateTime'),
+        ('boolean', 'Boolean'),
+        ('float', 'Float'),
+        ('uuid', 'UUID'),
+        ('model_id', 'Model ID'),
+        ('user_id', 'User ID'),
+    ]
+
+    WIDGET_TYPE_CHOICES = [
+        ('text', 'Text Input'),
+        ('number', 'Number Input'),
+        ('date', 'Date Picker'),
+        ('datetime', 'DateTime Picker'),
+        ('select', 'Dropdown'),
+        ('radio', 'Radio Buttons'),
+        ('checkbox', 'Checkbox'),
+        ('user_search', 'User Search'),
+        ('model_search', 'Model Search'),
+    ]
+
+    template = models.ForeignKey(
+        PDFTemplate,
+        on_delete=models.CASCADE,
+        related_name='parameters'
+    )
+
+    # Parameter definition
+    parameter_key = models.CharField(
+        max_length=50,
+        help_text='Key used in queries and templates'
+    )
+    display_name = models.CharField(max_length=100)
+    display_name_ara = models.CharField(max_length=100, blank=True)
+    description = models.TextField(blank=True)
+    description_ara = models.TextField(blank=True)
+
+    # Parameter configuration
+    parameter_type = models.CharField(
+        max_length=20,
+        choices=PARAMETER_TYPE_CHOICES
+    )
+    is_required = models.BooleanField(default=True)
+    default_value = models.CharField(max_length=255, blank=True)
+
+    # UI Configuration
+    widget_type = models.CharField(
+        max_length=20,
+        choices=WIDGET_TYPE_CHOICES,
+        default='text'
+    )
+    widget_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Additional widget configuration (choices, min/max, etc.)'
+    )
+
+    # Validation
+    validation_rules = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Validation rules for the parameter'
+    )
+
+    # Query usage
+    query_field = models.CharField(
+        max_length=100,
+        help_text='Field name in database query'
+    )
+    query_operator = models.CharField(
+        max_length=20,
+        default='exact',
+        help_text='Query operator (exact, icontains, gte, etc.)'
+    )
+
+    # Security
+    allow_user_override = models.BooleanField(
+        default=True,
+        help_text='Whether users can override this parameter'
+    )
+    restricted_to_groups = models.ManyToManyField(
+        'auth.Group',
+        blank=True,
+        help_text='Only these groups can use this parameter'
+    )
+
+    # Order
+    order = models.IntegerField(default=0)
+
+    # Metadata
+    active_ind = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['order', 'parameter_key']
+        unique_together = [['template', 'parameter_key']]
+
+    def __str__(self):
+        return f"{self.template.name} - {self.parameter_key}"
+
+
+class PDFTemplateDataSource(models.Model):
+    """
+    Define additional data sources for templates
+    """
+    DATA_FETCH_METHOD_CHOICES = [
+        ('model_query', 'Model Query'),
+        ('raw_sql', 'Raw SQL'),
+        ('custom_function', 'Custom Function'),
+        ('related_field', 'Related Field'),
+        ('prefetch', 'Prefetch Related'),
+    ]
+
+    template = models.ForeignKey(
+        PDFTemplate,
+        on_delete=models.CASCADE,
+        related_name='data_sources'
+    )
+
+    # Data source identification
+    source_key = models.CharField(
+        max_length=50,
+        help_text='Key to access this data in template'
+    )
+    display_name = models.CharField(max_length=100)
+
+    # Data fetching configuration
+    fetch_method = models.CharField(
+        max_length=20,
+        choices=DATA_FETCH_METHOD_CHOICES
+    )
+
+    # Model-based configuration
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    query_path = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text='Path for related fields (e.g., user__profile__address)'
+    )
+
+    # Query configuration
+    filter_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Filter configuration using parameters'
+    )
+
+    # Custom function
+    custom_function_path = models.CharField(
+        max_length=255,
+        blank=True
+    )
+
+    # Raw SQL
+    raw_sql = models.TextField(blank=True)
+
+    # Data processing
+    post_process_function = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text='Function to process fetched data'
+    )
+
+    # Caching
+    cache_timeout = models.IntegerField(
+        default=0,
+        help_text='Cache timeout in seconds (0 = no cache)'
+    )
+
+    # Order
+    order = models.IntegerField(default=0)
+
+    # Metadata
+    active_ind = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['order', 'source_key']
+        unique_together = [['template', 'source_key']]
+
+    def __str__(self):
+        return f"{self.template.name} - {self.source_key}"
 
 
 class PDFTemplateElement(models.Model):
@@ -121,10 +373,13 @@ class PDFTemplateElement(models.Model):
         ('rectangle', 'Rectangle'),
         ('circle', 'Circle'),
         ('table', 'Table'),
+        ('chart', 'Chart'),
         ('barcode', 'Barcode'),
         ('qrcode', 'QR Code'),
         ('signature', 'Signature Field'),
         ('page_break', 'Page Break'),
+        ('loop', 'Loop Container'),
+        ('conditional', 'Conditional Container'),
     ]
 
     FONT_FAMILY_CHOICES = [
@@ -222,16 +477,32 @@ class PDFTemplateElement(models.Model):
         help_text='Table configuration including columns, headers, etc.'
     )
 
+    # Loop Configuration
+    loop_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Configuration for loop elements'
+    )
+
     # Dynamic Properties
     data_source = models.CharField(
         max_length=200,
         blank=True,
-        help_text='Model field or method to get dynamic data'
+        help_text='Data source key or path to get dynamic data'
     )
     condition = models.CharField(
         max_length=500,
         blank=True,
         help_text='Condition for showing this element'
+    )
+
+    # Parent-Child Relationship
+    parent_element = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='child_elements'
     )
 
     # Metadata
@@ -271,6 +542,7 @@ class PDFTemplateVariable(models.Model):
         ('image', 'Image'),
         ('list', 'List'),
         ('dict', 'Dictionary'),
+        ('model', 'Model Instance'),
     ]
 
     template = models.ForeignKey(
@@ -292,7 +564,7 @@ class PDFTemplateVariable(models.Model):
     )
     data_source = models.CharField(
         max_length=200,
-        help_text='Model path like user.profile.full_name'
+        help_text='Source key and path like main.user.profile.full_name'
     )
     default_value = models.CharField(max_length=500, blank=True)
     format_string = models.CharField(
@@ -300,6 +572,14 @@ class PDFTemplateVariable(models.Model):
         blank=True,
         help_text='Python format string like %Y-%m-%d for dates'
     )
+
+    # Processing
+    transform_function = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text='Function to transform the value'
+    )
+
     is_required = models.BooleanField(default=False)
 
     class Meta:
@@ -323,6 +603,13 @@ class PDFGenerationLog(models.Model):
         on_delete=models.SET_NULL,
         null=True
     )
+    generated_for = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pdfs_generated_for'
+    )
 
     # Context Information
     content_type = models.ForeignKey(
@@ -335,9 +622,13 @@ class PDFGenerationLog(models.Model):
     content_object = GenericForeignKey('content_type', 'object_id')
 
     # Generation Details
+    parameters = models.JSONField(
+        default=dict,
+        help_text='Parameters used for generation'
+    )
     context_data = models.JSONField(
         default=dict,
-        help_text='Data used for generation'
+        help_text='Full context data used for generation'
     )
     file_name = models.CharField(max_length=255)
     file_path = models.CharField(max_length=500, blank=True)
@@ -371,6 +662,10 @@ class PDFGenerationLog(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['generated_by', 'created_at']),
+            models.Index(fields=['template', 'status']),
+        ]
 
     def __str__(self):
         return f"{self.template.name} - {self.created_at} - {self.status}"
