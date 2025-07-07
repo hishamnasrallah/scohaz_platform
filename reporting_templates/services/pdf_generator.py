@@ -26,7 +26,7 @@ from reportlab.lib.utils import ImageReader
 import arabic_reshaper
 from bidi.algorithm import get_display
 
-from ..models import PDFTemplate, PDFTemplateElement, PDFGenerationLog
+from ..models import PDFTemplate, PDFTemplateElement, PDFGenerationLog, PDFTemplateVariable
 
 
 class PDFGenerator:
@@ -627,6 +627,167 @@ class PDFGenerator:
             print(f"Error logging PDF generation: {e}")
 
 
+    def _draw_dynamic_image(self, element: PDFTemplateElement, context_data: Dict[str, Any]):
+        """Draw dynamic image from data source"""
+        import os
+        import requests
+        from io import BytesIO
+        from PIL import Image as PILImage
+
+        try:
+            # Get image path/URL from context using data source path
+            image_source = self._get_value_from_path(element.data_source, context_data)
+
+            if not image_source:
+                print(f"Warning: No image found at path {element.data_source}")
+                return
+
+            # Calculate position
+            x, y = self.calculate_position(
+                element.x_position,
+                element.y_position,
+                element.width or 100
+            )
+
+            width = element.width or 100
+            height = element.height or 100
+
+            # Handle different image source types
+            if isinstance(image_source, str):
+                if image_source.startswith('http'):
+                    # Download image from URL
+                    try:
+                        response = requests.get(image_source, timeout=10)
+                        response.raise_for_status()
+                        image_data = BytesIO(response.content)
+
+                        # Draw image from bytes
+                        self.canvas.drawImage(
+                            ImageReader(image_data),
+                            x, y - height,
+                            width=width,
+                            height=height,
+                            preserveAspectRatio=element.maintain_aspect_ratio
+                        )
+                    except Exception as e:
+                        print(f"Error downloading image from {image_source}: {e}")
+                        # Optionally draw placeholder
+                        self._draw_placeholder_image(x, y, width, height)
+
+                elif image_source.startswith('/'):
+                    # Absolute file path
+                    if os.path.exists(image_source):
+                        self.canvas.drawImage(
+                            image_source,
+                            x, y - height,
+                            width=width,
+                            height=height,
+                            preserveAspectRatio=element.maintain_aspect_ratio
+                        )
+                    else:
+                        print(f"Image file not found: {image_source}")
+                        self._draw_placeholder_image(x, y, width, height)
+
+                else:
+                    # Relative path - prepend media root
+                    from django.conf import settings
+                    full_path = os.path.join(settings.MEDIA_ROOT, image_source)
+
+                    if os.path.exists(full_path):
+                        self.canvas.drawImage(
+                            full_path,
+                            x, y - height,
+                            width=width,
+                            height=height,
+                            preserveAspectRatio=element.maintain_aspect_ratio
+                        )
+                    else:
+                        print(f"Image file not found: {full_path}")
+                        self._draw_placeholder_image(x, y, width, height)
+
+            elif hasattr(image_source, 'read'):
+                # File-like object
+                self.canvas.drawImage(
+                    ImageReader(image_source),
+                    x, y - height,
+                    width=width,
+                    height=height,
+                    preserveAspectRatio=element.maintain_aspect_ratio
+                )
+            else:
+                print(f"Unknown image source type: {type(image_source)}")
+                self._draw_placeholder_image(x, y, width, height)
+
+        except Exception as e:
+            print(f"Error drawing dynamic image: {e}")
+            # Draw placeholder on error
+            self._draw_placeholder_image(
+                element.x_position,
+                element.y_position,
+                element.width or 100,
+                element.height or 100
+            )
+
+    def _draw_placeholder_image(self, x: float, y: float, width: float, height: float):
+        """Draw a placeholder rectangle when image is not available"""
+        # Save current state
+        self.canvas.saveState()
+
+        # Draw placeholder rectangle
+        self.canvas.setStrokeColor(HexColor('#cccccc'))
+        self.canvas.setFillColor(HexColor('#f0f0f0'))
+        self.canvas.rect(x, y - height, width, height, fill=1, stroke=1)
+
+        # Draw diagonal lines
+        self.canvas.setStrokeColor(HexColor('#cccccc'))
+        self.canvas.line(x, y - height, x + width, y)
+        self.canvas.line(x, y, x + width, y - height)
+
+        # Add text
+        self.canvas.setFillColor(HexColor('#666666'))
+        self.canvas.setFont('Helvetica', 10)
+        self.canvas.drawCentredString(
+            x + width/2,
+            y - height/2 - 5,
+            "Image Not Available"
+        )
+
+        # Restore state
+        self.canvas.restoreState()
+
+    def _draw_circle(self, element: PDFTemplateElement, context_data: Dict[str, Any]):
+        """Draw a circle"""
+        # Calculate center position
+        center_x = element.x_position + (element.width or 50) / 2
+        center_y = element.y_position + (element.height or 50) / 2
+
+        # Calculate radius (use smaller of width/height for perfect circle)
+        radius = min(element.width or 50, element.height or 50) / 2
+
+        # Adjust for RTL if needed
+        if self.is_rtl:
+            center_x = self.page_width - center_x
+
+        # Adjust Y for ReportLab coordinate system
+        center_y = self.page_height - center_y
+
+        # Set colors
+        if element.fill_color:
+            self.canvas.setFillColor(HexColor(element.fill_color))
+        if element.stroke_color:
+            self.canvas.setStrokeColor(HexColor(element.stroke_color))
+
+        # Set stroke width
+        self.canvas.setLineWidth(element.stroke_width)
+
+        # Draw circle
+        self.canvas.circle(
+            center_x,
+            center_y,
+            radius,
+            stroke=1 if element.stroke_color else 0,
+            fill=1 if element.fill_color else 0
+        )
 class PDFTemplateService:
     """Service class for PDF template operations"""
 

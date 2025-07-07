@@ -1,10 +1,13 @@
 # reporting_templates/apis/views.py
+from typing import Dict, Any
 
 from django.http import HttpResponse, FileResponse
 from django.shortcuts import get_object_or_404
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth import get_user_model
 from django.db.models import Q, Prefetch
+from reportlab.lib.colors import HexColor
+from reportlab.lib.utils import ImageReader
 from rest_framework import viewsets, status, views
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -522,6 +525,9 @@ class GeneratePDFView(APIView):
 
     def _sanitize_context_data(self, context_data):
         """Remove sensitive data from context before storing"""
+        from datetime import date, datetime
+        from decimal import Decimal
+
         sanitized = {}
 
         for key, value in context_data.items():
@@ -544,11 +550,46 @@ class GeneratePDFView(APIView):
                     'type': 'queryset',
                     'count': value.count()
                 }
+            # Add these new conditions
+            elif isinstance(value, datetime):
+                sanitized[key] = value.isoformat()
+            elif isinstance(value, date):
+                sanitized[key] = value.isoformat()
+            elif isinstance(value, Decimal):
+                sanitized[key] = float(value)
+            elif isinstance(value, (list, tuple)):
+                # Recursively sanitize lists
+                sanitized[key] = [
+                    self._sanitize_single_value(item) for item in value
+                ]
+            elif isinstance(value, dict):
+                # Recursively sanitize dictionaries
+                sanitized[key] = {
+                    k: self._sanitize_single_value(v)
+                    for k, v in value.items()
+                }
             else:
                 sanitized[key] = value
 
         return sanitized
 
+    def _sanitize_single_value(self, value):
+        """Helper method to sanitize individual values"""
+        from datetime import date, datetime
+        from decimal import Decimal
+
+        if isinstance(value, datetime):
+            return value.isoformat()
+        elif isinstance(value, date):
+            return value.isoformat()
+        elif isinstance(value, Decimal):
+            return float(value)
+        elif hasattr(value, '_meta'):
+            return {
+                'model': value._meta.label,
+                'pk': value.pk
+            }
+        return value
 
 class MyTemplatesView(APIView):
     """Get templates available to current user"""
