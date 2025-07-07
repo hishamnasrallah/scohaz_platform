@@ -47,13 +47,12 @@ INSTALLED_APPS += [
     "celery",
     "django_celery_beat",
     "django_celery_results",
-    "django_filters"
+    "django_filters",
 
 
 ]
 
 CUSTOM_APPS = [
-    'employee_app',
     'ab_app',
 
 ]
@@ -70,7 +69,8 @@ INSTALLED_APPS += CUSTOM_APPS + [
     "license_subscription_manager",
     "app_builder",
     "version_control",
-    "reporting"
+    "reporting",
+    "reporting_templates"
     # "lowcode",
 ]
 
@@ -92,16 +92,12 @@ INSTALLED_APPS += CUSTOM_APPS + [
 #     ],
 # }
 APPS_CURRENT_USER_MIDDLEWARE = [
-    'employee_app.middleware.CurrentUserMiddleware',
     'ab_app.middleware.CurrentUserMiddleware',
     'reporting.middleware.CurrentUserMiddleware',
     #// TODO: add other modules
 ]
 
 APP_MIDDLEWARE_MAPPING = {
-    'employee_app': [
-        'employee_app.middleware.DynamicModelMiddleware',
-    ],
     'ab_app': [
         'ab_app.middleware.DynamicModelMiddleware',
     ],
