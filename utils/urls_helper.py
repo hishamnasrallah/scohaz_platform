@@ -506,6 +506,7 @@ def get_categorized_urls(application_name=None, user=None):  # <-- ADDED: user p
                     "custom-action",
                     "validation-rules",
                     "integration-configs",
+                    "reports"
                 }
 
                 EXCLUDED_PATTERNS = {

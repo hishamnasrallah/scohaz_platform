@@ -342,18 +342,18 @@ REPORTING_TEMPLATES = {
 }
 
 # Add reporting permissions to default groups (optional)
-DEFAULT_GROUP_PERMISSIONS = {
-    'Managers': [
-        'reporting_templates.can_design_template',
-        'reporting_templates.can_generate_pdf',
-        'reporting_templates.can_generate_others_pdf',
-    ],
-    'emp1': [
-        'reporting_templates.can_generate_pdf',
-        'reporting_templates.can_generate_pdf',
-        'reporting_templates.can_generate_others_pdf',
-    ],
-    'Users': [
-        'reporting_templates.can_generate_pdf',
-    ],
-}
+# DEFAULT_GROUP_PERMISSIONS = {
+#     'managers': [
+#         'reporting_templates.can_design_template',
+#         'reporting_templates.can_generate_pdf',
+#         'reporting_templates.can_generate_others_pdf',
+#     ],
+#     'emp1': [
+#         'reporting_templates.can_generate_pdf',
+#         'reporting_templates.can_generate_pdf',
+#         'reporting_templates.can_generate_others_pdf',
+#     ],
+#     'Users': [
+#         'reporting_templates.can_generate_pdf',
+#     ],
+# }

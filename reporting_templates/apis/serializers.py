@@ -284,7 +284,6 @@ class PDFTemplateSerializer(serializers.ModelSerializer):
 
 
 class PDFTemplateCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating/updating templates"""
     elements = PDFTemplateElementSerializer(many=True, required=False)
     variables = PDFTemplateVariableSerializer(many=True, required=False)
     parameters = PDFTemplateParameterSerializer(many=True, required=False)
@@ -311,12 +310,19 @@ class PDFTemplateCreateSerializer(serializers.ModelSerializer):
         parameters_data = validated_data.pop('parameters', [])
         data_sources_data = validated_data.pop('data_sources', [])
 
+        # Pop ManyToMany fields
+        groups_data = validated_data.pop('groups', [])
+
         # Set created_by from context
         validated_data['created_by'] = self.context['request'].user
 
         with transaction.atomic():
-            # Create template
+            # Create template without ManyToMany fields
             template = PDFTemplate.objects.create(**validated_data)
+
+            # Now set the ManyToMany relationships
+            if groups_data:
+                template.groups.set(groups_data)
 
             # Create related objects
             self._create_parameters(template, parameters_data)
@@ -332,11 +338,18 @@ class PDFTemplateCreateSerializer(serializers.ModelSerializer):
         parameters_data = validated_data.pop('parameters', None)
         data_sources_data = validated_data.pop('data_sources', None)
 
+        # Pop ManyToMany fields
+        groups_data = validated_data.pop('groups', None)
+
         with transaction.atomic():
-            # Update template
+            # Update template fields
             for attr, value in validated_data.items():
                 setattr(instance, attr, value)
             instance.save()
+
+            # Update ManyToMany relationships if provided
+            if groups_data is not None:
+                instance.groups.set(groups_data)
 
             # Update related objects if provided
             if parameters_data is not None:
@@ -360,7 +373,11 @@ class PDFTemplateCreateSerializer(serializers.ModelSerializer):
     def _create_parameters(self, template, parameters_data):
         """Create template parameters"""
         for param_data in parameters_data:
-            PDFTemplateParameter.objects.create(template=template, **param_data)
+            # Handle any nested ManyToMany fields in parameters
+            restricted_groups = param_data.pop('restricted_to_groups', [])
+            param = PDFTemplateParameter.objects.create(template=template, **param_data)
+            if restricted_groups:
+                param.restricted_to_groups.set(restricted_groups)
 
     def _create_data_sources(self, template, data_sources_data):
         """Create data sources"""
@@ -385,7 +402,6 @@ class PDFTemplateCreateSerializer(serializers.ModelSerializer):
             # Create child elements if any
             if child_elements_data:
                 self._create_elements(template, child_elements_data, element)
-
 
 class PDFGenerationLogSerializer(serializers.ModelSerializer):
     """Serializer for generation logs"""

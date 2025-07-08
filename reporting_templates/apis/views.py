@@ -691,7 +691,6 @@ class ContentTypeListView(APIView):
         serializer = ContentTypeSerializer(content_types, many=True)
         return Response(serializer.data)
 
-
 class TemplateDesignerDataView(APIView):
     """Provide data needed for template designer"""
     permission_classes = [IsAuthenticated]
