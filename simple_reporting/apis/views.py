@@ -1,5 +1,5 @@
 # reporting_templates/views.py - WITH FULL CRUD
-
+from django.contrib.contenttypes.models import ContentType
 from django.http import HttpResponse
 from rest_framework import generics, views, status
 from rest_framework.response import Response
@@ -204,3 +204,55 @@ class GeneratePDFView(views.APIView):
         response['Content-Disposition'] = f'attachment; filename="{template.code}.pdf"'
 
         return response
+
+
+class ContentTypeListView(views.APIView):
+    """List available content types for template creation"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # You can filter content types to only show specific models
+        # For example, exclude Django's built-in models
+        excluded_apps = ['admin', 'auth', 'contenttypes', 'sessions']
+
+        content_types = ContentType.objects.exclude(
+            app_label__in=excluded_apps
+        ).order_by('app_label', 'model')
+
+        serializer = ContentTypeSerializer(content_types, many=True)
+        return Response(serializer.data)
+
+# Add this URL pattern to your main urls.py or simple_reporting/urls.py:
+# path('api/content-types/', ContentTypeListView.as_view(), name='content-types'),
+
+# Optional: If you want to provide model fields for query building
+class ContentTypeFieldsView(views.APIView):
+    """Get fields for a specific content type"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        try:
+            content_type = ContentType.objects.get(pk=pk)
+            model_class = content_type.model_class()
+
+            if not model_class:
+                return Response({'error': 'Model class not found'}, status=404)
+
+            fields = []
+            for field in model_class._meta.get_fields():
+                fields.append({
+                    'name': field.name,
+                    'verbose_name': getattr(field, 'verbose_name', field.name),
+                    'type': field.__class__.__name__,
+                    'is_relation': field.is_relation,
+                    'related_model': field.related_model.__name__ if field.is_relation else None
+                })
+
+            return Response({
+                'model': content_type.model,
+                'app_label': content_type.app_label,
+                'fields': fields
+            })
+
+        except ContentType.DoesNotExist:
+            return Response({'error': 'Content type not found'}, status=404)
