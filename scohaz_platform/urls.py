@@ -48,6 +48,7 @@ urlpatterns = [
     path('authentication/', include("authentication.urls")),
     # path('reports/', include("reporting.urls")),
     path('reports/', include("reporting_templates.urls")),
+    path('simple_reports/', include("simple_reporting.urls")),
     path('app_builder/', include("app_builder.urls")),
     path('lookups/', include("lookup.urls")),
     path('case/', include("case.urls")),

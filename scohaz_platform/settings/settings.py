@@ -70,7 +70,8 @@ INSTALLED_APPS += CUSTOM_APPS + [
     "app_builder",
     "version_control",
     "reporting",
-    "reporting_templates"
+    "reporting_templates",
+    "simple_reporting"
     # "lowcode",
 ]
 
