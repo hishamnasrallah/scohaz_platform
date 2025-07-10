@@ -1,5 +1,6 @@
 import json
 
+from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, views, generics
@@ -385,6 +386,65 @@ class EmployeeCasesView(APIView):
         case_data = CaseSerializer(case).data
         case_data["available_actions"] = []
         case_data["approval_info"] = None
+        case_data["approval_history"] = []  # Add approval history
+
+        # Get all historical approvals for this case
+        historical_approvals = ApprovalRecord.objects.filter(
+            case=case
+        ).select_related('approved_by', 'approval_step', 'action_taken').order_by('-approved_at')
+
+        # Group historical approvals by approval step
+        approval_history_by_step = {}
+        for record in historical_approvals:
+            step_id = record.approval_step.id
+            if step_id not in approval_history_by_step:
+                approval_history_by_step[step_id] = {
+                    'approval_step': {
+                        'id': record.approval_step.id,
+                        'status': record.approval_step.status.name if record.approval_step.status else None,
+                        'group': record.approval_step.group.name if record.approval_step.group else None,
+                        'step_type': record.approval_step.get_step_type_display() if record.approval_step.step_type else None,
+                    },
+                    'approvals': []
+                }
+
+            approval_history_by_step[step_id]['approvals'].append({
+                'approved_by': record.approved_by.get_full_name() or record.approved_by.username,
+                'approved_at': record.approved_at,
+                'action_taken': record.action_taken.name if record.action_taken else 'Unknown',
+                'department': None  # Will be filled below
+            })
+
+        # Convert to list and add department info
+        for step_data in approval_history_by_step.values():
+            # Determine if this was a parallel approval step
+            step_id = step_data['approval_step']['id']
+            try:
+                step_obj = ApprovalStep.objects.get(id=step_id)
+                parallel_groups = step_obj.parallel_approval_groups.all()
+
+                if parallel_groups.exists():
+                    step_data['approval_step']['type'] = 'parallel'
+                    step_data['approval_step']['required_approvals'] = step_obj.required_approvals
+
+                    # Add department info to each approval
+                    for approval in step_data['approvals']:
+                        user_obj = get_user_model().objects.filter(
+                            username=approval['approved_by'].split(' ')[0]  # Rough match
+                        ).first()
+
+                        if user_obj:
+                            user_groups_ids = user_obj.groups.values_list('id', flat=True)
+                            for pg in parallel_groups:
+                                if pg.group.id in user_groups_ids:
+                                    approval['department'] = pg.group.name
+                                    break
+                else:
+                    step_data['approval_step']['type'] = 'sequential'
+            except ApprovalStep.DoesNotExist:
+                step_data['approval_step']['type'] = 'unknown'
+
+            case_data["approval_history"].append(step_data)
 
         approval_step = getattr(case, "current_approval_step", None)
         if not approval_step:
@@ -393,7 +453,7 @@ class EmployeeCasesView(APIView):
         # Check if this is a parallel approval step
         parallel_groups = approval_step.parallel_approval_groups.all()
         if parallel_groups.exists() and approval_step.required_approvals:
-            # Get approval progress
+            # Get approval progress for current step
             approval_records = ApprovalRecord.objects.filter(
                 case=case,
                 approval_step=approval_step
