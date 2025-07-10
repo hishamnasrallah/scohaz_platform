@@ -149,6 +149,8 @@ class Case(models.Model):
         return f"Case #{self.serial_number}"
 
 
+# In case/models.py
+
 class ApprovalRecord(models.Model):
     case = models.ForeignKey(
         Case,
@@ -168,14 +170,25 @@ class ApprovalRecord(models.Model):
         related_name='approval_records',
         help_text=_("The approval step associated with this approval record.")
     )
+    action_taken = models.ForeignKey(
+        to="conditional_approval.Action",
+        on_delete=models.CASCADE,
+        related_name='approval_action_records',
+        help_text=_("The action taken (Approve, Reject, etc.)"),
+        null=True  # Make nullable for existing records
+    )
     approved_at = models.DateTimeField(
         auto_now_add=True,
         help_text=_("The timestamp when the approval was made.")
     )
 
     def __str__(self):
-        return f"Approval by {self.approved_by} for {self.case} at step {self.approval_step}"
+        action_name = self.action_taken.name if self.action_taken else "Unknown"
+        return f"{action_name} by {self.approved_by} for {self.case} at step {self.approval_step}"
 
+    class Meta:
+        # Prevent same user from taking multiple actions on same step
+        unique_together = ['case', 'approval_step', 'approved_by']
 
 
 class CaseMapper(models.Model):

@@ -92,13 +92,13 @@ class CaseAdmin(admin.ModelAdmin):
 
 @admin.register(ApprovalRecord)
 class ApprovalRecordAdmin(admin.ModelAdmin):
-    list_display = ('case', 'approval_step', 'approved_by', 'approved_at')
+    list_display = ('case', 'approval_step', 'action_taken',  'approved_by', 'approved_at')
     list_filter = ('approval_step__service_type', 'approved_by')
     search_fields = ('case__id', 'approval_step__service_type__name', 'approved_by__username')
     readonly_fields = ('approved_at',)
     fieldsets = (
         ('Approval Details', {
-            'fields': ('case', 'approval_step', 'approved_by')
+            'fields': ('case', 'approval_step', 'action_taken', 'approved_by')
         }),
         ('Timestamp', {
             'fields': ('approved_at',)
