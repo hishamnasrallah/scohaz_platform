@@ -89,7 +89,7 @@ class DynamicFlowHelper:
             service__code__in=self.query["service__in"],
             active_ind=True
         ).select_related("service").only(
-            "id", "name", "sequence_number","applicant_type", "description", "service__code"
+            "id", "name", "sequence_number", 'is_review_page', "applicant_type", "description", "service__code"
         ).prefetch_related(
             Prefetch('category_set', queryset=Category.objects.filter(active_ind=True))
         )
@@ -124,6 +124,7 @@ class DynamicFlowHelper:
             "display_name_ara": field._field_display_name_ara,
             "field_type": field_type,
             "mandatory": field._mandatory,
+            "sequence": field._sequence,
             "lookup": field._lookup.id if field._lookup else None,
             "allowed_lookups": [
                 {"name": l.name, "id": l.id, "code": l.code, "icon": l.icon}
@@ -214,6 +215,7 @@ class DynamicFlowHelper:
             # "service": page.service.id,
             "description": page.description,
             "description_ara": page.description_ara,
+            "is_review_page": page.is_review_page,
             "is_hidden_page": not page.active_ind,
             "page_id": page.id,
             "categories": [self.format_category(c, fields) for c in page.category_set.all()],

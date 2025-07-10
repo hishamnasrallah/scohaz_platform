@@ -132,6 +132,7 @@ class PageViewSet(viewsets.ModelViewSet):
             service=original_page.service,
             sequence_number=original_page.sequence_number,
             applicant_type=original_page.applicant_type,
+            is_review_page=original_page.is_review_page,
             name=new_name,
             name_ara=request.data.get('name_ara', f"{original_page.name_ara} (نسخة)"),
             description=original_page.description,

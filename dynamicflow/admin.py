@@ -54,14 +54,14 @@ class WorkflowConnectionAdmin(admin.ModelAdmin):
 class PageAdmin(admin.ModelAdmin):
     ordering = ['sequence_number__code']
     list_display = ('sequence_number_code', 'service_name', 'applicant_type_name',
-                    'name', 'name_ara', 'workflow', 'active_ind')
+                    'name', 'name_ara', 'is_review_page', 'workflow', 'active_ind')
     list_filter = ('active_ind', 'workflow', 'service', 'applicant_type')
     search_fields = ('name', 'name_ara', 'description')
     raw_id_fields = ('service', 'sequence_number', 'applicant_type', 'workflow')
     fieldsets = (
         (_('Basic Information'), {
             'fields': (
-                ('service', 'workflow'),
+                ('service', 'workflow', 'is_review_page'),
                 ('sequence_number', 'applicant_type'),
                 ('name', 'name_ara'),
                 ('description', 'description_ara')

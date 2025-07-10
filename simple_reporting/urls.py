@@ -8,7 +8,7 @@ from simple_reporting.apis.views import (
     PDFElementDetailView,
     PDFTemplateBulkCreateView,
     PDFTemplateDuplicateView,
-    GeneratePDFView
+    GeneratePDFView, ContentTypeListView
 )
 
 urlpatterns = [
@@ -27,5 +27,9 @@ urlpatterns = [
 
     # PDF Generation
     path('generate/', GeneratePDFView.as_view(), name='pdf-generate'),
+
+    # Content Types
+    path('content-types/', ContentTypeListView.as_view(), name='pdf-generate'),
+
 
 ]

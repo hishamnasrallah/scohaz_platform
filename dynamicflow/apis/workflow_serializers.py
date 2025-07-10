@@ -29,7 +29,7 @@ class WorkflowPageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Page
         fields = [
-            'id', 'name', 'name_ara', 'description', 'description_ara',
+            'id', 'name', 'name_ara', 'is_review_page', 'description', 'description_ara',
             'service', 'service_id', 'service_name', 'service_code',
             'sequence_number', 'sequence_number_id', 'sequence_number_name', 'sequence_number_code',
             'applicant_type', 'applicant_type_id', 'applicant_type_name', 'applicant_type_code',

@@ -9,7 +9,7 @@ from simple_reporting.models import PDFTemplate, PDFElement
 from .serializers import (
     PDFTemplateSerializer,
     GeneratePDFSerializer,
-    PDFElementSerializer
+    PDFElementSerializer, ContentTypeSerializer
 )
 from simple_reporting.services import DataService, PDFGenerator
 

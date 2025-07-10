@@ -142,7 +142,7 @@ class MiddlewareRouter:
     def __call__(self, request):
         print("call ###############")
         response = self.get_response(request)
-        print("response ###############", response)
+        # print("response ###############", response)
         print("call ###############")
 
         resolver_match = resolve(request.path_info)

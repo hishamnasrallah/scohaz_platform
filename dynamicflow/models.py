@@ -109,6 +109,7 @@ class Page(models.Model):
     name_ara = models.CharField(max_length=50, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     description_ara = models.TextField(null=True, blank=True)
+    is_review_page = models.BooleanField(default=False)
     position_x = models.FloatField(default=0)
     position_y = models.FloatField(default=0)
     is_expanded = models.BooleanField(default=False)

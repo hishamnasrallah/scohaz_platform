@@ -24,7 +24,7 @@ class PageListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Page
         fields = [
-            'id', 'name', 'name_ara', 'description', 'description_ara',
+            'id', 'name', 'name_ara', 'description', 'is_review_page', 'description_ara',
             'service_name', 'sequence_number_name', 'applicant_type_name',
             'active_ind'
         ]
@@ -247,7 +247,7 @@ class PageWithFieldsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Page
         fields = [
-            'id', 'name', 'name_ara', 'description', 'description_ara',
+            'id', 'name', 'name_ara', 'is_review_page', 'description', 'description_ara',
             'categories', 'all_fields'
         ]
 

@@ -385,6 +385,7 @@ class FormDataProcessor:
                     'id': page.id,
                     'name': page.name,
                     'name_ara': page.name_ara,
+                    'is_review_page': page.is_review_page,
                     'description': page.description,
                     'description_ara': page.description_ara
                 },

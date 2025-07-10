@@ -176,6 +176,7 @@ class FormExportAPIView(views.APIView):
                 'page': {
                     'name': page.name,
                     'name_ara': page.name_ara,
+                    'is_review_page':page.is_review_page,
                     'description': page.description,
                     'description_ara': page.description_ara,
                     'service': page.service.name if page.service else None,
