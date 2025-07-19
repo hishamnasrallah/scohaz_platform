@@ -10,7 +10,8 @@ import os
 from icecream import ic
 from rest_framework.generics import get_object_or_404
 
-from case.models import Case, MapperExecutionLog, MapperFieldRule, MapperTarget, CaseMapper
+from case.models import Case, MapperExecutionLog, MapperFieldRule, MapperTarget, CaseMapper, ApprovalRecord
+from conditional_approval.apis.serializers import NoteSerializer
 from conditional_approval.models import ApprovalStep, Action
 from dynamicflow.utils.dynamicflow_helper import DynamicFlowHelper
 from dynamicflow.utils.dynamicflow_validator_helper import DynamicFlowValidator
@@ -52,6 +53,7 @@ class CaseSerializer(serializers.ModelSerializer):
                                        write_only=True, required=False)
     # This will handle JSON data properly
     case_data = serializers.JSONField(required=False)
+    notes = NoteSerializer(many=True, read_only=True)
 
     class Meta:
         model = Case
@@ -394,7 +396,21 @@ class CaseSerializer(serializers.ModelSerializer):
             f", files: {case_data.get('uploaded_files', [])}")
         return instance
 
+class ApprovalRecordSerializer(serializers.ModelSerializer):
+    action_notes = NoteSerializer(many=True, read_only=True)
 
+    class Meta:
+        model = ApprovalRecord
+        fields = [
+            'id',
+            'case',
+            'approval_step',
+            'action_taken',
+            'approved_by',
+            'approved_at',
+            'action_notes'
+        ]
+        read_only_fields = ['id', 'approved_at']
 
 class MapperExecutionLogSerializer(serializers.ModelSerializer):
     class Meta:

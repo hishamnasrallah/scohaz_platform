@@ -15,6 +15,10 @@ class Action(models.Model):
         limit_choices_to={"parent_lookup__name": "Service"},
         verbose_name=_("Services"),
     )
+    notes_mandatory = models.BooleanField(
+        default=False,
+        help_text=_("If true, a note is required when this action is taken.")
+    )
     code = models.CharField(max_length=20, null=True, blank=True)
     active_ind = models.BooleanField(default=True, null=True, blank=True)
 

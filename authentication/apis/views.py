@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework.decorators import action
 from rest_framework.generics import GenericAPIView, RetrieveUpdateAPIView
 
-from ab_app.crud.managers import user_can
+# from ab_app.crud.managers import user_can
 from authentication.models import CustomUser, UserPreference, PhoneNumber, CRUDPermission, UserType
 from django.utils.http import (urlsafe_base64_encode,
                                urlsafe_base64_decode)

@@ -149,7 +149,67 @@ class Case(models.Model):
         return f"Case #{self.serial_number}"
 
 
-# In case/models.py
+class Note(models.Model):
+    case = models.ForeignKey(
+        'Case',
+        on_delete=models.CASCADE,
+        related_name='notes',
+        help_text=_("The case this note is associated with.")
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='authored_notes',
+        help_text=_("The user who created this note.")
+    )
+    content = models.TextField(
+        help_text=_("The content of the note.")
+    )
+    related_approval_record = models.ForeignKey(
+        'ApprovalRecord',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='action_notes',
+        help_text=_("Optional: The specific approval record this note is linked to.")
+    )
+
+    # Audit fields
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text=_("The date and time the note was created.")
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text=_("The date and time the note was last updated.")
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='notes_created',
+        help_text=_("The user who initially created this note.")
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='notes_updated',
+        help_text=_("The user who last updated this note.")
+    )
+
+    class Meta:
+        ordering = ['-created_at']  # Most recent first
+        verbose_name = _("Note")
+        verbose_name_plural = _("Notes")
+
+    def __str__(self):
+        return f"Note by {self.author.username if self.author else 'N/A'} on {self.case.serial_number} at {self.created_at.strftime('%Y-%m-%d %H:%M')}"
+
 
 class ApprovalRecord(models.Model):
     case = models.ForeignKey(

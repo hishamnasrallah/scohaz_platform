@@ -1,14 +1,15 @@
 import json
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status, views, generics
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.views import APIView
-from case.models import Case, ApprovalRecord, MapperTarget, MapperExecutionLog, CaseMapper, MapperFieldRule
-from conditional_approval.apis.serializers import ActionBasicSerializer
+from case.models import Case, ApprovalRecord, MapperTarget, MapperExecutionLog, CaseMapper, MapperFieldRule, Note
+from conditional_approval.apis.serializers import ActionBasicSerializer, NoteSerializer
 from conditional_approval.models import Action, ApprovalStep, ActionStep, ParallelApprovalGroup
 from dynamicflow.utils.dynamicflow_validator_helper import DynamicFlowValidator
 from lookup.models import Lookup
@@ -626,21 +627,28 @@ class AssignCaseView(APIView):
                 {"error": "You are not authorized to assign this case."},
                 status=status.HTTP_403_FORBIDDEN)
 
-
 class ApprovalFlowActionCaseView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def post(self, request, pk):
-        action_id = request.query_params.get('action_id')
+    def post(self, request, pk, *args, **kwargs): # Modified method signature
+        case_obj = get_object_or_404(Case, id=pk)
+        action_id = request.query_params.get('action_id') # Get action_id from request.data
+        notes_content = request.data.get('notes_content', '').strip() # Get notes_content from request.data
 
         if not action_id:
             return Response(
-                {"error": "action_id is required."},
+                {"detail": "Action ID is required."}, # Changed 'error' to 'detail' for consistency
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Get action object
         action_obj = get_object_or_404(Action, id=action_id)
+
+        # --- Notes Mandatory Validation ---
+        if action_obj.notes_mandatory and not notes_content:
+            return Response(
+                {"detail": f"Notes are mandatory for the '{action_obj.name}' action."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Verify the user has access to this action
         if not action_obj.groups.filter(
@@ -651,8 +659,6 @@ class ApprovalFlowActionCaseView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # Retrieve the case instance
-        case_obj = get_object_or_404(Case, id=pk)
         approval_step = case_obj.current_approval_step
         user_groups = request.user.groups.all()
 
@@ -711,141 +717,190 @@ class ApprovalFlowActionCaseView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # SCENARIO 1: Priority Approver - Immediate action
-        if is_priority_approver:
-            # Record the action
-            ApprovalRecord.objects.create(
-                case=case_obj,
-                approval_step=approval_step,
-                approved_by=request.user,
-                action_taken=action_obj  # Track which action was taken
-            )
-
-            # Update case immediately
-            self.update_case(case_obj, action_step)
-
-            # Handle auto-approval if next step is AUTO
-            self.handle_auto_approval(case_obj)
-
-            return Response({
-                "message": f"Case updated via priority approver with action: {action_obj.name}",
-                "new_status": case_obj.status.name
-            }, status=status.HTTP_200_OK)
-
-        # SCENARIO 2 & 3: Parallel Approval
-        parallel_groups = approval_step.parallel_approval_groups.all()
-        if parallel_groups.exists() and approval_step.required_approvals:
-            # Record the action
-            ApprovalRecord.objects.create(
-                case=case_obj,
-                approval_step=approval_step,
-                approved_by=request.user,
-                action_taken=action_obj
-            )
-
-            # Analyze all actions taken
-            approval_records = ApprovalRecord.objects.filter(
-                case=case_obj,
-                approval_step=approval_step
-            ).select_related('approved_by', 'action_taken')
-
-            # Group by action type
-            action_counts = {}
-            action_groups = {}  # Track which groups took which actions
-
-            for record in approval_records:
-                action_name = record.action_taken.name
-                if action_name not in action_counts:
-                    action_counts[action_name] = 0
-                    action_groups[action_name] = set()
-
-                # Find which group this user represents
-                user_group_ids = record.approved_by.groups.values_list('id', flat=True)
-                for pg in parallel_groups:
-                    if pg.group.id in user_group_ids:
-                        action_groups[action_name].add(pg.group.id)
-                        break
-                else:
-                    # Check primary group
-                    if case_obj.assigned_group and case_obj.assigned_group.id in user_group_ids:
-                        action_groups[action_name].add(case_obj.assigned_group.id)
-
-            # Count unique groups per action
-            for action_name in action_groups:
-                action_counts[action_name] = len(action_groups[action_name])
-
-            # Determine if we've reached a decision
-            total_unique_groups = sum(len(groups) for groups in action_groups.values())
-
-            # Check if any action has reached the required threshold
-            decision_made = False
-            winning_action = None
-
-            for action_name, count in action_counts.items():
-                if count >= approval_step.required_approvals:
-                    decision_made = True
-                    winning_action = action_name
-                    break
-
-            # If no single action has enough approvals but all groups have acted
-            if not decision_made and total_unique_groups >= approval_step.required_approvals:
-                # Find the action with most approvals (majority)
-                winning_action = max(action_counts.items(), key=lambda x: x[1])[0]
-                decision_made = True
-
-            if decision_made:
-                # Find the ActionStep for the winning action
-                winning_action_obj = Action.objects.get(name=winning_action)
-                winning_action_step = ActionStep.objects.filter(
+        with transaction.atomic(): # Ensure atomic operations for all scenarios
+            note_created = False
+            # SCENARIO 1: Priority Approver - Immediate action
+            if is_priority_approver:
+                # Record the action
+                approval_record = ApprovalRecord.objects.create(
+                    case=case_obj,
                     approval_step=approval_step,
-                    action=winning_action_obj
-                ).first()
+                    approved_by=request.user,
+                    action_taken=action_obj  # Track which action was taken
+                )
+                # Create Note if content is provided
+                if notes_content:
+                    Note.objects.create(
+                        case=case_obj,
+                        author=request.user,
+                        content=notes_content,
+                        related_approval_record=approval_record,
+                        created_by=request.user,
+                        updated_by=request.user
+                    )
+                    note_created = True
 
-                if winning_action_step:
-                    # Update case with the winning action's routing
-                    self.update_case(case_obj, winning_action_step)
+                # Update case immediately
+                self.update_case(case_obj, action_step)
 
-                    # Handle auto-approval if next step is AUTO
-                    self.handle_auto_approval(case_obj)
+                # Handle auto-approval if next step is AUTO
+                self.handle_auto_approval(case_obj)
 
-                    return Response({
-                        "message": f"Parallel approval completed. Action '{winning_action}' prevailed.",
-                        "action_summary": action_counts,
-                        "new_status": case_obj.status.name,
-                        "total_actions": total_unique_groups,
-                        "required_actions": approval_step.required_approvals
-                    }, status=status.HTTP_200_OK)
-            else:
-                # Still waiting for more approvals
-                remaining = approval_step.required_approvals - total_unique_groups
+                message = f"Case updated via priority approver with action: {action_obj.name}"
+                if note_created:
+                    message += " and note added"
+
                 return Response({
-                    "message": f"Action recorded. Waiting for {remaining} more action(s).",
-                    "action_summary": action_counts,
-                    "total_actions": total_unique_groups,
-                    "required_actions": approval_step.required_approvals,
-                    "your_action": action_obj.name
-                }, status=status.HTTP_202_ACCEPTED)
+                    "message": message,
+                    "new_status": case_obj.status.name
+                }, status=status.HTTP_200_OK)
 
-        # SCENARIO 4: Standard (non-parallel) approval
-        else:
-            # Record the action (even for non-parallel, for audit trail)
-            ApprovalRecord.objects.create(
-                case=case_obj,
-                approval_step=approval_step,
-                approved_by=request.user,
-                action_taken=action_obj
-            )
+            # SCENARIO 2 & 3: Parallel Approval
+            parallel_groups = approval_step.parallel_approval_groups.all()
+            if parallel_groups.exists() and approval_step.required_approvals:
+                # Record the action
+                approval_record = ApprovalRecord.objects.create(
+                    case=case_obj,
+                    approval_step=approval_step,
+                    approved_by=request.user,
+                    action_taken=action_obj
+                )
+                # Create Note if content is provided
+                if notes_content:
+                    Note.objects.create(
+                        case=case_obj,
+                        author=request.user,
+                        content=notes_content,
+                        related_approval_record=approval_record,
+                        created_by=request.user,
+                        updated_by=request.user
+                    )
+                    note_created = True
 
-            # Update case immediately
-            self.update_case(case_obj, action_step)
+                # Analyze all actions taken
+                approval_records = ApprovalRecord.objects.filter(
+                    case=case_obj,
+                    approval_step=approval_step
+                ).select_related('approved_by', 'action_taken')
 
-            # Handle auto-approval if next step is AUTO
-            self.handle_auto_approval(case_obj)
+                # Group by action type
+                action_counts = {}
+                action_groups = {}  # Track which groups took which actions
 
-            return Response({
-                "message": f"Case updated successfully with action: {action_obj.name}",
-                "new_status": case_obj.status.name
-            }, status=status.HTTP_200_OK)
+                for record in approval_records:
+                    action_name = record.action_taken.name
+                    if action_name not in action_counts:
+                        action_counts[action_name] = 0
+                        action_groups[action_name] = set()
+
+                    # Find which group this user represents
+                    user_group_ids = record.approved_by.groups.values_list('id', flat=True)
+                    for pg in parallel_groups:
+                        if pg.group.id in user_group_ids:
+                            action_groups[action_name].add(pg.group.id)
+                            break
+                    else:
+                        # Check primary group
+                        if case_obj.assigned_group and case_obj.assigned_group.id in user_group_ids:
+                            action_groups[action_name].add(case_obj.assigned_group.id)
+
+                # Count unique groups per action
+                for action_name in action_groups:
+                    action_counts[action_name] = len(action_groups[action_name])
+
+                # Determine if we've reached a decision
+                total_unique_groups = sum(len(groups) for groups in action_groups.values())
+
+                # Check if any action has reached the required threshold
+                decision_made = False
+                winning_action = None
+
+                for action_name, count in action_counts.items():
+                    if count >= approval_step.required_approvals:
+                        decision_made = True
+                        winning_action = action_name
+                        break
+
+                # If no single action has enough approvals but all groups have acted
+                if not decision_made and total_unique_groups >= approval_step.required_approvals:
+                    # Find the action with most approvals (majority)
+                    winning_action = max(action_counts.items(), key=lambda x: x[1])[0]
+                    decision_made = True
+
+                if decision_made:
+                    # Find the ActionStep for the winning action
+                    winning_action_obj = Action.objects.get(name=winning_action)
+                    winning_action_step = ActionStep.objects.filter(
+                        approval_step=approval_step,
+                        action=winning_action_obj
+                    ).first()
+
+                    if winning_action_step:
+                        # Update case with the winning action's routing
+                        self.update_case(case_obj, winning_action_step)
+
+                        # Handle auto-approval if next step is AUTO
+                        self.handle_auto_approval(case_obj)
+
+                        message = f"Parallel approval completed. Action '{winning_action}' prevailed."
+                        if note_created:
+                            message += " and note added"
+
+                        return Response({
+                            "message": message,
+                            "action_summary": action_counts,
+                            "new_status": case_obj.status.name,
+                            "total_actions": total_unique_groups,
+                            "required_actions": approval_step.required_approvals
+                        }, status=status.HTTP_200_OK)
+                else:
+                    # Still waiting for more approvals
+                    message = f"Action recorded. Waiting for {approval_step.required_approvals - total_unique_groups} more action(s)."
+                    if note_created:
+                        message += " and note added"
+                    return Response({
+                        "message": message,
+                        "action_summary": action_counts,
+                        "total_actions": total_unique_groups,
+                        "required_actions": approval_step.required_approvals,
+                        "your_action": action_obj.name
+                    }, status=status.HTTP_202_ACCEPTED)
+
+            # SCENARIO 4: Standard (non-parallel) approval
+            else:
+                # Record the action (even for non-parallel, for audit trail)
+                approval_record = ApprovalRecord.objects.create(
+                    case=case_obj,
+                    approval_step=approval_step,
+                    approved_by=request.user,
+                    action_taken=action_obj
+                )
+                # Create Note if content is provided
+                if notes_content:
+                    Note.objects.create(
+                        case=case_obj,
+                        author=request.user,
+                        content=notes_content,
+                        related_approval_record=approval_record,
+                        created_by=request.user,
+                        updated_by=request.user
+                    )
+                    note_created = True
+
+                # Update case immediately
+                self.update_case(case_obj, action_step)
+
+                # Handle auto-approval if next step is AUTO
+                self.handle_auto_approval(case_obj)
+
+                message = f"Case updated successfully with action: {action_obj.name}"
+                if note_created:
+                    message += " and note added"
+
+                return Response({
+                    "message": message,
+                    "new_status": case_obj.status.name
+                }, status=status.HTTP_200_OK)
 
     def update_case(self, case_obj, action_step):
         """Update the case status and assigned group based on the action step."""
@@ -901,8 +956,194 @@ class ApprovalFlowActionCaseView(APIView):
                     case_obj.assigned_emp = None
                     case_obj.save()
 
+class NoteViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing Notes with full CRUD operations.
 
-# latest view employe actions working without pararrel approvals
+    Endpoints:
+    - GET /notes/ - List all notes (with filtering)
+    - POST /notes/ - Create a new note
+    - GET /notes/{id}/ - Retrieve a specific note
+    - PUT/PATCH /notes/{id}/ - Update a note
+    - DELETE /notes/{id}/ - Delete a note
+    - GET /notes/by_case/{case_id}/ - Get all notes for a specific case
+    """
+    serializer_class = NoteSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Filter queryset based on query parameters and user permissions.
+        """
+        queryset = Note.objects.select_related(
+            'case', 'author', 'related_approval_record', 'created_by', 'updated_by'
+        ).all()
+
+        # Filter by case if specified
+        case_id = self.request.query_params.get('case_id')
+        if case_id:
+            queryset = queryset.filter(case_id=case_id)
+
+        # Filter by author if specified
+        author_id = self.request.query_params.get('author_id')
+        if author_id:
+            queryset = queryset.filter(author_id=author_id)
+
+        # Filter by approval record if specified
+        approval_record_id = self.request.query_params.get('approval_record_id')
+        if approval_record_id:
+            queryset = queryset.filter(related_approval_record_id=approval_record_id)
+
+        # Search in content
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(content__icontains=search)
+
+        # Filter by date range
+        date_from = self.request.query_params.get('date_from')
+        date_to = self.request.query_params.get('date_to')
+        if date_from:
+            queryset = queryset.filter(created_at__date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(created_at__date__lte=date_to)
+
+        return queryset.order_by('-created_at')
+
+    def perform_create(self, serializer):
+        """
+        Set audit fields when creating a note.
+        """
+        serializer.save(
+            author=self.request.user,
+            created_by=self.request.user,
+            updated_by=self.request.user
+        )
+
+    def perform_update(self, serializer):
+        """
+        Update the updated_by field when modifying a note.
+        """
+        serializer.save(updated_by=self.request.user)
+
+    @action(detail=False, methods=['get'], url_path='by_case/(?P<case_id>[^/.]+)')
+    def by_case(self, request, case_id=None):
+        """
+        Get all notes for a specific case.
+
+        URL: /notes/by_case/{case_id}/
+        """
+        try:
+            case = get_object_or_404(Case, pk=case_id)
+            notes = self.get_queryset().filter(case=case)
+
+            # Apply pagination if configured
+            page = self.paginate_queryset(notes)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+
+            serializer = self.get_serializer(notes, many=True)
+            return Response({
+                'case_id': case_id,
+                'case_serial_number': case.serial_number,
+                'total_notes': notes.count(),
+                'notes': serializer.data
+            })
+        except Case.DoesNotExist:
+            return Response(
+                {'detail': f'Case with ID {case_id} not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    @action(detail=False, methods=['get'], url_path='by_approval_record/(?P<approval_record_id>[^/.]+)')
+    def by_approval_record(self, request, approval_record_id=None):
+        """
+        Get all notes for a specific approval record.
+
+        URL: /notes/by_approval_record/{approval_record_id}/
+        """
+        try:
+            approval_record = get_object_or_404(ApprovalRecord, pk=approval_record_id)
+            notes = self.get_queryset().filter(related_approval_record=approval_record)
+
+            serializer = self.get_serializer(notes, many=True)
+            return Response({
+                'approval_record_id': approval_record_id,
+                'case_id': approval_record.case.id,
+                'case_serial_number': approval_record.case.serial_number,
+                'action_name': approval_record.action_taken.name if approval_record.action_taken else None,
+                'total_notes': notes.count(),
+                'notes': serializer.data
+            })
+        except ApprovalRecord.DoesNotExist:
+            return Response(
+                {'detail': f'ApprovalRecord with ID {approval_record_id} not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    @action(detail=False, methods=['get'])
+    def my_notes(self, request):
+        """
+        Get all notes created by the current user.
+
+        URL: /notes/my_notes/
+        """
+        notes = self.get_queryset().filter(author=request.user)
+
+        # Apply pagination if configured
+        page = self.paginate_queryset(notes)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(notes, many=True)
+        return Response({
+            'user_id': request.user.id,
+            'username': request.user.username,
+            'total_notes': notes.count(),
+            'notes': serializer.data
+        })
+
+    @action(detail=True, methods=['post'])
+    def add_reply(self, request, pk=None):
+        """
+        Add a reply note to an existing note (creates a new note referencing the case).
+
+        URL: /notes/{id}/add_reply/
+        Body: {"content": "Reply content"}
+        """
+        parent_note = self.get_object()
+        content = request.data.get('content', '').strip()
+
+        if not content:
+            return Response(
+                {'detail': 'Reply content is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create reply note with reference to original note in content
+        reply_content = f"[Reply to note by {parent_note.author.username if parent_note.author else 'N/A'} on {parent_note.created_at.strftime('%Y-%m-%d %H:%M')}]\n\n{content}"
+
+        reply_note = Note.objects.create(
+            case=parent_note.case,
+            author=request.user,
+            content=reply_content,
+            related_approval_record=parent_note.related_approval_record,
+            created_by=request.user,
+            updated_by=request.user
+        )
+
+        serializer = self.get_serializer(reply_note)
+        return Response(
+            {
+                'detail': 'Reply note created successfully.',
+                'parent_note_id': parent_note.id,
+                'reply_note': serializer.data
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
 # class ApprovalFlowActionCaseView(APIView):
 #     permission_classes = [IsAuthenticated]
 #
@@ -929,25 +1170,53 @@ class ApprovalFlowActionCaseView(APIView):
 #
 #         # Retrieve the case instance
 #         case_obj = get_object_or_404(Case, id=pk)
-#         if case_obj.assigned_emp != request.user:
+#         approval_step = case_obj.current_approval_step
+#         user_groups = request.user.groups.all()
+#
+#         # Check if user can take action on this case
+#         can_take_action = False
+#         is_priority_approver = False
+#
+#         # For assigned cases (non-parallel workflow)
+#         if case_obj.assigned_emp:
+#             if case_obj.assigned_emp == request.user:
+#                 can_take_action = True
+#         else:
+#             # For unassigned cases (potentially parallel workflow)
+#             if case_obj.assigned_group and user_groups.filter(
+#                     id=case_obj.assigned_group.id).exists():
+#                 can_take_action = True
+#
+#             if approval_step and approval_step.parallel_approval_groups.filter(
+#                     group__in=user_groups).exists():
+#                 can_take_action = True
+#
+#             if approval_step and approval_step.priority_approver_groups.filter(
+#                     id__in=user_groups.values_list('id', flat=True)).exists():
+#                 can_take_action = True
+#                 is_priority_approver = True
+#
+#         if not can_take_action:
 #             return Response(
-#                 {'error': 'User does not have permission to this action.'},
+#                 {'error': 'You do not have permission to take action on this case.'},
 #                 status=status.HTTP_403_FORBIDDEN
 #             )
 #
-#         # Retrieve the current approval step
-#         approval_step = ApprovalStep.objects.filter(
-#             service_type=case_obj.case_type,
-#             group=case_obj.assigned_group
+#         # Check if user already took action (prevent double action)
+#         existing_record = ApprovalRecord.objects.filter(
+#             case=case_obj,
+#             approval_step=approval_step,
+#             approved_by=request.user
 #         ).first()
 #
-#         if not approval_step:
-#             return Response(
-#                 {"error": "Approval step not found or misconfigured."},
-#                 status=status.HTTP_400_BAD_REQUEST
-#             )
+#         if existing_record:
+#             return Response({
+#                 "error": f"You have already performed '{existing_record.action_taken.name}' on this case.",
+#                 "previous_action": existing_record.action_taken.name,
+#                 "action_date": existing_record.approved_at
+#             }, status=status.HTTP_400_BAD_REQUEST)
 #
-#         # Retrieve the action step for the current approval step
+#         # Retrieve the action step
 #         action_step = ActionStep.objects.filter(
 #             approval_step=approval_step,
 #             action=action_obj
@@ -959,83 +1228,178 @@ class ApprovalFlowActionCaseView(APIView):
 #                 status=status.HTTP_400_BAD_REQUEST
 #             )
 #
-#         # Handle Priority Approvals
-#         if approval_step.priority_approver_groups.exists():
-#             if approval_step.priority_approver_groups.filter(
-#                     id__in=request.user.groups.values_list('id', flat=True)
-#             ).exists():
-#                 # Immediate approval for priority approvers
-#                 self.update_case(case_obj, action_step)
-#                 return Response({"message": "Case approved via priority approver."},
-#                                 status=status.HTTP_200_OK)
-#
-#         # Handle Parallel Approvals
-#         parallel_config = ParallelApprovalGroup.objects.filter(
-#             approval_step=approval_step
-#         ).first()
-#
-#         if parallel_config:
-#             # Record the approval
-#             ApprovalRecord.objects.get_or_create(
+#         # SCENARIO 1: Priority Approver - Immediate action
+#         if is_priority_approver:
+#             # Record the action
+#             ApprovalRecord.objects.create(
 #                 case=case_obj,
 #                 approval_step=approval_step,
-#                 approved_by=request.user
+#                 approved_by=request.user,
+#                 action_taken=action_obj  # Track which action was taken
 #             )
 #
-#             # Count distinct group approvals
-#             approved_groups = ApprovalRecord.objects.filter(
+#             # Update case immediately
+#             self.update_case(case_obj, action_step)
+#
+#             # Handle auto-approval if next step is AUTO
+#             self.handle_auto_approval(case_obj)
+#
+#             return Response({
+#                 "message": f"Case updated via priority approver with action: {action_obj.name}",
+#                 "new_status": case_obj.status.name
+#             }, status=status.HTTP_200_OK)
+#
+#         # SCENARIO 2 & 3: Parallel Approval
+#         parallel_groups = approval_step.parallel_approval_groups.all()
+#         if parallel_groups.exists() and approval_step.required_approvals:
+#             # Record the action
+#             ApprovalRecord.objects.create(
+#                 case=case_obj,
+#                 approval_step=approval_step,
+#                 approved_by=request.user,
+#                 action_taken=action_obj
+#             )
+#
+#             # Analyze all actions taken
+#             approval_records = ApprovalRecord.objects.filter(
 #                 case=case_obj,
 #                 approval_step=approval_step
-#             ).values_list('approved_by__groups', flat=True).distinct()
+#             ).select_related('approved_by', 'action_taken')
 #
-#             # Check if the required number of approvals is met
-#             if len(approved_groups) < parallel_config.required_approvals:
-#                 return Response(
-#                     {"message": "Approval recorded. Waiting for more approvals."},
-#                     status=status.HTTP_202_ACCEPTED
-#                 )
+#             # Group by action type
+#             action_counts = {}
+#             action_groups = {}  # Track which groups took which actions
 #
-#         # Proceed to update the case
-#         self.update_case(case_obj, action_step)
+#             for record in approval_records:
+#                 action_name = record.action_taken.name
+#                 if action_name not in action_counts:
+#                     action_counts[action_name] = 0
+#                     action_groups[action_name] = set()
 #
-#         # Handle Automatic Approval Steps
-#         self.handle_auto_approval(case_obj)
+#                 # Find which group this user represents
+#                 user_group_ids = record.approved_by.groups.values_list('id', flat=True)
+#                 for pg in parallel_groups:
+#                     if pg.group.id in user_group_ids:
+#                         action_groups[action_name].add(pg.group.id)
+#                         break
+#                 else:
+#                     # Check primary group
+#                     if case_obj.assigned_group and case_obj.assigned_group.id in user_group_ids:
+#                         action_groups[action_name].add(case_obj.assigned_group.id)
 #
-#         return Response({"message": "Case updated successfully."},
-#                         status=status.HTTP_200_OK)
+#             # Count unique groups per action
+#             for action_name in action_groups:
+#                 action_counts[action_name] = len(action_groups[action_name])
+#
+#             # Determine if we've reached a decision
+#             total_unique_groups = sum(len(groups) for groups in action_groups.values())
+#
+#             # Check if any action has reached the required threshold
+#             decision_made = False
+#             winning_action = None
+#
+#             for action_name, count in action_counts.items():
+#                 if count >= approval_step.required_approvals:
+#                     decision_made = True
+#                     winning_action = action_name
+#                     break
+#
+#             # If no single action has enough approvals but all groups have acted
+#             if not decision_made and total_unique_groups >= approval_step.required_approvals:
+#                 # Find the action with most approvals (majority)
+#                 winning_action = max(action_counts.items(), key=lambda x: x[1])[0]
+#                 decision_made = True
+#
+#             if decision_made:
+#                 # Find the ActionStep for the winning action
+#                 winning_action_obj = Action.objects.get(name=winning_action)
+#                 winning_action_step = ActionStep.objects.filter(
+#                     approval_step=approval_step,
+#                     action=winning_action_obj
+#                 ).first()
+#
+#                 if winning_action_step:
+#                     # Update case with the winning action's routing
+#                     self.update_case(case_obj, winning_action_step)
+#
+#                     # Handle auto-approval if next step is AUTO
+#                     self.handle_auto_approval(case_obj)
+#
+#                     return Response({
+#                         "message": f"Parallel approval completed. Action '{winning_action}' prevailed.",
+#                         "action_summary": action_counts,
+#                         "new_status": case_obj.status.name,
+#                         "total_actions": total_unique_groups,
+#                         "required_actions": approval_step.required_approvals
+#                     }, status=status.HTTP_200_OK)
+#             else:
+#                 # Still waiting for more approvals
+#                 remaining = approval_step.required_approvals - total_unique_groups
+#                 return Response({
+#                     "message": f"Action recorded. Waiting for {remaining} more action(s).",
+#                     "action_summary": action_counts,
+#                     "total_actions": total_unique_groups,
+#                     "required_actions": approval_step.required_approvals,
+#                     "your_action": action_obj.name
+#                 }, status=status.HTTP_202_ACCEPTED)
+#
+#         # SCENARIO 4: Standard (non-parallel) approval
+#         else:
+#             # Record the action (even for non-parallel, for audit trail)
+#             ApprovalRecord.objects.create(
+#                 case=case_obj,
+#                 approval_step=approval_step,
+#                 approved_by=request.user,
+#                 action_taken=action_obj
+#             )
+#
+#             # Update case immediately
+#             self.update_case(case_obj, action_step)
+#
+#             # Handle auto-approval if next step is AUTO
+#             self.handle_auto_approval(case_obj)
+#
+#             return Response({
+#                 "message": f"Case updated successfully with action: {action_obj.name}",
+#                 "new_status": case_obj.status.name
+#             }, status=status.HTTP_200_OK)
 #
 #     def update_case(self, case_obj, action_step):
-#         """
-#         Update the case status and assigned group based on the action step.
-#         """
+#         """Update the case status and assigned group based on the action step."""
 #         case_obj.status = action_step.to_status
+#         case_obj.sub_status = action_step.sub_status
+#
+#         # Find next approval step
 #         next_approval_step = ApprovalStep.objects.filter(
 #             service_type=case_obj.case_type,
 #             status=action_step.to_status
 #         ).first()
 #
-#         if not next_approval_step:
-#             raise ValidationError(
-#                 {"error": "Next approval step not found for the given status."}
-#             )
+#         if next_approval_step:
+#             case_obj.assigned_group = next_approval_step.group
+#             case_obj.current_approval_step = next_approval_step
 #
-#         case_obj.assigned_group = next_approval_step.group
+#             # Clear assigned_emp for parallel approval steps
+#             if next_approval_step.parallel_approval_groups.exists():
+#                 case_obj.assigned_emp = None
+#             else:
+#                 case_obj.assigned_emp = None  # Clear for fresh assignment
+#         else:
+#             # No next step - might be final status
+#             case_obj.current_approval_step = None
+#             case_obj.assigned_emp = None
+#             case_obj.assigned_group = None
+#
 #         case_obj.last_action = action_step.action
-#         case_obj.current_approval_step = next_approval_step
-#         case_obj.sub_status = action_step.sub_status
-#         case_obj.assigned_emp = None
 #         case_obj.save()
 #
 #     def handle_auto_approval(self, case_obj):
-#         """
-#         Handle automatic progression if the next approval step is of type AUTO.
-#         """
-#         new_current_approval_step = ApprovalStep.objects.filter(
-#             service_type=case_obj.case_type,
-#             status=case_obj.status
-#         ).first()
+#         """Handle automatic progression if the next approval step is of type AUTO."""
+#         new_current_approval_step = case_obj.current_approval_step
 #
-#         if new_current_approval_step and new_current_approval_step.step_type == ApprovalStep.STEP_TYPE.AUTO:
+#         if (new_current_approval_step and
+#                 new_current_approval_step.step_type == ApprovalStep.STEP_TYPE.AUTO):
+#
 #             result, condition_obj = evaluate_conditions(
 #                 case_obj, new_current_approval_step
 #             )
@@ -1047,129 +1411,12 @@ class ApprovalFlowActionCaseView(APIView):
 #                 ).first()
 #
 #                 if new_next_approval_step:
-#                     new_case_values = {
-#                         "status": condition_obj.to_status,
-#                         "sub_status": condition_obj.sub_status,
-#                         "assigned_group": new_next_approval_step.group,
-#                         "current_approval_step": new_next_approval_step,
-#                         "assigned_emp": None
-#                     }
-#                     for key, value in new_case_values.items():
-#                         setattr(case_obj, key, value)
-#
+#                     case_obj.status = condition_obj.to_status
+#                     case_obj.sub_status = condition_obj.sub_status
+#                     case_obj.assigned_group = new_next_approval_step.group
+#                     case_obj.current_approval_step = new_next_approval_step
+#                     case_obj.assigned_emp = None
 #                     case_obj.save()
-
-
-# latest working view
-# class ApprovalFlowActionCaseView(APIView):
-#     permission_classes = [IsAuthenticated]
-#
-#     def post(self, request, pk):
-#         action_id = request.query_params.get('action_id')
-#
-#         if not action_id:
-#             return Response(
-#                 {"error": "action_id is required."},
-#                 status=status.HTTP_400_BAD_REQUEST)
-#
-#         # Get action_id from query parameters
-#         action_obj = get_object_or_404(Action, id=action_id)
-#         if not action_obj.groups.filter(
-#                 id__in=request.user.groups.values_list('id', flat=True)
-#         ).exists():
-#             return Response(
-#                 {'error': 'User does not have access to this action.'},
-#                 status=status.HTTP_403_FORBIDDEN)
-#         #
-#         # try:
-#         #     # Retrieve the action based on the action_id
-#         #     action = Action.objects.get(id=action_id)
-#         # except Action.DoesNotExist:
-#         #     return Response(
-#         #         {"error": "Action not found."},
-#         #         status=status.HTTP_404_NOT_FOUND)
-#
-#         try:
-#             # Retrieve the case instance using the pk from the URL
-#             case_obj = Case.objects.get(id=pk)
-#             if case_obj.assigned_emp != request.user:
-#                 return Response(
-#                     {'error': 'User does not have permission to this action.'},
-#                     status=status.HTTP_403_FORBIDDEN)
-#
-#         except Case.DoesNotExist:
-#             return Response(
-#                 {"error": "Case not found."},
-#                 status=status.HTTP_404_NOT_FOUND)
-#
-#         # Filter ApprovalStep based on last_action, group, and service_type
-#         approval_step = ApprovalStep.objects.filter(
-#             service_type=case_obj.case_type,
-#             group=case_obj.assigned_group).first()
-#
-#         # Check if exactly one approval step is found
-#         if not approval_step:
-#             return Response(
-#                 {
-#                     "error": (
-#                         "Approval step not found or misconfigured."
-#                     )
-#                 },
-#                 status=status.HTTP_400_BAD_REQUEST
-#             )
-#         action_step = ActionStep.objects.filter(
-#             approval_step=approval_step,
-#             action=action_obj).first()  # approval_step.to_group
-#
-#         if not action_step:
-#             return Response(
-#                 {"error": "Action step not found for this approval step."},
-#                 status=status.HTTP_400_BAD_REQUEST
-#             )
-#         # Update the case instance
-#         case_obj.status = action_step.to_status
-#         next_approval_step = ApprovalStep.objects.filter(
-#             service_type=case_obj.case_type,
-#             status=action_step.to_status).first()
-#         if not next_approval_step:
-#             return Response(
-#                 {"error": "Next approval step not found for the given status."},
-#                 status=status.HTTP_400_BAD_REQUEST
-#             )
-#         case_obj.assigned_group = next_approval_step.group  # next_step
-#         case_obj.last_action = action
-#         case_obj.current_approval_step = next_approval_step
-#         case_obj.sub_status = action_step.sub_status
-#         case_obj.assigned_emp = None
-#         case_obj.save()
-#
-#         new_current_approval_step = ApprovalStep.objects.filter(
-#             service_type=case_obj.case_type,
-#             status=case_obj.status).first()
-#         if new_current_approval_step.step_type == ApprovalStep.STEP_TYPE.AUTO:
-#             result, condition_obj = evaluate_conditions(
-#                 case_obj, new_current_approval_step)
-#             if result:
-#                 new_next_approval_step = ApprovalStep.objects.filter(
-#                     service_type=case_obj.case_type,
-#                     status=condition_obj.to_status).first()
-#                 if not next_approval_step:
-#                     return Response(
-#                         {"error": "Next approval step not found for the given status."},
-#                         status=status.HTTP_400_BAD_REQUEST
-#                     )
-#                 new_case_values = {"status": condition_obj.to_status,
-#                                    "sub_status": condition_obj.sub_status,
-#                                    "assigned_group": new_next_approval_step.group,
-#                                    "current_approval_step": new_next_approval_step,
-#                                    "assigned_emp": None
-#                                    }
-#                 for key, value in new_case_values.items():
-#                     setattr(case_obj, key, value)
-#                 case_obj.save()
-#
-#         return Response({"message": "Case updated successfully."},
-#                         status=status.HTTP_200_OK)
 
 
 class UserCaseActionsView(APIView):

@@ -4,7 +4,7 @@ from case.apis.views import (CaseViewSet, SubmitApplication,
                              EmployeeCasesView, AssignCaseView,
                              ApprovalFlowActionCaseView, UserCaseActionsView, RunMapperAPIView, DryRunMapperAPIView,
                              MapperExecutionLogListAPIView, MapperExecutionLogDetailAPIView, CaseMapperViewSet,
-                             MapperTargetViewSet, MapperFieldRuleViewSet)
+                             MapperTargetViewSet, MapperFieldRuleViewSet, NoteViewSet)
 from case.apps import CaseConfig
 
 app_name = CaseConfig.name
@@ -13,6 +13,7 @@ router.register('case-mappers', CaseMapperViewSet, basename='case-mapper')
 router.register('case-targets', MapperTargetViewSet, basename='case-target')
 router.register('case-rules', MapperFieldRuleViewSet, basename='case-rule')
 router.register('cases', CaseViewSet, basename='applicant_cases')
+router.register(r'notes', NoteViewSet, basename='notes')
 
 
 urlpatterns = [

@@ -1,6 +1,7 @@
 from django.contrib.auth.models import Group
 from rest_framework import serializers
 
+from case.models import Note
 from conditional_approval.models import Action, ApprovalStep, ParallelApprovalGroup, APICallCondition, \
     ApprovalStepCondition, ActionStep
 from lookup.models import Lookup
@@ -122,3 +123,26 @@ class FullApprovalStepSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         # full nested update logic can be extended here
         return super().update(instance, validated_data)
+
+class NoteSerializer(serializers.ModelSerializer):
+    author_username = serializers.CharField(source='author.username', read_only=True)
+    author_full_name = serializers.CharField(source='author.get_full_name', read_only=True)
+    case_serial_number = serializers.CharField(source='case.serial_number', read_only=True)
+    related_approval_record_id = serializers.IntegerField(source='related_approval_record.id', read_only=True)
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    updated_by_username = serializers.CharField(source='updated_by.username', read_only=True)
+
+    class Meta:
+        model = Note
+        fields = [
+            'id', 'case', 'case_serial_number', 'author', 'author_username',
+            'author_full_name', 'content', 'related_approval_record',
+            'related_approval_record_id', 'created_at', 'updated_at',
+            'created_by', 'created_by_username', 'updated_by', 'updated_by_username'
+        ]
+        read_only_fields = [
+            'id', 'case', 'case_serial_number', 'author', 'author_username',
+            'author_full_name', 'related_approval_record', 'related_approval_record_id',
+            'created_at', 'updated_at', 'created_by', 'created_by_username',
+            'updated_by', 'updated_by_username'
+        ]

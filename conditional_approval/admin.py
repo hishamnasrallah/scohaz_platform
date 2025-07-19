@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from case.models import Note
 # from conditional_approval.forms import ApprovalStepConditionInlineForm
 from conditional_approval.models import (ApprovalStep, Action,
                                          ActionStep, ApprovalStepCondition, ParallelApprovalGroup)
@@ -92,3 +93,32 @@ class ApprovalStepAdmin(admin.ModelAdmin):
                 form.base_fields[field].widget.can_delete_related = False
 
         return form
+
+
+@admin.register(Note)
+class NoteAdmin(admin.ModelAdmin):
+    list_display = ('case', 'author', 'content_preview', 'related_approval_record', 'created_at', 'created_by')
+    list_filter = ('created_at', 'author', 'case', 'related_approval_record')
+    search_fields = ('content', 'case__serial_number', 'author__username', 'created_by__username', 'updated_by__username')
+    readonly_fields = ('created_at', 'updated_at', 'created_by', 'updated_by')
+
+    fieldsets = (
+        (None, {
+            'fields': ('case', 'author', 'content', 'related_approval_record')
+        }),
+        ('Audit Information', {
+            'fields': ('created_at', 'created_by', 'updated_at', 'updated_by'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def content_preview(self, obj):
+        """Show first 50 characters of note content"""
+        return obj.content[:50] + "..." if len(obj.content) > 50 else obj.content
+    content_preview.short_description = "Content Preview"
+
+    def save_model(self, request, obj, form, change):
+        if not change:  # Only set created_by on initial creation
+            obj.created_by = request.user
+        obj.updated_by = request.user  # Always set updated_by on save
+        super().save_model(request, obj, form, change)

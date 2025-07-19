@@ -2,6 +2,7 @@
 
 import os
 import platform
+import re
 from io import BytesIO
 from typing import Dict, Any, Optional
 
@@ -184,17 +185,35 @@ class PDFGenerator:
             return text
 
     def _get_value_from_object(self, obj: Model, field_path: str) -> Any:
-        """Get value from object using dot notation"""
+        """Get value from object using dot notation and bracket notation for JSON fields"""
         if not field_path:
             return None
 
+        # Pattern to match parts like 'field["key"]' or 'field[key]'
+        pattern = r'([^.\[]+)(?:\[["\']*([^"\'\]]+)["\']*\])?'
+        parts = re.findall(pattern, field_path)
+
         value = obj
-        for part in field_path.split('.'):
-            if hasattr(value, part):
-                value = getattr(value, part)
+
+        for field_name, key in parts:
+            # Get the field value
+            if hasattr(value, field_name):
+                value = getattr(value, field_name)
+
                 # Call if it's a method
                 if callable(value):
                     value = value()
+
+                # If there's a key, try to access it (for dict/JSON fields)
+                if key and value is not None:
+                    try:
+                        if isinstance(value, dict):
+                            value = value.get(key)
+                        else:
+                            # Try to access as attribute (for objects)
+                            value = getattr(value, key, None)
+                    except (KeyError, AttributeError, TypeError):
+                        return None
             else:
                 return None
 
