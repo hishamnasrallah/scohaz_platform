@@ -274,3 +274,4 @@ static_root/*
 #celerybeat-schedule.*
 #
 ## End of https://www.gitignore.io/api/linux,macos,django,pycharm+all,visualstudiocode
+.env
