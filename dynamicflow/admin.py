@@ -160,11 +160,11 @@ class FieldAdmin(admin.ModelAdmin):
                 '_category',
             )
         }),
-        (_('Integration Information'), {
-            'fields': (
-                '_api_call_config',
-            )
-        }),
+        # (_('Integration Information'), {
+        #     'fields': (
+        #         '_api_call_config',
+        #     )
+        # }),
         (_('Text Validators'), {
             'fields': (
                 ('_max_length', '_min_length'),

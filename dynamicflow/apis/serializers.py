@@ -1,6 +1,46 @@
 from rest_framework import serializers
 from django.core.exceptions import ValidationError as DjangoValidationError
 from dynamicflow.models import FieldType, Page, Category, Field, Condition
+from integration.models import FieldIntegration
+
+
+class FieldIntegrationSerializer(serializers.ModelSerializer):
+    """Serializer for field integration information"""
+    integration_name = serializers.CharField(source='integration.name', read_only=True)
+    integration_endpoint = serializers.CharField(source='integration.endpoint', read_only=True)
+    integration_method = serializers.CharField(source='integration.method', read_only=True)
+
+    class Meta:
+        model = FieldIntegration
+        fields = [
+            'id', 'integration_id', 'integration_name', 'integration_endpoint',
+            'integration_method', 'trigger_event', 'is_async', 'condition_expression',
+            'update_field_on_response', 'response_field_path'
+        ]
+
+
+class FieldWithIntegrationsSerializer(serializers.ModelSerializer):
+    """Extended field serializer that includes integration information"""
+    field_type_name = serializers.CharField(source='_field_type.name', read_only=True)
+    integrations = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Field
+        fields = [
+            'id', '_field_name', '_field_display_name', '_field_display_name_ara',
+            'field_type_name', '_mandatory', '_is_hidden', '_is_disabled',
+            '_sequence', 'integrations',
+            # Include validation fields that might be needed by frontend
+            '_max_length', '_min_length', '_regex_pattern',
+            '_value_greater_than', '_value_less_than',
+            '_date_greater_than', '_date_less_than',
+            '_future_only', '_past_only'
+        ]
+
+    def get_integrations(self, obj):
+        """Get all active integrations for this field"""
+        integrations = obj.field_integrations.filter(active=True).select_related('integration')
+        return FieldIntegrationSerializer(integrations, many=True).data
 
 class FlowRetrieveIndustriesFlow(serializers.Serializer):
 

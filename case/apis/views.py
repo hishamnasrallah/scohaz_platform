@@ -185,49 +185,142 @@ class SubmitApplication(APIView):
 
 
 class TriggerFieldAPIView(APIView):
+    """
+    Enhanced endpoint for frontend to trigger field API calls.
+    Now supports URL path parameters.
+    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         """
-        Endpoint for frontend to trigger field API calls
+        Trigger integrations for a specific field.
+
+        Expected payload:
+        {
+            "case_id": 123,
+            "field_id": 456,
+            "field_value": "new value",
+            "old_value": "old value",  // optional, for on_change
+            "case_data": {...},  // current form data
+            "trigger_event": "on_change"  // optional, defaults to on_change
+        }
         """
         case_id = request.data.get('case_id')
         field_id = request.data.get('field_id')
-        event_type = request.data.get('event_type', 'on_change')
         field_value = request.data.get('field_value')
         old_value = request.data.get('old_value')
         case_data = request.data.get('case_data', {})
+        trigger_event = request.data.get('trigger_event', 'on_change')
+
+        # Validate required fields
+        if not all([case_id, field_id]):
+            return Response(
+                {"error": "case_id and field_id are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             case = Case.objects.get(id=case_id)
             field = Field.objects.get(id=field_id)
 
-            # Check if field has API configuration
-            if not field._api_call_config:
-                return Response(
-                    {"error": "Field has no API configuration"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # Ensure the field value is in case_data
+            if field._field_name not in case_data:
+                case_data[field._field_name] = field_value
 
-            # Trigger appropriate API calls
-            if event_type == 'on_change':
-                APITriggerService.trigger_on_change_for_field(
-                    field=field,
-                    old_value=old_value,
-                    new_value=field_value,
-                    full_old_data=case.case_data,
-                    full_new_data=case_data,
-                    instance=case
-                )
-            else:
-                APITriggerService.trigger_api_calls(
-                    field=field,
-                    event=event_type,
-                    case_data=case_data,
-                    instance=case
-                )
+            # Get integrations for this field and event
+            integrations = field.field_integrations.filter(
+                trigger_event=trigger_event,
+                active=True
+            ).order_by('order')
 
-            return Response({"status": "success"})
+            if not integrations.exists():
+                return Response({
+                    "status": "success",
+                    "message": "No integrations configured for this field and event",
+                    "integrations_executed": 0
+                })
+
+            # Execute integrations
+            executed = []
+            failed = []
+
+            with transaction.atomic():
+                for field_integration in integrations:
+                    try:
+                        # Check if integration should execute
+                        if not field_integration.should_execute(field_value, case_data):
+                            continue
+
+                        # Prepare request data including path parameters
+                        payload, query_params, headers, path_params = field_integration.prepare_request_data(
+                            case_data, field_value
+                        )
+
+                        # Execute the integration
+                        if field_integration.is_async:
+                            from dynamicflow.services.api_trigger_service import APITriggerService
+                            APITriggerService._execute_integration_async.delay(
+                                field_integration.id,
+                                payload,
+                                query_params,
+                                headers,
+                                path_params,  # Include path params
+                                case.id,
+                                case_data
+                            )
+                            executed.append({
+                                "integration": field_integration.integration.name,
+                                "status": "scheduled",
+                                "async": True
+                            })
+                        else:
+                            # Synchronous execution
+                            response = field_integration.integration.make_api_request(
+                                body=payload,
+                                query_params=query_params,
+                                headers=headers,
+                                path_params=path_params  # Include path params
+                            )
+
+                            # Handle response updates if configured
+                            response_data = {}
+                            if field_integration.update_field_on_response:
+                                # Extract value from response
+                                if field_integration.response_field_path:
+                                    from jsonpath_ng import parse
+                                    jsonpath_expr = parse(field_integration.response_field_path)
+                                    matches = jsonpath_expr.find(response)
+                                    if matches:
+                                        response_data['field_value'] = matches[0].value
+
+                                # Extract additional mapped fields
+                                response_data['mapped_fields'] = {}
+                                for resp_path, case_field in field_integration.response_field_mapping.items():
+                                    jsonpath_expr = parse(f"$.{resp_path}")
+                                    matches = jsonpath_expr.find(response)
+                                    if matches:
+                                        response_data['mapped_fields'][case_field] = matches[0].value
+
+                            executed.append({
+                                "integration": field_integration.integration.name,
+                                "status": "success",
+                                "response_data": response_data,
+                                "url_called": field_integration.integration.build_url(path_params) if path_params else field_integration.integration.endpoint
+                            })
+
+                    except Exception as e:
+                        failed.append({
+                            "integration": field_integration.integration.name,
+                            "error": str(e)
+                        })
+
+            return Response({
+                "status": "success",
+                "integrations_executed": len(executed),
+                "integrations_failed": len(failed),
+                "executed": executed,
+                "failed": failed
+            })
 
         except Case.DoesNotExist:
             return Response(
@@ -243,6 +336,52 @@ class TriggerFieldAPIView(APIView):
             return Response(
                 {"error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class FieldIntegrationsListView(APIView):
+    """
+    Get all integrations configured for a specific field.
+    Useful for frontend to know what integrations are available.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, field_id):
+        try:
+            field = Field.objects.get(id=field_id)
+            integrations = field.field_integrations.filter(
+                active=True
+            ).select_related('integration')
+
+            data = []
+            for fi in integrations:
+                data.append({
+                    'id': fi.id,
+                    'integration': {
+                        'id': fi.integration.id,
+                        'name': fi.integration.name,
+                        'endpoint': fi.integration.endpoint,
+                        'method': fi.integration.method
+                    },
+                    'trigger_event': fi.trigger_event,
+                    'is_async': fi.is_async,
+                    'condition_expression': fi.condition_expression,
+                    'update_field_on_response': fi.update_field_on_response,
+                    'response_field_path': fi.response_field_path
+                })
+
+            return Response({
+                'field': {
+                    'id': field.id,
+                    'name': field._field_name,
+                    'display_name': field._field_display_name
+                },
+                'integrations': data
+            })
+
+        except Field.DoesNotExist:
+            return Response(
+                {"error": "Field not found"},
+                status=status.HTTP_404_NOT_FOUND
             )
 
 class EmployeeCasesView(APIView):

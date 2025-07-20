@@ -71,7 +71,8 @@ INSTALLED_APPS += CUSTOM_APPS + [
     "version_control",
     "reporting",
     "reporting_templates",
-    "simple_reporting"
+    "simple_reporting",
+    "mockapi",
     # "lowcode",
 ]
 

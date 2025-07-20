@@ -1,6 +1,8 @@
 from collections import defaultdict
 
 from django.db.models import Prefetch
+
+from dynamicflow.apis.serializers import FieldWithIntegrationsSerializer
 from dynamicflow.models import Page, Category, Field, Condition
 
 
@@ -135,9 +137,7 @@ class DynamicFlowHelper:
             "is_disabled": field._is_disabled,
             "visibility_conditions": get_visibility_conditions(field),
 
-            # ====== ADD THIS LINE ======
-            "api_call_config": field._api_call_config if field._api_call_config else [],
-            # ====== END ======
+            "integrations": self.get_field_integrations(field)
         }
 
         if field_type in {"text", "textarea", "rich_text", "password", "slug", "email", "url", "phone_number"}:
@@ -240,487 +240,141 @@ class DynamicFlowHelper:
         return {"error": "Select at least one service before continuing."}
 
 
-
-# from django.db.models import Prefetch
-# from dynamicflow.models import Page, Category, Field, Condition
-#
-#
-# class DynamicFlowHelper:
-#     def __init__(self, query):
-#         try:
-#             self.query = {
-#                 "service__in": query.get("service__in", []),
-#                 "user": query.get("user"),
-#             }
-#         except AttributeError:
-#             self.query = {
-#                 "service__in": query
-#             }
-#
-#     def get_flow(self):
-#         """
-#         Entry point to retrieve the full service flow structure.
-#         """
-#         if not self.query["service__in"]:
-#             return self.error_handling()
-#
-#         pages = self.get_pages()
-#         categories = self.get_categories(pages)
-#         fields = self.get_fields(categories)
-#
-#         return self.format_response(pages, categories, fields)
-#
-#     def get_pages(self):
-#         return Page.objects.filter(
-#             service__code__in=self.query["service__in"],
-#             active_ind=True
-#         ).only("id", "name", "sequence_number", "description").prefetch_related(
-#             Prefetch('category_set', queryset=Category.objects.filter(active_ind=True))
-#         )
-#
-#     def get_categories(self, pages):
-#         return Category.objects.filter(
-#             page__in=pages,
-#             active_ind=True
-#         ).prefetch_related('field_set')
-#
-#     def get_fields(self, categories):
-#         """
-#         Retrieve fields linked to the provided categories.
-#         """
-#         return Field.objects.filter(
-#             _category__in=categories,
-#             active_ind=True
-#         ).select_related('_field_type')
-#
-#     def format_response(self, pages, categories, fields):
-#         """
-#         Format the response into a JSON-compatible structure.
-#         """
-#
-#         def format_field(field):
-#             # Function to format sub-fields recursively
-#             def format_sub_fields(parent_field):
-#                 sub_fields_data = []
-#                 sub_fields = Field.objects.filter(_parent_field=parent_field)
-#                 for sub_field in sub_fields:
-#                     sub_fields_data.append({
-#                         "name": sub_field._field_name,
-#                         "field_id": sub_field.id,
-#                         "display_name": sub_field._field_display_name,
-#                         "display_name_ara": sub_field._field_display_name_ara,
-#                         "field_type": sub_field._field_type.name if sub_field._field_type else None,
-#                         "mandatory": sub_field._mandatory,
-#                         "lookup": sub_field._lookup.name if sub_field._lookup else None,
-#                         "max_length": sub_field._max_length,
-#                         "min_length": sub_field._min_length,
-#                         "value_greater_than": sub_field._value_greater_than,
-#                         "value_less_than": sub_field._value_less_than,
-#                         "date_greater_than": sub_field._date_greater_than,
-#                         "size_greater_than": sub_field._size_greater_than,
-#                         "size_less_than": sub_field._size_less_than,
-#                         "only_positive": sub_field._only_positive,
-#                         "is_hidden": sub_field._is_hidden,
-#                         "is_disabled": sub_field._is_disabled,
-#                         "visibility_conditions": get_visibility_conditions(sub_field),
-#                         "sub_fields": format_sub_fields(sub_field),
-#                     })
-#                 return sub_fields_data
-#
-#             def get_visibility_conditions(field):
-#                 conditions = Condition.objects.filter(target_field=field, active_ind=True)
-#                 return [
-#                     {
-#                         "condition_logic": condition.condition_logic
-#                     }
-#                     for condition in conditions
-#                 ]
-#
-#             # Call the recursive sub-field formatting
-#             sub_fields_data = format_sub_fields(field)
-#
-#             # Format allowed lookups based on parent lookup
-#             allowed_lookups_data = [
-#                 {
-#                     "name": lookup.name,
-#                     "id": lookup.id,
-#                     "code": lookup.code,
-#                     "icon": lookup.icon
-#                 }
-#                 for lookup in field.allowed_lookups.all()
-#             ]
-#
-#             return {
-#                 "name": field._field_name,
-#                 "field_id": field.id,
-#                 "display_name": field._field_display_name,
-#                 "display_name_ara": field._field_display_name_ara,
-#                 "field_type": field._field_type.name if field._field_type else None,
-#                 "mandatory": field._mandatory,
-#                 "lookup": field._lookup.name if field._lookup else None,
-#                 "allowed_lookups": allowed_lookups_data,
-#                 "sub_fields": sub_fields_data,
-#                 "max_length": field._max_length,
-#                 "min_length": field._min_length,
-#                 "value_greater_than": field._value_greater_than,
-#                 "value_less_than": field._value_less_than,
-#                 "date_greater_than": field._date_greater_than,
-#                 "size_greater_than": field._size_greater_than,
-#                 "size_less_than": field._size_less_than,
-#                 "only_positive": field._only_positive,
-#                 "is_hidden": field._is_hidden,
-#                 "is_disabled": field._is_disabled,
-#                 "visibility_conditions": get_visibility_conditions(field),
-#             }
-#
-#         def format_category(category):
-#             category_fields = [
-#                 format_field(field)
-#                 for field in fields if category in field._category.all()
-#             ]
-#             return {
-#                 "id": category.id,
-#                 "name": category.name,
-#                 "name_ara": category.name_ara,
-#                 "repeatable": category.is_repeatable,
-#                 "fields": category_fields,
-#             }
-#
-#         def format_page(page):
-#             page_categories = page.category_set.all()
-#             return {
-#                 "sequence_number": page.sequence_number.code if page.sequence_number else None,
-#                 "name": page.name,
-#                 "name_ara": page.name_ara,
-#                 "description": page.description,
-#                 "description_ara": page.description_ara,
-#                 "is_hidden_page": not page.active_ind,
-#                 "page_id": page.id,
-#                 "categories": [format_category(category) for category in page_categories],
-#             }
-#
-#         return {"service_flow": [format_page(page) for page in pages]}
-#
-#     def error_handling(self):
-#         """
-#         Return an error response if no service is provided.
-#         """
-#         return {"error": "Select at least one service before continuing."}
-
-
-# class DynamicFlowHelper:
-#     def __init__(self, query):
-#         try:
-#             self.query = {
-#                 "service__in": query.get("service__in", []),
-#                 "user": query.get("user"),
-#             }
-#         except AttributeError:
-#             self.query = {
-#                 "service__in": query
-#             }
-#
-#     def get_flow(self):
-#         """
-#         Entry point to retrieve the full service flow structure.
-#         """
-#         if not self.query["service__in"]:
-#             return self.error_handling()
-#
-#         pages = self.get_pages()
-#         categories = self.get_categories(pages)
-#         fields = self.get_fields(categories)
-#
-#         return self.format_response(pages, categories, fields)
-#
-#     def get_pages(self):
-#         return Page.objects.filter(
-#             service__code__in=self.query["service__in"],
-#             active_ind=True
-#         ).only("id", "name", "sequence_number", "description").prefetch_related(
-#             Prefetch('category_set', queryset=Category.objects.filter(active_ind=True))
-#         )
-#
-#     def get_categories(self, pages):
-#         return Category.objects.filter(
-#             page__in=pages,
-#             active_ind=True
-#         ).prefetch_related('field_set')
-#
-#     def get_fields(self, categories):
-#         """
-#         Retrieve fields linked to the provided categories.
-#         """
-#         return Field.objects.filter(
-#             _category__in=categories,
-#             active_ind=True
-#         ).select_related('_field_type')
-#
-#     def format_response(self, pages, categories, fields):
-#         """
-#         Format the response into a JSON-compatible structure.
-#         """
-#
-#         def format_field(field):
-#             # Function to format sub-fields recursively
-#             def format_sub_fields(parent_field):
-#                 sub_fields_data = []
-#                 # Retrieve sub-fields by filtering on the parent field (ForeignKey)
-#                 sub_fields = Field.objects.filter(_parent_field=parent_field)
-#                 for sub_field in sub_fields:
-#                     sub_fields_data.append({
-#                         "name": sub_field._field_name,
-#                         "field_id": sub_field.id,
-#                         "display_name": sub_field._field_display_name,
-#                         "display_name_ara": sub_field._field_display_name_ara,
-#                         "field_type": sub_field._field_type.name
-#                         if sub_field._field_type else None,
-#                         "mandatory": sub_field._mandatory,
-#                         "lookup": sub_field._lookup.name if sub_field._lookup else None,
-#                         "max_length": sub_field._max_length,
-#                         "min_length": sub_field._min_length,
-#                         "value_greater_than": sub_field._value_greater_than,
-#                         "value_less_than": sub_field._value_less_than,
-#                         "date_greater_than": sub_field._date_greater_than,
-#                         "size_greater_than": sub_field._size_greater_than,
-#                         "size_less_than": sub_field._size_less_than,
-#                         "only_positive": sub_field._only_positive,
-#                         "is_hidden": sub_field._is_hidden,
-#                         "is_disabled": sub_field._is_disabled,
-#                         # Recursively fetch the sub-fields of the current sub-field
-#                         "sub_fields": format_sub_fields(sub_field),
-#                     })
-#                 return sub_fields_data
-#
-#             # Call the recursive sub-field formatting
-#             sub_fields_data = format_sub_fields(field)
-#
-#             # Format allowed lookups based on parent lookup
-#             allowed_lookups_data = [
-#                 {
-#                     "name": lookup.name,
-#                     "id": lookup.id,
-#                     "code": lookup.code,
-#                     "icon": lookup.icon
-#                 }
-#                 # Retrieve the allowed lookups for the field
-#                 for lookup in field.allowed_lookups.all()
-#             ]
-#
-#             return {
-#                 "name": field._field_name,
-#                 "field_id": field.id,
-#                 "display_name": field._field_display_name,
-#                 "display_name_ara": field._field_display_name_ara,
-#                 "field_type": field._field_type.name if field._field_type else None,
-#                 "mandatory": field._mandatory,
-#                 "lookup": field._lookup.name if field._lookup else None,
-#                 "allowed_lookups": allowed_lookups_data,
-#                 # Include the recursively formatted sub-fields
-#                 "sub_fields": sub_fields_data,
-#                 "max_length": field._max_length,
-#                 "min_length": field._min_length,
-#                 "value_greater_than": field._value_greater_than,
-#                 "value_less_than": field._value_less_than,
-#                 "date_greater_than": field._date_greater_than,
-#                 "size_greater_than": field._size_greater_than,
-#                 "size_less_than": field._size_less_than,
-#                 "only_positive": field._only_positive,
-#                 "is_hidden": field._is_hidden,
-#                 "is_disabled": field._is_disabled,
-#             }
-#
-#         def format_category(category):
-#             category_fields = [
-#                 format_field(field)
-#                 for field in fields if category in field._category.all()
-#             ]
-#             return {
-#                 "id": category.id,
-#                 "name": category.name,
-#                 "name_ara": category.name_ara,
-#                 "repeatable": category.is_repeatable,
-#                 "fields": category_fields,
-#             }
-#
-#         def format_page(page):
-#             page_categories = page.category_set.all()
-#             return {
-#                 "sequence_number": page.sequence_number.code
-#                 if page.sequence_number else None,
-#                 "name": page.name,
-#                 "name_ara": page.name_ara,
-#                 "description": page.description,
-#                 "description_ara": page.description_ara,
-#                 "is_hidden_page": not page.active_ind,
-#                 "page_id": page.id,
-#                 "categories": [format_category(category)
-#                                for category in page_categories],
-#             }
-#
-#         return {"service_flow": [format_page(page) for page in pages]}
-#
-#     def error_handling(self):
-#         """
-#         Return an error response if no service is provided.
-#         """
-#         return {"error": "Select at least one service before continuing."}
-
-# THIS THE LATEST ONE THAT WORKED
-# class DynamicFlowHelper:
-#     def __init__(self, query):
-#         try:
-#             self.query = {
-#                 "service__in": query.get("service__in"),
-#                 "user": query.get("user"),
-#             }
-#
-#         except:
-#             self.query = {
-#                 "service__in": query
-#             }
-#
-#     def get_flow(self):
-#         """
-#         Entry point to retrieve the full service flow structure.
-#         """
-#         if not self.query["service__in"]:
-#             return self.error_handling()
-#
-#         pages = self.get_pages()
-#         categories = self.get_categories(pages)
-#         fields = self.get_fields(categories)
-#
-#         return self.format_response(pages, categories, fields)
-#
-#     def get_pages(self):
-#         return Page.objects.filter(
-#             service__code__in=self.query["service__in"],
-#             active_ind=True
-#         ).only("id", "name", "sequence_number",
-#         "description").prefetch_related(
-#             Prefetch('category_set',
-#             queryset=Category.objects.filter(active_ind=True))
-#         )
-#
-#     def get_categories(self, pages):
-#         return Category.objects.filter(
-#             page__in=pages,
-#             active_ind=True
-#         ).prefetch_related('field_set')
-#
-#     def get_fields(self, categories):
-#         """
-#         Retrieve fields linked to the provided categories.
-#         """
-#         return Field.objects.filter(
-#             _category__in=categories,
-#             active_ind=True
-#         ).select_related('_field_type')
-#
-#     def format_response(self, pages, categories, fields):
-#         """
-#         Format the response into a JSON-compatible structure.
-#         """
-#
-#         def format_field(field):
-#             return {
-#                 "name": field._field_name,
-#                 "field_id": field.id,
-#                 "display_name": field._field_display_name,
-#                 "display_name_ara": field._field_display_name_ara,
-#                 "field_type": field._field_type.name if field._field_type else None,
-#                 "mandatory": field._mandatory,
-#                 "max_length": field._max_length,
-#                 "min_length": field._min_length,
-#                 "value_greater_than": field._value_greater_than,
-#                 "value_less_than": field._value_less_than,
-#                 "date_greater_than": field._date_greater_than,
-#                 "size_greater_than": field._size_greater_than,
-#                 "size_less_than": field._size_less_than,
-#                 "only_positive": field._only_positive,
-#                 "is_hidden": field._is_hidden,
-#                 "is_disabled": field._is_disabled,
-#             }
-#
-#         def format_category(category):
-#             category_fields = [
-#                 format_field(field)
-#                 for field in fields if category in field._category.all()
-#             ]
-#             return {
-#                 "id": category.id,
-#                 "name": category.name,
-#                 "name_ara": category.name_ara,
-#                 "repeatable": category.is_repeatable,
-#                 "fields": category_fields,
-#             }
-#
-#         def format_page(page):
-#             page_categories = page.category_set.all()
-#             return {
-#                 "sequence_number": page.sequence_number.code \
-#                 if page.sequence_number else None,
-#                 "name": page.name,
-#                 "name_ara": page.name_ara,
-#                 "description": page.description,
-#                 "description_ara": page.description_ara,
-#                 "is_hidden_page": not page.active_ind,
-#                 "page_id": page.id,
-#                 "categories": [format_category(category) \
-#                 for category in page_categories],
-#             }
-#
-#         return {"service_flow": [format_page(page) for page in pages]}
-
-    # def format_response(self, pages, categories, fields):
-    #     """
-    #     Format the response as a JSON-compatible structure.
-    #     """
-    #     flow_details_list = []
+    # def serialize_fields(self, fields):
+    #     """Serialize fields with integration information"""
+    #     serialized_fields = []
     #
-    #     for page in pages:
-    #         page_categories = page.category_set.all()
-    #         flow_details_list.append({
-    #             "sequence_number": page.sequence_number.code \
-#                       if page.sequence_number else None,
-    #             "name": page.name,
-    #             "name_ara": page.name_ara,
-    #             "description": page.description,
-    #             "description_ara": page.description_ara,
-    #             "is_hidden_page": not page.active_ind,
-    #             "page_id": page.id,
-    #             "categories": [
-    #                 {
-    #                     "id": category.id,
-    #                     "name": category.name,
-    #                     "name_ara": category.name_ara,
-    #                     "repeatable": category.is_repeatable,
-    #                     "fields": [
-    #                         {
-    #                             "name": field._field_name,
-    #                             "field_id": field.id,
-    #                             "display_name": field._field_display_name,
-    #                             "display_name_ara": field._field_display_name_ara,
-    #                             "field_type": field._field_type.name \
-#                                           if field._field_type else None,
-    #                             "mandatory": field._mandatory,
-    #                             "max_length": field._max_length,
-    #                             "min_length": field._min_length,
-    #                             "value_greater_than": field._value_greater_than,
-    #                             "value_less_than": field._value_less_than,
-    #                             "date_greater_than": field._date_greater_than,
-    #                             "size_greater_than": field._size_greater_than,
-    #                             "size_less_than": field._size_less_than,
-    #                             "only_positive": field._only_positive,
-    #                             "is_hidden": field._is_hidden,
-    #                             "is_disabled": field._is_disabled,
-    #                         }
-    #                         for field in fields if category in field._category.all()
-    #                     ]
-    #                 }
-    #                 for category in page_categories
-    #             ]
-    #         })
+    #     for field in fields:
+    #         # Use the new serializer that includes integrations
+    #         field_data = FieldWithIntegrationsSerializer(field).data
     #
-    #     return {"service_flow": flow_details_list}
+    #         # Add any additional field processing here
+    #         serialized_fields.append(field_data)
+    #
+    #     return serialized_fields
+
+    def get_field_integrations(self, field):
+        """
+        Get all active integrations for a field
+        """
+        integrations = []
+
+        # Get all active field integrations
+        field_integrations = field.field_integrations.filter(
+            active=True,
+            integration__active_ind=True
+        ).select_related('integration').order_by('order')
+
+        for fi in field_integrations:
+            integration_data = {
+                "id": fi.id,
+                "integration_id": fi.integration.id,
+                "integration_name": fi.integration.name,
+                "trigger_event": fi.trigger_event,
+                "is_async": fi.is_async,
+
+                # Include condition so frontend knows when to trigger
+                "has_condition": bool(fi.condition_expression),
+
+                # Tell frontend if this integration updates fields
+                "updates_fields": fi.update_field_on_response,
+
+                # Include which fields will be updated (for UI hints)
+                "target_fields": list(fi.response_field_mapping.keys()) if fi.response_field_mapping else [],
+
+                # For frontend to show loading states
+                "order": fi.order
+            }
+
+            # For on_change integrations, include more details
+            if fi.trigger_event == 'on_change':
+                integration_data.update({
+                    # Frontend needs to know if it should wait for response
+                    "wait_for_response": not fi.is_async and fi.update_field_on_response,
+
+                    # If there's a simple length condition, frontend can pre-validate
+                    "min_length_trigger": self.extract_min_length_from_condition(fi.condition_expression)
+                })
+
+            integrations.append(integration_data)
+
+        return integrations
+
+    def extract_min_length_from_condition(self, condition):
+        """
+        Extract minimum length from condition for frontend optimization
+        """
+        if not condition:
+            return None
+
+        # Simple pattern matching for common length conditions
+        import re
+
+        # Match patterns like "len(field_value) >= 3" or "len(str(field_value)) == 10"
+        patterns = [
+            r'len\s*\(\s*(?:str\s*\(\s*)?field_value\s*(?:\)\s*)?\)\s*>=\s*(\d+)',
+            r'len\s*\(\s*(?:str\s*\(\s*)?field_value\s*(?:\)\s*)?\)\s*==\s*(\d+)',
+            r'len\s*\(\s*(?:str\s*\(\s*)?field_value\s*(?:\)\s*)?\)\s*>\s*(\d+)'
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, condition)
+            if match:
+                length = int(match.group(1))
+                # For > operator, add 1
+                if '>' in pattern and '>=' not in pattern:
+                    length += 1
+                return length
+
+        return None
+
+
+# Example of what the service flow API should return:
+
+"""
+{
+  "pages": [
+    {
+      "sequence_number": "1",
+      "name": "Personal Information",
+      "categories": [
+        {
+          "name": "Basic Info",
+          "fields": [
+            {
+              "_field_name": "national_id",
+              "_field_display_name": "National ID",
+              "_field_type": "text",
+              "_mandatory": true,
+              "_max_length": 10,
+              "_min_length": 10,
+              "integrations": [
+                {
+                  "id": 1,
+                  "integration_id": 5,
+                  "integration_name": "National ID Lookup",
+                  "trigger_event": "on_change",
+                  "is_async": false,
+                  "has_condition": true,
+                  "updates_fields": true,
+                  "target_fields": ["first_name", "last_name", "date_of_birth"],
+                  "wait_for_response": true,
+                  "min_length_trigger": 10,
+                  "order": 0
+                }
+              ]
+            },
+            {
+              "_field_name": "first_name",
+              "_field_display_name": "First Name",
+              "_field_type": "text",
+              "_mandatory": true,
+              "integrations": []  // No integrations for this field
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+"""
