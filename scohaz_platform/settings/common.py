@@ -206,3 +206,15 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+# API Trigger Settings
+API_TRIGGER_RATE_LIMIT = 10  # Max API calls per minute per case
+API_TRIGGER_TIMEOUT = 30  # Timeout in seconds for synchronous API calls
+API_TRIGGER_LOG_RETENTION_DAYS = 90  # How long to keep API call logs
+
+# If using Celery for async calls
+CELERY_TASK_ROUTES = {
+    'dynamicflow.services.api_trigger_service._trigger_api_call_async': {
+        'queue': 'api_triggers'
+    },
+}

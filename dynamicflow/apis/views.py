@@ -220,6 +220,32 @@ class FieldViewSet(viewsets.ModelViewSet):
     ordering_fields = ['_field_name', '_sequence']
     ordering = ['_sequence', '_field_name']
 
+    @action(detail=False, methods=['get'])
+    def fields_with_api_triggers(self, request):
+        """Get all fields that have API call configurations"""
+        fields = Field.objects.filter(
+            _api_call_config__isnull=False
+        ).exclude(_api_call_config=[])
+
+        result = []
+        for field in fields:
+            result.append({
+                'field_id': field.id,
+                'field_name': field._field_name,
+                'field_display_name': field._field_display_name,
+                'triggers': [
+                    {
+                        'id': config.get('id'),
+                        'event': config.get('event'),
+                        'async': config.get('async', False),
+                        'integration_id': config.get('integration_id')
+                    }
+                    for config in field._api_call_config
+                ]
+            })
+
+        return Response(result)
+
     def get_serializer_class(self):
         if self.action == 'list':
             return FieldListSerializer

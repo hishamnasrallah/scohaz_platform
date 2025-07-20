@@ -9,6 +9,8 @@ import os
 
 from icecream import ic
 from rest_framework.generics import get_object_or_404
+from dynamicflow.models import Field
+from dynamicflow.services.api_trigger_service import APITriggerService
 
 from case.models import Case, MapperExecutionLog, MapperFieldRule, MapperTarget, CaseMapper, ApprovalRecord
 from conditional_approval.apis.serializers import NoteSerializer
@@ -258,14 +260,15 @@ class CaseSerializer(serializers.ModelSerializer):
                 'type': document_type.name
             })
         return updated_files
+
+
     def create(self, validated_data):
         ic(validated_data)
         validated_data = self.remove_invalid_data(validated_data)
 
         if not validated_data.get("is_valid", False):
             raise serializers.ValidationError(
-                {"error": validated_data.get("field_errors",
-                                             "Unknown error")})
+                {"error": validated_data.get("field_errors", "Unknown error")})
 
         files = validated_data.pop('files', [])
         file_types = validated_data.pop('file_types', [])
@@ -295,7 +298,23 @@ class CaseSerializer(serializers.ModelSerializer):
             case_data['uploaded_files'] = file_entries
 
         validated_data['case_data'] = case_data
-        # created_case = super().create(validated_data)
+
+        # ====== ADD THIS SECTION: Pre-save API Calls ======
+        # Fetch fields that have API calls configured AND are present in case_data
+        fields_with_api_calls = Field.objects.filter(
+            _api_call_config__isnull=False,
+            _field_name__in=case_data.keys()  # Only fields present in case_data
+        ).exclude(_api_call_config=[])
+
+        for field in fields_with_api_calls:
+            APITriggerService.trigger_api_calls(
+                field=field,
+                event="pre_save",
+                case_data=case_data,
+                instance=None  # No instance yet for create
+            )
+        # ====== END OF PRE-SAVE API CALLS ======
+
         # Custom handling of the create method
         # where we don't pass `is_valid`, `missing_keys`, etc.
         # Remove invalid fields that are not part of the model
@@ -308,12 +327,27 @@ class CaseSerializer(serializers.ModelSerializer):
 
         created_case = super(CaseSerializer, self).create(validated_data)
 
+        # ====== ADD THIS SECTION: Post-save API Calls ======
+        for field in fields_with_api_calls:
+            APITriggerService.trigger_api_calls(
+                field=field,
+                event="post_save",
+                case_data=created_case.case_data,
+                instance=created_case
+            )
+        # ====== END OF POST-SAVE API CALLS ======
+
         created_case = self.rename_files(created_case, case_data, datetime_str)
         return created_case
 
     def update(self, instance, validated_data):
         print("validated_data")
         ic(validated_data)
+
+        # ====== ADD THIS LINE: Store old data for 'on_change' triggers ======
+        old_case_data = instance.case_data.copy() if instance.case_data else {}
+        # ====== END ======
+
         case_data = instance.case_data or {}
         validated_data = self.remove_invalid_data(validated_data, case_data)
         ic(validated_data)
@@ -332,70 +366,66 @@ class CaseSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         validated_data['updated_by'] = user
 
+        # ====== ADD THIS SECTION: Get new case_data and Pre-save API Calls ======
+        # Get the new case_data that will be saved
+        new_case_data = validated_data.get('case_data', {})
+
+        # Pre-save API Calls
+        fields_with_api_calls = Field.objects.filter(
+            _api_call_config__isnull=False,
+            _field_name__in=list(old_case_data.keys()) + list(new_case_data.keys())
+        ).exclude(_api_call_config=[])
+
+        for field in fields_with_api_calls:
+            APITriggerService.trigger_api_calls(
+                field=field,
+                event="pre_save",
+                case_data=new_case_data,
+                instance=instance,
+                old_case_data=old_case_data
+            )
+        # ====== END OF PRE-SAVE API CALLS ======
+
         # Handle case_data JSON field
         updated_files = []
-        # If no files provided, keep existing files
-        if not files:
-            logger.debug("No new files in request; keeping existing files.")
-        else:
-            # Process new files
-            case_number = instance.serial_number
+        # ... rest of your existing code for file handling ...
 
-            if not case_number:
-                raise ValueError(
-                    "Case number is required for file naming and deletion.")
-
-            datetime_str = timezone.now().strftime('%Y-%m-%d_%H-%M-%S')
-
-            existing_files = case_data.get('uploaded_files', [])
-            updated_files = self.update_file_entries_handler(files,
-                                                             file_types,
-                                                             validated_data,
-                                                             existing_files,
-                                                             instance,
-                                                             case_data,
-                                                             datetime_str)
-            if "uploaded_files" not in case_data:
-                case_data["uploaded_files"] = []
-            if case_data['uploaded_files']:
-                case_data['uploaded_files'] += updated_files
-            else:
-                case_data['uploaded_files'] = updated_files
-
-        # Handle key deletion from case_data
-        for key in keys_to_remove:
-            if key in case_data:
-                logger.debug(f"Removing key '{key}' from case_data.")
-                del case_data[key]
-
-        # Handle JSON field updates
-        new_case_data = validated_data.pop('case_data', {})
-        merged_data = case_data.copy() if case_data else {}
-        merged_data.update(new_case_data)
-        if "uploaded_files" not in merged_data:
-            merged_data["uploaded_files"] = case_data['merged_data'] if 'merged_data' in case_data else []
-        for key, value in merged_data.items():
-            if key in case_data:
-                if case_data[key] != value:
-                    logger.debug(f"Updating key '{key}' in case_data.")
-                    case_data[key] = value
-            else:
-                logger.debug(f"Adding new key '{key}' to case_data.")
-                case_data[key] = value
-
-        instance.case_data = merged_data
-
-        # Patch all other fields
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
+        # ... existing code continues until instance.save() ...
 
         instance.save()
+
+        # ====== ADD THIS SECTION: On-change and Post-save API Calls ======
+        # On-change API Calls
+        for field in fields_with_api_calls:
+            field_name = field._field_name
+            old_value = old_case_data.get(field_name)
+            new_value = instance.case_data.get(field_name)
+
+            if old_value != new_value:
+                APITriggerService.trigger_on_change_for_field(
+                    field=field,
+                    old_value=old_value,
+                    new_value=new_value,
+                    full_old_data=old_case_data,
+                    full_new_data=instance.case_data,
+                    instance=instance
+                )
+
+        # Post-save API Calls
+        for field in fields_with_api_calls:
+            APITriggerService.trigger_api_calls(
+                field=field,
+                event="post_save",
+                case_data=instance.case_data,
+                instance=instance,
+                old_case_data=old_case_data
+            )
+        # ====== END OF API CALLS ======
 
         logger.debug(
             f"Updated case with ID {instance.id}"
             f", files: {case_data.get('uploaded_files', [])}")
         return instance
-
 class ApprovalRecordSerializer(serializers.ModelSerializer):
     action_notes = NoteSerializer(many=True, read_only=True)
 

@@ -1,9 +1,12 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from dynamicflow.models import Workflow, WorkflowConnection, Page, Category, Field, FieldType, Condition
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 from django.utils.safestring import mark_safe
 from django.utils.html import format_html
+
+from integration.models import Integration
+
 
 # Register your models here.
 
@@ -146,6 +149,7 @@ class ConditionInline(admin.TabularInline):
 @admin.register(Field)
 class FieldAdmin(admin.ModelAdmin):
     fieldsets = (
+
         (_('Field Information'), {
             'fields': (
                 'workflow',
@@ -154,6 +158,11 @@ class FieldAdmin(admin.ModelAdmin):
                 '_parent_field',
                 ('_field_display_name', '_field_display_name_ara', '_sequence'),
                 '_category',
+            )
+        }),
+        (_('Integration Information'), {
+            'fields': (
+                '_api_call_config',
             )
         }),
         (_('Text Validators'), {
@@ -238,9 +247,29 @@ class FieldAdmin(admin.ModelAdmin):
                    '_field_type', 'workflow')
     search_fields = ('_field_name', '_field_display_name', '_field_display_name_ara')
     ordering = ('_sequence', '_field_name')
-
+    actions = ['test_api_config']
     inlines = (ConditionInline,)
 
+    @admin.action(description='Test API Configuration')
+    def test_api_config(self, request, queryset):
+        for field in queryset:
+            if field._api_call_config:
+                test_case_data = {field._field_name: "test_value"}
+
+                for config in field._api_call_config:
+                    try:
+                        integration = Integration.objects.get(id=config['integration_id'])
+                        self.message_user(
+                            request,
+                            f"✓ Configuration for {integration.name} is valid",
+                            messages.SUCCESS
+                        )
+                    except Exception as e:
+                        self.message_user(
+                            request,
+                            f"✗ Configuration error: {str(e)}",
+                            messages.ERROR
+                        )
     def get_service_names(self, obj):
         return ", ".join([s.name for s in obj.service.all()[:3]])
     get_service_names.short_description = 'Services'

@@ -11,6 +11,8 @@ from rest_framework.views import APIView
 from case.models import Case, ApprovalRecord, MapperTarget, MapperExecutionLog, CaseMapper, MapperFieldRule, Note
 from conditional_approval.apis.serializers import ActionBasicSerializer, NoteSerializer
 from conditional_approval.models import Action, ApprovalStep, ActionStep, ParallelApprovalGroup
+from dynamicflow.models import Field
+from dynamicflow.services.api_trigger_service import APITriggerService
 from dynamicflow.utils.dynamicflow_validator_helper import DynamicFlowValidator
 from lookup.models import Lookup
 from utils.conditional_approval import evaluate_conditions
@@ -181,119 +183,67 @@ class SubmitApplication(APIView):
 
         return Response({"detail": "Success"}, status=status.HTTP_200_OK)
 
-# last working submit api view before detailed validation
-# class SubmitApplication(APIView):
-#     permission_classes = [IsAuthenticated]
-#
-#     def put(self, request, *args, **kwargs):
-#         # Fetch case object and verify user ownership
-#         case_obj = get_object_or_404(Case, pk=kwargs["pk"])
-#
-#         # Ensure the user belongs to the beneficiary of the case
-#         if self.request.user == case_obj.applicant:
-#
-#             # Fetch the Submit action and corresponding approval step
-#             submit_action = Action.objects.filter(name="Submit").first()
-#             if not submit_action:
-#                 return Response(
-#                     {"detail": "Submit action not found."},
-#                     status=status.HTTP_400_BAD_REQUEST
-#                 )
-#             approval_step = ApprovalStep.objects.filter(
-#                 service_type=case_obj.case_type,
-#                 group=case_obj.assigned_group
-#             ).first()
-#
-#             if not approval_step:
-#                 return Response(
-#                     {"detail": "No valid approval step found"},
-#                     status=status.HTTP_400_BAD_REQUEST)
-#
-#             # Get the next action step based on the submit action
-#             next_step = ActionStep.objects.filter(
-#                 approval_step=approval_step,
-#                 action=submit_action
-#             ).first()
-#             if not next_step:
-#                 return Response(
-#                     {"detail": "No action step found for the submit action."},
-#                     status=status.HTTP_400_BAD_REQUEST
-#                 )
-#             # Dynamically fetch the "Submitted" case status from the Lookup model
-#             case_status = Lookup.objects.filter(
-#                 parent_lookup__name='Case Status',
-#                 name='Submitted').first()
-#             if not case_status:
-#                 return Response(
-#                     {"detail": "Submitted status not found in Lookup model"},
-#                     status=status.HTTP_400_BAD_REQUEST)
-#
-#             # Update the case status and assigned group
-#             case_obj.status = case_status  # Update status dynamically
-#             next_approval_step = ApprovalStep.objects.filter(
-#                 service_type=case_obj.case_type,
-#                 status=next_step.to_status
-#             ).first()
-#
-#             if not next_approval_step:
-#                 return Response(
-#                     {"detail": "Next approval step not found for the given status."},
-#                     status=status.HTTP_400_BAD_REQUEST)
-#
-#             case_obj.assigned_group = next_approval_step.group
-#             case_obj.last_action = submit_action
-#             case_obj.current_approval_step = next_approval_step
-#
-#             # Save case object with updated details
-#             case_obj.save()
-#
-#             # Handle automatic progression based on the current approval step type
-#             new_current_approval_step = ApprovalStep.objects.filter(
-#                 service_type=case_obj.case_type,
-#                 status=case_obj.status
-#             ).first()
-#
-#             if (new_current_approval_step
-#                     and new_current_approval_step.step_type
-#                     == ApprovalStep.STEP_TYPE.AUTO):
-#                 result, condition_obj = evaluate_conditions(
-#                     case_obj, new_current_approval_step)
-#
-#                 if result and condition_obj:
-#                     # Auto-progress case to next status based on condition evaluation
-#                     new_next_approval_step = ApprovalStep.objects.filter(
-#                         service_type=case_obj.case_type,
-#                         status=condition_obj.to_status
-#                     ).first()
-#                     if not next_approval_step:
-#                         return Response(
-#                             {"detail": "Next approval step not found for the given status."},
-#                             status=status.HTTP_400_BAD_REQUEST
-#                         )
-#                     if new_next_approval_step:
-#                         new_case_values = {
-#                             "status": condition_obj.to_status,
-#                             "sub_status": condition_obj.sub_status,
-#                             "assigned_group": new_next_approval_step.group,
-#                             "current_approval_step": new_next_approval_step,
-#                             "assigned_emp": None
-#                         }
-#                         for key, value in new_case_values.items():
-#                             setattr(case_obj, key, value)
-#
-#                         case_obj.save()
-#
-#             return Response({"detail": "success"}, status=status.HTTP_200_OK)
-#
-#         else:
-#             return Response(
-#                 {
-#                     "detail": "you don't have permission to perform this action",
-#                     "detail_ara": "ليس لديك الصلاحية لتنفيذ هذا الامر"
-#                 },
-#                 status=status.HTTP_403_FORBIDDEN
-#             )
 
+class TriggerFieldAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Endpoint for frontend to trigger field API calls
+        """
+        case_id = request.data.get('case_id')
+        field_id = request.data.get('field_id')
+        event_type = request.data.get('event_type', 'on_change')
+        field_value = request.data.get('field_value')
+        old_value = request.data.get('old_value')
+        case_data = request.data.get('case_data', {})
+
+        try:
+            case = Case.objects.get(id=case_id)
+            field = Field.objects.get(id=field_id)
+
+            # Check if field has API configuration
+            if not field._api_call_config:
+                return Response(
+                    {"error": "Field has no API configuration"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Trigger appropriate API calls
+            if event_type == 'on_change':
+                APITriggerService.trigger_on_change_for_field(
+                    field=field,
+                    old_value=old_value,
+                    new_value=field_value,
+                    full_old_data=case.case_data,
+                    full_new_data=case_data,
+                    instance=case
+                )
+            else:
+                APITriggerService.trigger_api_calls(
+                    field=field,
+                    event=event_type,
+                    case_data=case_data,
+                    instance=case
+                )
+
+            return Response({"status": "success"})
+
+        except Case.DoesNotExist:
+            return Response(
+                {"error": "Case not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Field.DoesNotExist:
+            return Response(
+                {"error": "Field not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class EmployeeCasesView(APIView):
     permission_classes = [IsAuthenticated]
@@ -549,49 +499,6 @@ class EmployeeCasesView(APIView):
 
         return case_data
 
-
-# last view was working fine without pararrel approvals
-# class EmployeeCasesView(APIView):
-#     permission_classes = [IsAuthenticated]
-#
-#     def get(self, request):
-#         user = request.user
-#
-#         # Get cases assigned to the user
-#         my_cases = Case.objects.filter(assigned_emp=user)
-#         case_serializer = CaseSerializer(my_cases, many=True)
-#
-#         # Get the count of 'my_cases'
-#         my_cases_count = my_cases.count()
-#
-#         # Get user's groups
-#         user_groups = user.groups.all()
-#
-#         # Get available cases related to the user's groups (not assigned to anyone)
-#         available_cases = Case.objects.filter(
-#             assigned_emp__isnull=True,
-#             assigned_group__in=user_groups
-#         ).distinct()
-#         available_case_serializer = CaseSerializer(available_cases, many=True)
-#
-#         # Get the count of 'available_cases'
-#         available_cases_count = available_cases.count()
-#
-#         # Return the response with the correct counts and results
-#         return Response({
-#             'my_cases': {
-#                 'count': my_cases_count,
-#                 'next': None,
-#                 'previous': None,
-#                 'results': case_serializer.data
-#             },
-#             'available_cases': {
-#                 'count': available_cases_count,
-#                 'next': None,
-#                 'previous': None,
-#                 'results': available_case_serializer.data
-#             }
-#         })
 
 
 class AssignCaseView(APIView):

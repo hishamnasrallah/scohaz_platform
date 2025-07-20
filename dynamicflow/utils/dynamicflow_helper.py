@@ -134,6 +134,10 @@ class DynamicFlowHelper:
             "is_hidden": field._is_hidden,
             "is_disabled": field._is_disabled,
             "visibility_conditions": get_visibility_conditions(field),
+
+            # ====== ADD THIS LINE ======
+            "api_call_config": field._api_call_config if field._api_call_config else [],
+            # ====== END ======
         }
 
         if field_type in {"text", "textarea", "rich_text", "password", "slug", "email", "url", "phone_number"}:

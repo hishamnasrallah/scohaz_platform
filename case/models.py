@@ -251,6 +251,29 @@ class ApprovalRecord(models.Model):
         unique_together = ['case', 'approval_step', 'approved_by']
 
 
+class APICallLog(models.Model):
+    case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name='api_call_logs')
+    field = models.ForeignKey('dynamicflow.Field', on_delete=models.CASCADE)
+    integration = models.ForeignKey('integration.Integration', on_delete=models.CASCADE)
+    event_type = models.CharField(max_length=20)  # pre_save, post_save, on_change
+    request_data = models.JSONField()
+    response_data = models.JSONField(null=True, blank=True)
+    status_code = models.IntegerField(null=True, blank=True)
+    success = models.BooleanField(default=False)
+    error_message = models.TextField(null=True, blank=True)
+    executed_at = models.DateTimeField(auto_now_add=True)
+    duration_ms = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-executed_at']
+        indexes = [
+            models.Index(fields=['case', 'executed_at']),
+            models.Index(fields=['field', 'success']),
+        ]
+
+    def __str__(self):
+        return f"API Call for {self.case.serial_number} - {self.field._field_name} - {self.executed_at}"
+
 class CaseMapper(models.Model):
     """
     Defines the mapping configuration for a particular Case Type

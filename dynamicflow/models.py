@@ -341,6 +341,13 @@ class Field(models.Model):
         null=True,
         blank=True
     )
+    _api_call_config = models.ForeignKey(
+        'integration.Integration',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='field_integration',
+        help_text=_("Choose the integration API to use in this field.")
+    )
     relative_position_x = models.FloatField(default=0)
     relative_position_y = models.FloatField(default=0)
     active_ind = models.BooleanField(
@@ -354,7 +361,18 @@ class Field(models.Model):
 
     def clean(self):
         super().clean()
-
+        # Validate API call configurations
+        if self._api_call_config:
+            from integration.models import Integration
+            for config in self._api_call_config:
+                integration_id = config.get('integration_id')
+                if integration_id:
+                    try:
+                        Integration.objects.get(id=integration_id, active_ind=True)
+                    except Integration.DoesNotExist:
+                        raise ValidationError(
+                            f"Integration with ID {integration_id} does not exist or is inactive."
+                        )
         # Skip validations if the instance
         # is not saved yet (doesn't have a primary key)
         if not self.pk:
