@@ -10,8 +10,10 @@ class PDFElementSerializer(serializers.ModelSerializer):
     class Meta:
         model = PDFElement
         fields = ['id', 'template', 'element_type', 'x_position', 'y_position',
-                  'text_content', 'is_dynamic', 'font_size', 'image_field_path',
-                  'image_filter_type', 'image_index', 'image_width', 'image_height',
+                  'text_content', 'is_dynamic', 'font_size', 'is_lookup_field',
+                  'image_field_path', 'image_filter_type',
+                  'image_selection_method', 'image_filename_contains',
+                  'image_additional_filters', 'image_width', 'image_height',
                   'image_maintain_aspect']
         read_only_fields = ['id']
 

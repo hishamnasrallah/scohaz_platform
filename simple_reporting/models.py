@@ -194,7 +194,10 @@ class PDFElement(models.Model):
         default=False,
         help_text='If true, text_content is a field path'
     )
-
+    is_lookup_field = models.BooleanField(
+        default=False,
+        help_text='If true, the field value is a Lookup ID that should be resolved'
+    )
     # Basic styling for text
     font_size = models.IntegerField(default=12)
 

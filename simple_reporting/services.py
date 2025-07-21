@@ -6,7 +6,7 @@ import re
 from io import BytesIO
 from typing import Dict, Any, Optional
 from urllib.parse import unquote
-from django.db.models import Model, QuerySet
+from django.db.models import Model, QuerySet, ForeignKey
 from django.conf import settings
 from reportlab.lib.pagesizes import A4, letter
 from reportlab.pdfgen import canvas
@@ -14,6 +14,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
+from lookup.models import Lookup
 
 # PDF merging support
 from PyPDF2 import PdfReader, PdfWriter
@@ -242,7 +243,7 @@ class PDFGenerator:
 
         # Get text
         if element.is_dynamic and obj:
-            text = self._get_value_from_object(obj, element.text_content)
+            text = self._get_value_from_object(obj, element.text_content, element)  # Note the 'element' parameter
         else:
             text = element.text_content
 
@@ -266,7 +267,6 @@ class PDFGenerator:
         # Draw text (ReportLab uses bottom-left origin)
         y = self.page_height - element.y_position
         c.drawString(element.x_position, y, text)
-
     def _draw_image_element(self, c: canvas.Canvas, element: PDFElement, obj: Optional[Model]):
         """Draw an image element from JSON field"""
         if not obj or not element.image_field_path:
@@ -449,7 +449,7 @@ class PDFGenerator:
             print(f"Error processing Arabic text: {str(e)}")
             return text
 
-    def _get_value_from_object(self, obj: Model, field_path: str) -> Any:
+    def _get_value_from_object(self, obj: Model, field_path: str, element: PDFElement = None) -> Any:
         """Get value from object using dot notation and bracket notation for JSON fields"""
         if not field_path:
             return None
@@ -482,4 +482,67 @@ class PDFGenerator:
             else:
                 return None
 
+        # Now check if we should resolve this as a lookup
+        if (value is not None and element and
+                hasattr(element, 'is_lookup_field') and element.is_lookup_field):
+            # This value is a lookup ID, resolve it
+            return self._resolve_lookup_value(value, element)
+
         return value
+
+    def _resolve_lookup_value(self, lookup_id: Any, element: PDFElement) -> str:
+        """Resolve a lookup ID to its display value"""
+        from lookup.models import Lookup
+
+        try:
+            # Convert to int if needed
+            if isinstance(lookup_id, str) and lookup_id.isdigit():
+                lookup_id = int(lookup_id)
+
+            # Get the lookup instance
+            lookup = Lookup.objects.get(pk=lookup_id)
+
+            # Get display value based on language
+            if hasattr(element, 'lookup_display_language'):
+                if element.lookup_display_language == 'ar':
+                    return getattr(lookup, 'name_ara', None) or getattr(lookup, 'name', str(lookup_id))
+                elif element.lookup_display_language == 'both':
+                    name_en = getattr(lookup, 'name', '')
+                    name_ar = getattr(lookup, 'name_ara', '')
+                    return f"{name_en} / {name_ar}"
+                else:  # default to 'en'
+                    return getattr(lookup, 'name', str(lookup_id))
+            else:
+                return getattr(lookup, 'name', str(lookup_id))
+
+        except (Lookup.DoesNotExist, ValueError):
+            # If lookup not found or invalid ID, return original value
+            return str(lookup_id)
+
+    @staticmethod
+    def get_lookup_fields_for_model(model_class):
+        """Get all fields that are ForeignKeys to Lookup model"""
+        from lookup.models import Lookup, LookupConfig
+        lookup_fields = []
+
+        # Get direct ForeignKey fields to Lookup
+        for field in model_class._meta.get_fields():
+            if isinstance(field, ForeignKey) and field.related_model == Lookup:
+                lookup_fields.append({
+                    'field_name': field.name,
+                    'field_verbose_name': field.verbose_name,
+                    'lookup_category': None
+                })
+
+        # Get configured lookup categories
+        model_name = model_class._meta.model_name
+        configs = LookupConfig.objects.filter(model_name__iexact=model_name)
+
+        for config in configs:
+            # Update with category info if exists
+            for lf in lookup_fields:
+                if lf['field_name'] == config.field_name:
+                    lf['lookup_category'] = config.lookup_category
+                    break
+
+        return lookup_fields

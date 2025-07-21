@@ -37,7 +37,8 @@ class PDFElementInline(admin.TabularInline):
             'fields': ('element_type', 'x_position', 'y_position')
         }),
         ('Text Settings', {
-            'fields': ('text_content', 'is_dynamic', 'font_size'),
+            'fields': ('text_content', 'is_dynamic', 'font_size',
+                       'is_lookup_field'),
             'classes': ('text-fields',)
         }),
         ('Image Settings', {
@@ -48,7 +49,6 @@ class PDFElementInline(admin.TabularInline):
         })
     )
 
-
 # Alternative approach with separate inlines for better UX
 class PDFTextElementInline(admin.TabularInline):
     model = PDFElement
@@ -57,7 +57,8 @@ class PDFTextElementInline(admin.TabularInline):
     verbose_name_plural = "Text Elements"
 
     fields = ['element_type', 'x_position', 'y_position', 'text_content',
-              'is_dynamic', 'font_size']
+              'is_dynamic', 'font_size', 'is_lookup_field',
+              ]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -159,7 +160,8 @@ class PDFElementAdmin(admin.ModelAdmin):
             'description': 'Position in points from top-left corner'
         }),
         ('Text Configuration', {
-            'fields': ('text_content', 'is_dynamic', 'font_size'),
+            'fields': ('text_content', 'is_dynamic', 'font_size',
+                       'is_lookup_field'),
             'classes': ('collapse',),
             'description': 'Settings for text elements'
         }),
