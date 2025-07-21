@@ -256,3 +256,42 @@ class ContentTypeFieldsView(views.APIView):
 
         except ContentType.DoesNotExist:
             return Response({'error': 'Content type not found'}, status=404)
+
+
+class PDFTemplatePreviewView(views.APIView):
+    """Preview page dimensions and layout"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Calculate page dimensions for given settings"""
+        page_size = request.data.get('page_size', 'A4')
+        orientation = request.data.get('page_orientation', 'portrait')
+        custom_width = request.data.get('custom_width')
+        custom_height = request.data.get('custom_height')
+        ratio_base_width = request.data.get('ratio_base_width', 1920)
+
+        # Create temporary template instance for calculation
+        temp_template = PDFTemplate(
+            page_size=page_size,
+            page_orientation=orientation,
+            custom_width=custom_width,
+            custom_height=custom_height,
+            ratio_base_width=ratio_base_width
+        )
+
+        width, height = temp_template.get_page_dimensions()
+
+        return Response({
+            'dimensions': {
+                'width_points': round(width, 2),
+                'height_points': round(height, 2),
+                'width_pixels': round(width / 0.75),
+                'height_pixels': round(height / 0.75),
+                'width_inches': round(width / 72, 2),
+                'height_inches': round(height / 72, 2),
+                'width_mm': round(width * 0.352778, 2),
+                'height_mm': round(height * 0.352778, 2)
+            },
+            'orientation': orientation,
+            'page_size': page_size
+        })
