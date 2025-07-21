@@ -283,7 +283,19 @@ class DynamicFlowHelper:
                 "target_fields": list(fi.response_field_mapping.keys()) if fi.response_field_mapping else [],
 
                 # For frontend to show loading states
-                "order": fi.order
+                "order": fi.order,
+
+                # Add integration configuration details
+                "endpoint": fi.integration.endpoint,
+                "method": fi.integration.method,
+                "headers": fi.integration.headers,
+                "authentication_type": fi.integration.authentication_type,
+                "path_param_mapping": fi.path_param_mapping or fi.integration.path_param_mapping,
+                "payload_mapping": fi.payload_mapping,
+                "query_param_mapping": fi.query_param_mapping,
+                "header_mapping": fi.header_mapping,
+                "response_field_path": fi.response_field_path,
+                "response_field_mapping": fi.response_field_mapping,
             }
 
             # For on_change integrations, include more details

@@ -1058,24 +1058,69 @@ class NoteViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """
         Set audit fields when creating a note.
+        Intelligently link to an approval record based on context.
         """
+        case_id = self.request.data.get('case')
+        related_approval_record_id = self.request.data.get('related_approval_record')
+
+        # If an approval record is explicitly provided, use it
+        if related_approval_record_id:
+            try:
+                related_approval_record = ApprovalRecord.objects.get(pk=related_approval_record_id)
+            except ApprovalRecord.DoesNotExist:
+                related_approval_record = None
+        else:
+            related_approval_record = None
+
+            # If no approval record specified, try to find a relevant one
+            if case_id:
+                try:
+                    case = Case.objects.get(pk=case_id)
+
+                    # Priority 1: Most recent approval record by the current user for this case
+                    user_approval = ApprovalRecord.objects.filter(
+                        case=case,
+                        approved_by=self.request.user
+                    ).order_by('-approved_at').first()
+
+                    if user_approval:
+                        related_approval_record = user_approval
+                    else:
+                        # Priority 2: Most recent approval record for the current approval step
+                        if case.current_approval_step:
+                            step_approval = ApprovalRecord.objects.filter(
+                                case=case,
+                                approval_step=case.current_approval_step
+                            ).order_by('-approved_at').first()
+
+                            if step_approval:
+                                related_approval_record = step_approval
+                            else:
+                                # Priority 3: Most recent approval record for this case
+                                related_approval_record = ApprovalRecord.objects.filter(
+                                    case=case
+                                ).order_by('-approved_at').first()
+
+                except Case.DoesNotExist:
+                    pass
+
         serializer.save(
             author=self.request.user,
             created_by=self.request.user,
-            updated_by=self.request.user
+            updated_by=self.request.user,
+            related_approval_record=related_approval_record
         )
 
-    def perform_update(self, serializer):
-        """
-        Update the updated_by field when modifying a note.
-        """
-        serializer.save(updated_by=self.request.user)
+        def perform_update(self, serializer):
+            """
+            Update the updated_by field when modifying a note.
+            """
+            serializer.save(updated_by=self.request.user)
 
-    @action(detail=False, methods=['get'], url_path='by_case/(?P<case_id>[^/.]+)')
+    @action(detail=False, methods=['get'], url_path='by_case/(?P<case_id>\d+)')
     def by_case(self, request, case_id=None):
         """
         Get all notes for a specific case.
-
         URL: /notes/by_case/{case_id}/
         """
         try:
@@ -1090,7 +1135,7 @@ class NoteViewSet(viewsets.ModelViewSet):
 
             serializer = self.get_serializer(notes, many=True)
             return Response({
-                'case_id': case_id,
+                'case_id': int(case_id),  # Ensure it's an integer
                 'case_serial_number': case.serial_number,
                 'total_notes': notes.count(),
                 'notes': serializer.data

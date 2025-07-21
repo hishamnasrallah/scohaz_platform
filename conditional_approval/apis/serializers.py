@@ -141,8 +141,7 @@ class NoteSerializer(serializers.ModelSerializer):
             'created_by', 'created_by_username', 'updated_by', 'updated_by_username'
         ]
         read_only_fields = [
-            'id', 'case', 'case_serial_number', 'author', 'author_username',
-            'author_full_name', 'related_approval_record', 'related_approval_record_id',
-            'created_at', 'updated_at', 'created_by', 'created_by_username',
-            'updated_by', 'updated_by_username'
+            'id', 'case_serial_number', 'author', 'author_username',  # Removed 'case' from here
+            'author_full_name', 'created_at', 'updated_at',
+            'created_by', 'created_by_username', 'updated_by', 'updated_by_username'
         ]
