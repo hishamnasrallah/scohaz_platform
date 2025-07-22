@@ -4,6 +4,7 @@ from rest_framework import serializers
 from case.models import Note
 from conditional_approval.models import Action, ApprovalStep, ParallelApprovalGroup, APICallCondition, \
     ApprovalStepCondition, ActionStep
+from integration.models import Integration
 from lookup.models import Lookup
 
 
@@ -29,11 +30,11 @@ class GroupSerializer(serializers.ModelSerializer):
 class ActionSerializer(serializers.ModelSerializer):
     groups = GroupSerializer(many=True, read_only=True)
     services = LookupSerializer(many=True, read_only=True)
+    integration = serializers.PrimaryKeyRelatedField(queryset=Integration.objects.all(), required=False, allow_null=True) # Add this line
 
     class Meta:
         model = Action
         fields = '__all__'
-
 
 class ActionStepSerializer(serializers.ModelSerializer):
     action = ActionSerializer(read_only=True)
@@ -43,6 +44,7 @@ class ActionStepSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActionStep
         fields = '__all__'
+
 
 
 class ApprovalStepConditionSerializer(serializers.ModelSerializer):

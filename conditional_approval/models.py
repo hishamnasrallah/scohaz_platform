@@ -19,6 +19,14 @@ class Action(models.Model):
         default=False,
         help_text=_("If true, a note is required when this action is taken.")
     )
+    integration = models.ForeignKey(
+        "integration.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='actions_triggered',
+        help_text="Optional: Link this action to an external API integration."
+    )
     code = models.CharField(max_length=20, null=True, blank=True)
     active_ind = models.BooleanField(default=True, null=True, blank=True)
 

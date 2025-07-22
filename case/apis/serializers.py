@@ -13,14 +13,29 @@ from dynamicflow.models import Field
 from dynamicflow.services.api_trigger_service import APITriggerService
 
 from case.models import Case, MapperExecutionLog, MapperFieldRule, MapperTarget, CaseMapper, ApprovalRecord
-from conditional_approval.apis.serializers import NoteSerializer
-from conditional_approval.models import ApprovalStep, Action
+from conditional_approval.apis.serializers import NoteSerializer, ActionBasicSerializer
+from conditional_approval.models import ApprovalStep, Action, ActionStep # Ensure ActionStep is imported
 from dynamicflow.utils.dynamicflow_helper import DynamicFlowHelper
 from dynamicflow.utils.dynamicflow_validator_helper import DynamicFlowValidator
 from urllib.parse import unquote
 from rest_framework import serializers
 from lookup.models import Lookup
 from django.core.files.storage import default_storage
+
+
+class LightActionStepSerializer(serializers.ModelSerializer):
+    action_name = serializers.CharField(source='action.name', read_only=True)
+    action_code = serializers.CharField(source='action.code', read_only=True)
+    to_status_name = serializers.CharField(source='to_status.name', read_only=True)
+    sub_status_name = serializers.CharField(source='sub_status.name', read_only=True)
+    notes_mandatory = serializers.BooleanField(source='action.notes_mandatory', read_only=True)
+
+    class Meta:
+        model = ActionStep
+        fields = [
+            'id', 'action_name', 'action_code', 'to_status_name',
+            'sub_status_name', 'notes_mandatory'
+        ]
 
 
 class CaseSerializer(serializers.ModelSerializer):
@@ -57,14 +72,79 @@ class CaseSerializer(serializers.ModelSerializer):
     case_data = serializers.JSONField(required=False)
     notes = NoteSerializer(many=True, read_only=True)
 
+    available_applicant_actions = serializers.SerializerMethodField()
+
     class Meta:
         model = Case
         fields = '__all__'
         read_only_fields = (
             'applicant', 'status', 'sub_status', 'assigned_group',
             'serial_number', 'created_at', 'updated_at', 'created_by',
-            'assigned_emp', 'last_action', 'current_approval_step', 'updated_by')
+            'assigned_emp', 'last_action', 'current_approval_step', 'updated_by',
+            'available_applicant_actions')
 
+    def get_available_applicant_actions(self, obj):
+        """
+        Determines the actions an applicant can take on a specific case,
+        replicating the logic from the employee view's action determination.
+        """
+        available_actions_list = []
+
+        # If there's no current approval step, no actions are available
+        if not obj.current_approval_step:
+            return []
+
+        approval_step = obj.current_approval_step
+
+        # Get the current user from the serializer context
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return [] # No authenticated user, no actions
+
+        user = request.user
+        user_groups = user.groups.all()
+
+        # --- Determine if the applicant can "approve" this step ---
+        # This logic is derived from the 'can_approve' part of your _serialize_case_with_actions
+        can_applicant_approve_this_step = False
+
+        # Check if this is a parallel approval step
+        parallel_groups = approval_step.parallel_approval_groups.all()
+        if parallel_groups.exists() and approval_step.required_approvals:
+            # Parallel approval step: check if the user has already approved
+            user_has_approved = ApprovalRecord.objects.filter(
+                case=obj,
+                approval_step=approval_step,
+                approved_by=user
+            ).exists()
+            can_applicant_approve_this_step = not user_has_approved
+        else:
+            # Sequential approval step (or no parallel config):
+            # For the applicant, if an action is available on their case, they are implicitly
+            # the one who can perform it at this stage.
+            can_applicant_approve_this_step = True
+
+        # --- Fetch and filter ActionSteps ---
+        action_steps = approval_step.actions.filter(
+            active_ind=True,
+            action__active_ind=True, # Ensure the action itself is active
+        ).select_related('action')
+
+        for step in action_steps:
+            action = step.action
+            if not action:
+                continue
+
+            # Check if the action's associated groups (if any) intersect with the user's groups.
+            # This is important for actions that might be restricted to certain applicant "roles" or groups.
+            action_groups = action.groups.all()
+            is_group_allowed = not action_groups.exists() or action_groups.intersection(user_groups).exists()
+
+            # If the action is allowed by group and the applicant can approve this step
+            if is_group_allowed and can_applicant_approve_this_step:
+                available_actions_list.append(ActionBasicSerializer(action).data)
+
+        return available_actions_list
     def validate(self, data):
         # Retrieve service flow dynamically (adjust based on your query fetching logic)
         query = [data["case_type"].code]
@@ -426,6 +506,7 @@ class CaseSerializer(serializers.ModelSerializer):
             f"Updated case with ID {instance.id}"
             f", files: {case_data.get('uploaded_files', [])}")
         return instance
+
 class ApprovalRecordSerializer(serializers.ModelSerializer):
     action_notes = NoteSerializer(many=True, read_only=True)
 
@@ -474,3 +555,20 @@ class CaseMapperSerializer(serializers.ModelSerializer):
     class Meta:
         model = CaseMapper
         fields = '__all__'
+
+
+class ApplicantActionInputSerializer(serializers.Serializer):
+    action_id = serializers.IntegerField(
+        help_text="Code of the action to be performed (e.g., 'PAY', 'UPLOAD_DOCS')"
+    )
+    notes = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional notes for the action"
+    )
+
+    def validate(self, data):
+        # Basic validation: ensure action_code is not empty
+        if not data.get('action_id'):
+            raise serializers.ValidationError("Action code is required.")
+        return data

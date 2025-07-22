@@ -8,7 +8,10 @@ from conditional_approval.models import (ApprovalStep, Action,
 
 @admin.register(Action)
 class BeneficiaryTypeAdmin(admin.ModelAdmin):
-    list_display = ['name', 'name_ara', 'code', 'active_ind']
+    list_display = ['name', 'name_ara', 'code', 'integration', 'active_ind'] # Add 'integration'
+    fieldsets = (
+        (None, {'fields': ('name', 'name_ara', 'code', 'active_ind', 'notes_mandatory', 'groups', 'services', 'integration')}), # Add 'integration'
+    )
 
 
 class ActionStepInline(admin.TabularInline):  # or admin.StackedInline

@@ -18,7 +18,7 @@ from lookup.models import Lookup
 from utils.conditional_approval import evaluate_conditions
 from dynamicflow.utils.dynamicflow_helper import DynamicFlowHelper
 from .serializers import CaseSerializer, RunMapperInputSerializer, DryRunMapperInputSerializer, \
-    MapperExecutionLogSerializer, CaseMapperSerializer, MapperTargetSerializer, MapperFieldRuleSerializer
+    MapperExecutionLogSerializer, CaseMapperSerializer, MapperTargetSerializer, MapperFieldRuleSerializer, ApplicantActionInputSerializer
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -788,6 +788,14 @@ class ApprovalFlowActionCaseView(APIView):
 
                 # Update case immediately
                 self.update_case(case_obj, action_step)
+
+                if action_step.action.integration:
+                    APITriggerService.trigger_integration_from_action(
+                        integration=action_step.action.integration,
+                        case_instance=case_obj,
+                        user=request.user,
+                        event_type=f"action_{action_step.action.code}" # Use action code as event type
+                    )
 
                 # Handle auto-approval if next step is AUTO
                 self.handle_auto_approval(case_obj)
@@ -1604,6 +1612,104 @@ class UserCaseActionsView(APIView):
         else:
             response_data = {}
         return Response(response_data)
+
+class ApplicantActionView(APIView):
+    """
+    API endpoint for applicants to perform actions on their cases.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk, *args, **kwargs):
+        case = get_object_or_404(Case, pk=pk)
+        serializer = ApplicantActionInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        action_id = serializer.validated_data['action_id']
+        notes_content = serializer.validated_data.get('notes')
+        # case_data_updates is no longer part of this serializer's validation
+
+        # Ensure the applicant is the owner of the case
+        if case.applicant != request.user:
+            return Response(
+                {"detail": "You are not authorized to perform actions on this case."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Check if the case has a current approval step
+        if not case.current_approval_step:
+            return Response(
+                {"detail": "Case is not in an active approval step."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Find the specific ActionStep for the requested action_id
+        action_step = ActionStep.objects.filter(
+            approval_step=case.current_approval_step,
+            action_id=action_id,
+            active_ind=True
+        ).select_related('action', 'to_status', 'sub_status').first()
+
+        if not action_step:
+            return Response(
+                {"detail": f"Action '{action_id}' is not available for the current step."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Re-evaluate conditions on the backend for security
+        conditions_met, _ = evaluate_conditions(case, action_step.approval_step)
+        # if not conditions_met:
+        #     return Response(
+        #         {"detail": f"Conditions for action '{action_id}' are not met."},
+        #         status=status.HTTP_400_BAD_REQUEST
+        #     )
+
+        # Check if notes are mandatory for this action
+        if action_step.action.notes_mandatory and not notes_content:
+            return Response(
+                {"detail": "Notes are mandatory for this action."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            # No case_data updates here. Those should be handled by PUT/PATCH on /case/cases/<pk>/
+
+            # Update case status and sub-status based on action_step
+            case.status = action_step.to_status
+            case.sub_status = action_step.sub_status
+            case.last_action = action_step.action
+            case.updated_by = request.user # Applicant is updating the case
+
+            # Create an ApprovalRecord for this action
+            approval_record = ApprovalRecord.objects.create(
+                case=case,
+                approved_by=request.user, # The applicant is the one taking the action
+                approval_step=action_step.approval_step,
+                action_taken=action_step.action,
+            )
+
+            # Optionally, create a Note object if notes_content is provided
+            if notes_content:
+                Note.objects.create(
+                    case=case,
+                    author=request.user,
+                    content=notes_content,
+                    related_approval_record=approval_record # Link to the newly created record
+                )
+
+            # Save the updated case
+            case.save()
+            if action_step.action.integration:
+                APITriggerService.trigger_integration_from_action(
+                    integration=action_step.action.integration,
+                    case_instance=case,
+                    user=request.user,
+                    event_type=f"applicant_action_{action_step.action.code}" # Use action code as event type
+                )
+        return Response(
+            {"detail": f"Action '{action_id}' performed successfully.", "case_id": case.id},
+            status=status.HTTP_200_OK
+        )
+
 
 
 class RunMapperAPIView(views.APIView):

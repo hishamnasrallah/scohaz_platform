@@ -64,17 +64,25 @@ class IntegrationAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Basic Information', {
-            'fields': ('name', 'integration_type', 'active_ind')  # ⭐ Add active_ind
+            'fields': ('name', 'integration_type', 'active_ind')
         }),
         ('API Configuration', {
             'fields': (
                 'endpoint',
                 'method',
-                'path_param_mapping',  # ⭐ MISSING - Add this!
                 'headers',
                 'request_body',
                 'query_params'
             )
+        }),
+        ('Dynamic Data Mapping (for Action/Field Integrations)', { # New section
+            'fields': (
+                'payload_mapping',
+                'query_param_mapping',
+                'header_mapping',
+                'path_param_mapping',
+            ),
+            'classes': ('collapse',)
         }),
         ('Authentication', {
             'fields': ('authentication_type', 'auth_credentials'),

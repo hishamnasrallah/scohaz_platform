@@ -9,6 +9,11 @@ from django.core.cache import cache
 from django.conf import settings
 from celery import shared_task
 
+from case.models import APICallLog
+from integration.models import Integration
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
@@ -73,7 +78,6 @@ class APITriggerService:
     """
     Service to handle dynamic API call triggering based on field integrations.
     """
-
     @staticmethod
     def trigger_api_calls(
             field: 'Field',
@@ -190,7 +194,102 @@ class APITriggerService:
                         )
 
                     logger.error(f"Integration {field_integration} failed: {e}")
+    @staticmethod
+    def _extract_mapped_data(mapping_config: Dict[str, str], source_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Helper to extract values from source_data based on a mapping configuration.
+        Mapping config: {'api_key': 'case_data_path'}
+        """
+        extracted_data = {}
+        for api_key, case_data_path in mapping_config.items():
+            # Simple dot notation for now, can be extended for complex JSONPath
+            parts = case_data_path.split('.')
+            current_value = source_data
+            found = True
+            for part in parts:
+                if isinstance(current_value, dict) and part in current_value:
+                    current_value = current_value[part]
+                else:
+                    found = False
+                    break
+            if found:
+                extracted_data[api_key] = current_value
+        return extracted_data
 
+    @staticmethod
+    def trigger_integration_from_action(
+            integration: Integration,
+            case_instance: 'Case',
+            user: User,
+            event_type: str = "action_triggered"
+    ):
+        """
+        Triggers a specific Integration directly from an Action.
+        Dynamically populates request data using mappings defined on the Integration model.
+        """
+        start_time = time.time()
+        case_data = case_instance.case_data or {}
+
+        # Prepare request data based on Integration's mapping fields
+        payload = APITriggerService._extract_mapped_data(integration.payload_mapping, case_data)
+        query_params = APITriggerService._extract_mapped_data(integration.query_param_mapping, case_data)
+        headers = APITriggerService._extract_mapped_data(integration.header_mapping, case_data)
+        path_params = APITriggerService._extract_mapped_data(integration.path_param_mapping, case_data)
+
+        # Log the attempt
+        request_log_data = {
+            'body': payload,
+            'query_params': query_params,
+            'headers': headers,
+            'path_params': path_params
+        }
+
+        try:
+            # Make the API request
+            response = integration.make_api_request(
+                body=payload,
+                query_params=query_params,
+                headers=headers,
+                path_params=path_params
+            )
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            # Log successful call
+            APICallLog.objects.create(
+                case=case_instance,
+                # field=None, # No specific field triggered this
+                integration=integration,
+                event_type=event_type,
+                request_data=request_log_data,
+                response_data=response,
+                status_code=200,
+                success=True,
+                duration_ms=duration_ms
+            )
+            logger.info(f"Integration '{integration.name}' triggered by action for Case {case_instance.id} successfully.")
+
+            # Handle response mapping if needed (similar to FieldIntegration)
+            if integration.response_mapping:
+                # This part needs to be implemented based on your response_mapping logic
+                # For example, update case_instance.case_data based on response_mapping
+                pass
+
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"Integration '{integration.name}' triggered by action for Case {case_instance.id} failed: {e}")
+
+            # Log failed call
+            APICallLog.objects.create(
+                case=case_instance,
+                # field=None,
+                integration=integration,
+                event_type=event_type,
+                request_data=request_log_data,
+                success=False,
+                error_message=str(e),
+                duration_ms=duration_ms
+            )
+            # Optionally re-raise or handle retry logic here
     @staticmethod
     def trigger_on_change_for_field(
             field: 'Field',

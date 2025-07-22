@@ -5,7 +5,7 @@ from case.apis.views import (CaseViewSet, SubmitApplication,
                              ApprovalFlowActionCaseView, UserCaseActionsView, RunMapperAPIView, DryRunMapperAPIView,
                              MapperExecutionLogListAPIView, MapperExecutionLogDetailAPIView, CaseMapperViewSet,
                              MapperTargetViewSet, MapperFieldRuleViewSet, NoteViewSet, TriggerFieldAPIView,
-                             FieldIntegrationsListView)
+                             FieldIntegrationsListView, ApplicantActionView)
 from case.apps import CaseConfig
 
 app_name = CaseConfig.name
@@ -32,6 +32,7 @@ urlpatterns = [
          UserCaseActionsView.as_view(), name='user-cases-actions'),
     path('trigger-field-api/', TriggerFieldAPIView.as_view(), name='trigger-field-api'),
     path('field-integrations/<int:field_id>/', FieldIntegrationsListView.as_view(), name='field-integrations'),
+    path('cases/<int:pk>/applicant-action/', ApplicantActionView.as_view(), name='applicant-action'),
 
     # path('cases/<int:case>/documents/',
     #      CaseDocumentsAPIView.as_view(), name='case_documents'),

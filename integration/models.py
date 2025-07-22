@@ -40,11 +40,26 @@ class Integration(models.Model):
     )
     auth_credentials = models.JSONField(default=dict, blank=True, null=True)
 
-    # New field for URL path parameter mapping
-    path_param_mapping = models.JSONField(
+    # Dynamic mapping configurations for action-triggered calls
+    payload_mapping = models.JSONField(
         default=dict,
         blank=True,
-        help_text="Map URL placeholders to field names. Example: {'number': 'phone_number', 'user_id': 'applicant_id'}"
+        help_text="Map case_data fields to API payload. Example: {'api_field': 'case_field_name'}"
+    )
+    query_param_mapping = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Map case_data fields to query parameters. Example: {"api_param": "case_data_field"}'
+    )
+    header_mapping = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Map case_data fields to headers. Example: {"X-Custom-Header": "case_data_header_field"}'
+    )
+    path_param_mapping = models.JSONField( # This is already there
+        default=dict,
+        blank=True,
+        help_text="Map URL placeholders to case_data field names. Example: {'number': 'phone_number', 'user_id': 'applicant_id'}"
     )
 
     active_ind = models.BooleanField(default=True)
