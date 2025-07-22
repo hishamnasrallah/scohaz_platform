@@ -85,66 +85,69 @@ class CaseSerializer(serializers.ModelSerializer):
 
     def get_available_applicant_actions(self, obj):
         """
-        Determines the actions an applicant can take on a specific case,
-        replicating the logic from the employee view's action determination.
+        Determines the actions an applicant can take on their own case.
+        Only shows actions that are specifically meant for applicants.
         """
         available_actions_list = []
+
+        # Get the current user from the serializer context
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            return []
+
+        user = request.user
+
+        # IMPORTANT: Only the case owner (applicant) can see/take actions
+        if obj.applicant != user:
+            return []
 
         # If there's no current approval step, no actions are available
         if not obj.current_approval_step:
             return []
 
         approval_step = obj.current_approval_step
-
-        # Get the current user from the serializer context
-        request = self.context.get('request')
-        if not request or not request.user.is_authenticated:
-            return [] # No authenticated user, no actions
-
-        user = request.user
         user_groups = user.groups.all()
 
-        # --- Determine if the applicant can "approve" this step ---
-        # This logic is derived from the 'can_approve' part of your _serialize_case_with_actions
-        can_applicant_approve_this_step = False
+        # Check if the user has already taken an action at this step
+        existing_action = ApprovalRecord.objects.filter(
+            case=obj,
+            approval_step=approval_step,
+            approved_by=user
+        ).first()
 
-        # Check if this is a parallel approval step
-        parallel_groups = approval_step.parallel_approval_groups.all()
-        if parallel_groups.exists() and approval_step.required_approvals:
-            # Parallel approval step: check if the user has already approved
-            user_has_approved = ApprovalRecord.objects.filter(
-                case=obj,
-                approval_step=approval_step,
-                approved_by=user
-            ).exists()
-            can_applicant_approve_this_step = not user_has_approved
-        else:
-            # Sequential approval step (or no parallel config):
-            # For the applicant, if an action is available on their case, they are implicitly
-            # the one who can perform it at this stage.
-            can_applicant_approve_this_step = True
+        # If user already took an action at this step, no more actions available
+        if existing_action:
+            return []
 
-        # --- Fetch and filter ActionSteps ---
+        # Get action steps available at the current approval step
         action_steps = approval_step.actions.filter(
             active_ind=True,
-            action__active_ind=True, # Ensure the action itself is active
-        ).select_related('action')
+            action__active_ind=True,
+        ).select_related('action', 'to_status', 'sub_status')
 
         for step in action_steps:
             action = step.action
             if not action:
                 continue
 
-            # Check if the action's associated groups (if any) intersect with the user's groups.
-            # This is important for actions that might be restricted to certain applicant "roles" or groups.
+            # Check if the action is meant for applicants
+            # This checks if the action's groups include any of the user's groups
+            # Typically, applicant actions would be assigned to a "Public User" or "Applicant" group
             action_groups = action.groups.all()
-            is_group_allowed = not action_groups.exists() or action_groups.intersection(user_groups).exists()
 
-            # If the action is allowed by group and the applicant can approve this step
-            if is_group_allowed and can_applicant_approve_this_step:
-                available_actions_list.append(ActionBasicSerializer(action).data)
+            # If no groups are specified, skip (this is likely an employee-only action)
+            # Or if the action has groups, check if user has any of those groups
+            if action_groups.exists():
+                if action_groups.intersection(user_groups).exists():
+                    # Add the action with additional metadata
+                    action_data = ActionBasicSerializer(action).data
+                    action_data['action_step_id'] = step.id
+                    action_data['to_status'] = step.to_status.name if step.to_status else None
+                    action_data['sub_status'] = step.sub_status.name if step.sub_status else None
+                    available_actions_list.append(action_data)
 
         return available_actions_list
+
     def validate(self, data):
         # Retrieve service flow dynamically (adjust based on your query fetching logic)
         query = [data["case_type"].code]

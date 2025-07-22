@@ -1655,13 +1655,29 @@ class ApplicantActionView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Re-evaluate conditions on the backend for security
-        conditions_met, _ = evaluate_conditions(case, action_step.approval_step)
-        # if not conditions_met:
-        #     return Response(
-        #         {"detail": f"Conditions for action '{action_id}' are not met."},
-        #         status=status.HTTP_400_BAD_REQUEST
-        #     )
+        # Verify this action is actually available to the applicant
+        # Double-check by using the same logic as get_available_applicant_actions
+        user_groups = request.user.groups.all()
+        action_groups = action_step.action.groups.all()
+
+        if action_groups.exists() and not action_groups.intersection(user_groups).exists():
+            return Response(
+                {"detail": "You are not authorized to perform this action."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Check if user already took an action at this step
+        existing_action = ApprovalRecord.objects.filter(
+            case=case,
+            approval_step=case.current_approval_step,
+            approved_by=request.user
+        ).first()
+
+        if existing_action:
+            return Response(
+                {"detail": f"You have already performed '{existing_action.action_taken.name}' on this case at this step."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Check if notes are mandatory for this action
         if action_step.action.notes_mandatory and not notes_content:
@@ -1671,44 +1687,109 @@ class ApplicantActionView(APIView):
             )
 
         with transaction.atomic():
-            # No case_data updates here. Those should be handled by PUT/PATCH on /case/cases/<pk>/
-
-            # Update case status and sub-status based on action_step
-            case.status = action_step.to_status
-            case.sub_status = action_step.sub_status
-            case.last_action = action_step.action
-            case.updated_by = request.user # Applicant is updating the case
-
             # Create an ApprovalRecord for this action
             approval_record = ApprovalRecord.objects.create(
                 case=case,
-                approved_by=request.user, # The applicant is the one taking the action
+                approved_by=request.user,
                 approval_step=action_step.approval_step,
                 action_taken=action_step.action,
             )
 
-            # Optionally, create a Note object if notes_content is provided
+            # Create a Note object if notes_content is provided
+            note_created = False
             if notes_content:
                 Note.objects.create(
                     case=case,
                     author=request.user,
                     content=notes_content,
-                    related_approval_record=approval_record # Link to the newly created record
+                    related_approval_record=approval_record,
+                    created_by=request.user,
+                    updated_by=request.user
                 )
+                note_created = True
 
-            # Save the updated case
-            case.save()
+            # Use the same update_case method that employees use
+            self.update_case(case, action_step)
+
+            # Trigger integration if configured for this action
             if action_step.action.integration:
                 APITriggerService.trigger_integration_from_action(
                     integration=action_step.action.integration,
                     case_instance=case,
                     user=request.user,
-                    event_type=f"applicant_action_{action_step.action.code}" # Use action code as event type
+                    event_type=f"applicant_action_{action_step.action.code}"
                 )
-        return Response(
-            {"detail": f"Action '{action_id}' performed successfully.", "case_id": case.id},
-            status=status.HTTP_200_OK
-        )
+
+            # Handle auto-approval if next step is AUTO
+            self.handle_auto_approval(case)
+
+            message = f"Action '{action_step.action.name}' performed successfully"
+            if note_created:
+                message += " and note added"
+
+            return Response({
+                "detail": message,
+                "case_id": case.id,
+                "new_status": case.status.name if case.status else None,
+                "new_sub_status": case.sub_status.name if case.sub_status else None,
+                "assigned_group": case.assigned_group.name if case.assigned_group else None,
+                "current_approval_step": case.current_approval_step.id if case.current_approval_step else None
+            }, status=status.HTTP_200_OK)
+
+    def update_case(self, case_obj, action_step):
+        """Update the case status and assigned group based on the action step."""
+        case_obj.status = action_step.to_status
+        case_obj.sub_status = action_step.sub_status
+
+        # Find next approval step
+        next_approval_step = ApprovalStep.objects.filter(
+            service_type=case_obj.case_type,
+            status=action_step.to_status
+        ).first()
+
+        if next_approval_step:
+            case_obj.assigned_group = next_approval_step.group
+            case_obj.current_approval_step = next_approval_step
+
+            # Clear assigned_emp for parallel approval steps
+            if next_approval_step.parallel_approval_groups.exists():
+                case_obj.assigned_emp = None
+            else:
+                case_obj.assigned_emp = None  # Clear for fresh assignment
+        else:
+            # No next step - might be final status
+            case_obj.current_approval_step = None
+            case_obj.assigned_emp = None
+            case_obj.assigned_group = None
+
+        case_obj.last_action = action_step.action
+        case_obj.updated_by = self.request.user
+        case_obj.save()
+
+    def handle_auto_approval(self, case_obj):
+        """Handle automatic progression if the next approval step is of type AUTO."""
+        new_current_approval_step = case_obj.current_approval_step
+
+        if (new_current_approval_step and
+                new_current_approval_step.step_type == ApprovalStep.STEP_TYPE.AUTO):
+
+            result, condition_obj = evaluate_conditions(
+                case_obj, new_current_approval_step
+            )
+
+            if result and condition_obj:
+                new_next_approval_step = ApprovalStep.objects.filter(
+                    service_type=case_obj.case_type,
+                    status=condition_obj.to_status
+                ).first()
+
+                if new_next_approval_step:
+                    case_obj.status = condition_obj.to_status
+                    case_obj.sub_status = condition_obj.sub_status
+                    case_obj.assigned_group = new_next_approval_step.group
+                    case_obj.current_approval_step = new_next_approval_step
+                    case_obj.assigned_emp = None
+                    case_obj.save()
 
 
 
