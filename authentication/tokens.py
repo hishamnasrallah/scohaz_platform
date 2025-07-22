@@ -59,10 +59,17 @@ class ScohazRefreshToken(RefreshToken):
             access.payload["avatar"] = None
 
         try:
-            _license = License.objects.filter(developers__in=[user], client__project_id__isnull=False).first()
-            access.payload["project_id"] = _license.client.project_id
+            # Get user groups as a list of group names
+            access.payload["groups"] = list(user.groups.values_list('id', flat=True))
+        except AttributeError:
+            access.payload["groups"] = []
+
+        try:
+            license = License.objects.filter(developers__in=[user], client__project_id__isnull=False).first()
+            access.payload["project_id"] = license.client.project_id
         except:
             access.payload["project_id"] = None
+
         return access
 
 
