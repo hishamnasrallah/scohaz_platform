@@ -52,7 +52,7 @@ class PDFTemplateSerializer(serializers.ModelSerializer):
                   'created_by', 'created_by_name', 'created_at', 'active',
                   'elements', 'element_count', 'background_type',
                   'background_color', 'background_image', 'background_pdf',
-                  'background_opacity']
+                  'background_opacity', 'page_dimensions_display']
         read_only_fields = ['id', 'created_by', 'created_at']
         extra_kwargs = {
             'code': {'required': True},

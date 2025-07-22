@@ -382,43 +382,49 @@ class CaseSerializer(serializers.ModelSerializer):
 
         validated_data['case_data'] = case_data
 
+        # ADD THIS: Remove validation-related fields before creating the object
+        validated_data.pop('is_valid', None)
+        validated_data.pop('extra_keys', None)
+        validated_data.pop('missing_keys', None)
+        validated_data.pop('field_errors', None)
+
         # ====== ADD THIS SECTION: Pre-save API Calls ======
         # Fetch fields that have API calls configured AND are present in case_data
-        fields_with_api_calls = Field.objects.filter(
-            _api_call_config__isnull=False,
-            _field_name__in=case_data.keys()  # Only fields present in case_data
-        ).exclude(_api_call_config=[])
-
-        for field in fields_with_api_calls:
-            APITriggerService.trigger_api_calls(
-                field=field,
-                event="pre_save",
-                case_data=case_data,
-                instance=None  # No instance yet for create
-            )
-        # ====== END OF PRE-SAVE API CALLS ======
-
-        # Custom handling of the create method
-        # where we don't pass `is_valid`, `missing_keys`, etc.
-        # Remove invalid fields that are not part of the model
-        valid_fields = [field.name for field in Case._meta.fields]
-        validated_data = {
-            key: value
-            for key, value in validated_data.items()
-            if key in valid_fields
-        }
+        # fields_with_api_calls = Field.objects.filter(
+        #     _api_call_config__isnull=False,
+        #     _field_name__in=case_data.keys()  # Only fields present in case_data
+        # ).exclude(_api_call_config=[])
+        #
+        # for field in fields_with_api_calls:
+        #     APITriggerService.trigger_api_calls(
+        #         field=field,
+        #         event="pre_save",
+        #         case_data=case_data,
+        #         instance=None  # No instance yet for create
+        #     )
+        # # ====== END OF PRE-SAVE API CALLS ======
+        #
+        # # Custom handling of the create method
+        # # where we don't pass `is_valid`, `missing_keys`, etc.
+        # # Remove invalid fields that are not part of the model
+        # valid_fields = [field.name for field in Case._meta.fields]
+        # validated_data = {
+        #     key: value
+        #     for key, value in validated_data.items()
+        #     if key in valid_fields
+        # }
 
         created_case = super(CaseSerializer, self).create(validated_data)
 
-        # ====== ADD THIS SECTION: Post-save API Calls ======
-        for field in fields_with_api_calls:
-            APITriggerService.trigger_api_calls(
-                field=field,
-                event="post_save",
-                case_data=created_case.case_data,
-                instance=created_case
-            )
-        # ====== END OF POST-SAVE API CALLS ======
+        # # ====== ADD THIS SECTION: Post-save API Calls ======
+        # for field in fields_with_api_calls:
+        #     APITriggerService.trigger_api_calls(
+        #         field=field,
+        #         event="post_save",
+        #         case_data=created_case.case_data,
+        #         instance=created_case
+        #     )
+        # # ====== END OF POST-SAVE API CALLS ======
 
         created_case = self.rename_files(created_case, case_data, datetime_str)
         return created_case
