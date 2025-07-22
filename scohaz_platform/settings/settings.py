@@ -73,6 +73,7 @@ INSTALLED_APPS += CUSTOM_APPS + [
     "reporting_templates",
     "simple_reporting",
     "mockapi",
+    "inquiry"
     # "lowcode",
 ]
 
@@ -93,6 +94,7 @@ INSTALLED_APPS += CUSTOM_APPS + [
 #         'crm.middleware.CurrentUserMiddleware',
 #     ],
 # }
+
 APPS_CURRENT_USER_MIDDLEWARE = [
     'ab_app.middleware.CurrentUserMiddleware',
     'reporting.middleware.CurrentUserMiddleware',
