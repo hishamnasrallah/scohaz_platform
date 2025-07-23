@@ -345,6 +345,23 @@ REPORTING_TEMPLATES = {
     },
 }
 
+EXCLUDED_PATHS = {
+    "drf_format_suffix",
+    "auth",
+    "case",
+    "api-docs",
+    "version",
+    "integration",
+    "app-builder",
+    "translations",
+    "custom-action",
+    "validation-rules",
+    "integration-configs",
+    "reports",
+    "mock_api",
+    "inquiry"
+}
+
 # Add reporting permissions to default groups (optional)
 # DEFAULT_GROUP_PERMISSIONS = {
 #     'managers': [

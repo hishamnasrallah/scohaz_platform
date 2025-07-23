@@ -694,5 +694,9 @@
     "name": "Name",
     "code": "Code",
     "category": "Category",
-    "loading": "Loading..."
+    "loading": "Loading...",
+
+
+    "export_chart": "Export Chart",
+    "no_data_for_visualization": "No data available for visualization"
 }

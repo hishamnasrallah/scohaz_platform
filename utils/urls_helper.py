@@ -6,6 +6,8 @@ from django.urls import get_resolver, URLPattern, URLResolver
 from django.utils import timezone
 from rest_framework.views import APIView
 
+from scohaz_platform import settings
+
 logger = logging.getLogger(__name__)
 
 EXCLUDED_APPS = {'admin', 'silk', '', 'define', 'app_builder', 'license', 'reporting'}
@@ -494,27 +496,14 @@ def get_categorized_urls(application_name=None, user=None):  # <-- ADDED: user p
                 #     continue
                 # if "api-root" in  str(pattern.name):
                 #     continue
-                EXCLUDED_PATHS = {
-                    "drf_format_suffix",
-                    "auth",
-                    "case",
-                    "api-docs",
-                    "version",
-                    "integration",
-                    "app-builder",
-                    "translations",
-                    "custom-action",
-                    "validation-rules",
-                    "integration-configs",
-                    "reports"
-                }
+                excluded_paths = settings.EXCLUDED_PATHS
 
                 EXCLUDED_PATTERNS = {
                     "(?P<format>[a-z0-9]+)/?$",
                     "api-root"
                 }
 
-                if any(excluded in raw_path for excluded in EXCLUDED_PATHS) or \
+                if any(excluded in raw_path for excluded in excluded_paths) or \
                         any(excluded in str(pattern.name) if pattern.name else "" for excluded in EXCLUDED_PATTERNS):
                     continue
                 # Also skip if the path is exactly `app_name/` (like "crm/") if you want
