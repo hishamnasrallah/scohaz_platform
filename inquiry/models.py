@@ -75,11 +75,13 @@ class InquiryField(models.Model):
     format_template = models.CharField(
         max_length=200,
         blank=True,
+        null=True,
         help_text="Python format string, e.g., '{value:%Y-%m-%d}' for dates"
     )
     transform_function = models.CharField(
         max_length=200,
         blank=True,
+        null=True,
         help_text="Dotted path to transform function"
     )
 
@@ -87,6 +89,7 @@ class InquiryField(models.Model):
     aggregation = models.CharField(
         max_length=20,
         blank=True,
+        null=True,
         choices=[
             ('count', 'Count'),
             ('sum', 'Sum'),
@@ -98,7 +101,7 @@ class InquiryField(models.Model):
 
     # Order and display
     order = models.IntegerField(default=0)
-    width = models.CharField(max_length=20, blank=True)  # e.g., "150px", "20%"
+    width = models.CharField(max_length=20, blank=True, null=True)  # e.g., "150px", "20%"
     alignment = models.CharField(
         max_length=10,
         choices=[('left', 'Left'), ('center', 'Center'), ('right', 'Right')],
@@ -109,6 +112,7 @@ class InquiryField(models.Model):
     json_extract_path = models.CharField(
         max_length=200,
         blank=True,
+        null=True,
         help_text="For JSON fields, path to extract value"
     )
 

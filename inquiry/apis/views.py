@@ -1,21 +1,38 @@
 import time
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Model
+from django.db.models import Model, Q
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 import csv
 import json
 from openpyxl import Workbook
+from django.db import models as django_models
 
 from inquiry.models import InquiryConfiguration, InquiryExecution, InquiryTemplate
 from inquiry.services.query_builder import DynamicQueryBuilder
 from inquiry.apis.serializers.dynamic import DynamicModelSerializer
 from inquiry.apis.serializers.inquiry import (
     InquiryConfigurationSerializer,
+    InquiryExecutionSerializer,
+    InquiryTemplateSerializer, InquiryPermissionSerializer
+)
+# Add these imports if not already present
+from inquiry.models import (
+    InquiryConfiguration, InquiryField, InquiryFilter,
+    InquiryRelation, InquirySort, InquiryPermission,
+    InquiryExecution, InquiryTemplate
+)
+from inquiry.apis.serializers.inquiry import (
+    InquiryConfigurationSerializer,
+    InquiryFieldSerializer,
+    InquiryFilterSerializer,
+    InquiryRelationSerializer,
+    InquirySortSerializer,
+    InquiryPermissionSerializer,
     InquiryExecutionSerializer,
     InquiryTemplateSerializer
 )
@@ -50,11 +67,11 @@ class InquiryConfigurationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = super().get_queryset()
         if not self.request.user.is_superuser:
-            # Filter by user's groups
+            # Filter by user's groups OR public inquiries
             user_groups = self.request.user.groups.all()
             queryset = queryset.filter(
-                allowed_groups__in=user_groups
-            ).distinct() | queryset.filter(is_public=True)
+                Q(allowed_groups__in=user_groups) | Q(is_public=True)
+            ).distinct()
         return queryset
 
     @action(detail=True, methods=['get'])
@@ -120,24 +137,161 @@ class InquiryConfigurationViewSet(viewsets.ModelViewSet):
         models = []
         for ct in ContentType.objects.all():
             model_class = ct.model_class()
-            if model_class and issubclass(model_class, Model):
+            if model_class and issubclass(model_class, django_models.Model):
+                # Process fields
+                fields = []
+                for f in model_class._meta.get_fields():
+                    field_info = {
+                        'name': f.name,
+                        'is_relation': f.is_relation
+                    }
+
+                    # Handle different field types
+                    if hasattr(f, 'get_internal_type'):
+                        field_info['type'] = f.get_internal_type()
+                    else:
+                        # For reverse relations
+                        if hasattr(f, 'field'):
+                            field_info['type'] = f.field.get_internal_type() + '_reverse'
+                        else:
+                            field_info['type'] = type(f).__name__
+
+                    # Get verbose name safely
+                    if hasattr(f, 'verbose_name'):
+                        field_info['verbose_name'] = str(f.verbose_name)
+                    elif hasattr(f, 'related_name'):
+                        field_info['verbose_name'] = f.related_name or f.name
+                    else:
+                        field_info['verbose_name'] = f.name.replace('_', ' ').title()
+
+                    # Add relation type for relations
+                    if f.is_relation:
+                        if hasattr(f, 'many_to_many') and f.many_to_many:
+                            field_info['relation_type'] = 'many_to_many'
+                        elif hasattr(f, 'one_to_many') and f.one_to_many:
+                            field_info['relation_type'] = 'one_to_many'
+                        elif hasattr(f, 'one_to_one') and f.one_to_one:
+                            field_info['relation_type'] = 'one_to_one'
+                        elif hasattr(f, 'many_to_one') and f.many_to_one:
+                            field_info['relation_type'] = 'foreign_key'
+                        else:
+                            field_info['relation_type'] = 'unknown'
+
+                        # Add related model info
+                        if hasattr(f, 'related_model') and f.related_model:
+                            field_info['related_model'] = f.related_model._meta.label
+
+                    fields.append(field_info)
+
                 models.append({
                     'id': ct.id,
                     'app_label': ct.app_label,
                     'model': ct.model,
-                    'name': model_class._meta.verbose_name,
-                    'fields': [
-                        {
-                            'name': f.name,
-                            'type': f.get_internal_type(),
-                            'verbose_name': f.verbose_name,
-                            'is_relation': f.is_relation
-                        }
-                        for f in model_class._meta.get_fields()
-                    ]
+                    'name': str(model_class._meta.verbose_name),
+                    'verbose_name': str(model_class._meta.verbose_name),
+                    'fields': fields
                 })
+
         return Response(models)
 
+    @action(detail=True, methods=['get'])
+    def export(self, request, code=None):
+        """Export inquiry configuration as JSON"""
+        inquiry = self.get_object()
+
+        # Build complete configuration
+        export_data = {
+            'inquiry': InquiryConfigurationSerializer(inquiry).data,
+            'fields': InquiryFieldSerializer(inquiry.fields.all(), many=True).data,
+            'filters': InquiryFilterSerializer(inquiry.filters.all(), many=True).data,
+            'relations': InquiryRelationSerializer(inquiry.relations.all(), many=True).data,
+            'sorts': InquirySortSerializer(inquiry.sorts.all(), many=True).data,
+            'permissions': InquiryPermissionSerializer(inquiry.permissions.all(), many=True).data,
+        }
+
+        response = JsonResponse(export_data, json_dumps_params={'indent': 2})
+        response['Content-Disposition'] = f'attachment; filename="{inquiry.code}_config.json"'
+        return response
+
+    @action(detail=False, methods=['post'], url_path='import')
+    def import_config(self, request):
+        """Import inquiry configuration from JSON file"""
+        file = request.FILES.get('file')
+        if not file:
+            return Response({'error': 'No file provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Read and parse JSON
+            content = file.read()
+            data = json.loads(content)
+
+            # Extract inquiry data
+            inquiry_data = data.get('inquiry', {})
+            fields_data = data.get('fields', [])
+            filters_data = data.get('filters', [])
+            relations_data = data.get('relations', [])
+            sorts_data = data.get('sorts', [])
+            permissions_data = data.get('permissions', [])
+
+            # Remove IDs and timestamps for new creation
+            inquiry_data.pop('id', None)
+            inquiry_data.pop('created_at', None)
+            inquiry_data.pop('updated_at', None)
+
+            # Ensure unique code
+            original_code = inquiry_data.get('code', 'imported_inquiry')
+            code = original_code
+            counter = 1
+            while InquiryConfiguration.objects.filter(code=code).exists():
+                code = f"{original_code}_{counter}"
+                counter += 1
+            inquiry_data['code'] = code
+
+            # Create inquiry
+            inquiry_data['created_by'] = request.user.id
+            inquiry_serializer = InquiryConfigurationSerializer(data=inquiry_data)
+            if not inquiry_serializer.is_valid():
+                return Response(inquiry_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            inquiry = inquiry_serializer.save()
+
+            # Create related objects
+            # Fields
+            for field_data in fields_data:
+                field_data.pop('id', None)
+                field_data['inquiry'] = inquiry.id
+                InquiryField.objects.create(**field_data)
+
+            # Filters
+            for filter_data in filters_data:
+                filter_data.pop('id', None)
+                filter_data['inquiry'] = inquiry.id
+                InquiryFilter.objects.create(**filter_data)
+
+            # Relations
+            for relation_data in relations_data:
+                relation_data.pop('id', None)
+                relation_data['inquiry'] = inquiry.id
+                InquiryRelation.objects.create(**relation_data)
+
+            # Sorts
+            for sort_data in sorts_data:
+                sort_data.pop('id', None)
+                sort_data['inquiry'] = inquiry.id
+                InquirySort.objects.create(**sort_data)
+
+            # Permissions
+            for perm_data in permissions_data:
+                perm_data.pop('id', None)
+                perm_data['inquiry'] = inquiry.id
+                InquiryPermission.objects.create(**perm_data)
+
+            return Response(InquiryConfigurationSerializer(inquiry).data, status=status.HTTP_201_CREATED)
+
+        except json.JSONDecodeError:
+            return Response({'error': 'Invalid JSON file'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class InquiryExecutionViewSet(viewsets.ViewSet):
     """Execute configured inquiries"""
@@ -573,3 +727,128 @@ class InquiryTemplateViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+class InquiryFieldViewSet(viewsets.ModelViewSet):
+    """CRUD for inquiry fields"""
+    queryset = InquiryField.objects.all()
+    serializer_class = InquiryFieldSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        inquiry_id = self.request.query_params.get('inquiry')
+        if inquiry_id:
+            queryset = queryset.filter(inquiry_id=inquiry_id)
+        return queryset.order_by('order')
+
+
+class InquiryFilterViewSet(viewsets.ModelViewSet):
+    """CRUD for inquiry filters"""
+    queryset = InquiryFilter.objects.all()
+    serializer_class = InquiryFilterSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        inquiry_id = self.request.query_params.get('inquiry')
+        if inquiry_id:
+            queryset = queryset.filter(inquiry_id=inquiry_id)
+        return queryset.order_by('order')
+
+
+class InquiryRelationViewSet(viewsets.ModelViewSet):
+    """CRUD for inquiry relations"""
+    queryset = InquiryRelation.objects.all()
+    serializer_class = InquiryRelationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        inquiry_id = self.request.query_params.get('inquiry')
+        if inquiry_id:
+            queryset = queryset.filter(inquiry_id=inquiry_id)
+        return queryset.order_by('order')
+
+
+class InquirySortViewSet(viewsets.ModelViewSet):
+    """CRUD for inquiry sorts"""
+    queryset = InquirySort.objects.all()
+    serializer_class = InquirySortSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        inquiry_id = self.request.query_params.get('inquiry')
+        if inquiry_id:
+            queryset = queryset.filter(inquiry_id=inquiry_id)
+        return queryset.order_by('order')
+
+    @action(detail=False, methods=['post'])
+    def bulk_update(self, request):
+        """Bulk update sort orders"""
+        inquiry_id = request.data.get('inquiry')
+        sorts_data = request.data.get('sorts', [])
+
+        if not inquiry_id:
+            return Response({'error': 'inquiry field is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Delete existing sorts
+        InquirySort.objects.filter(inquiry_id=inquiry_id).delete()
+
+        # Create new sorts
+        sorts = []
+        for idx, sort_data in enumerate(sorts_data):
+            sort_obj = InquirySort.objects.create(
+                inquiry_id=inquiry_id,
+                field_path=sort_data['field_path'],
+                direction=sort_data.get('direction', 'asc'),
+                order=idx
+            )
+            sorts.append(sort_obj)
+
+        serializer = InquirySortSerializer(sorts, many=True)
+        return Response(serializer.data)
+
+
+class InquiryPermissionViewSet(viewsets.ModelViewSet):
+    """CRUD for inquiry permissions"""
+    queryset = InquiryPermission.objects.all()
+    serializer_class = InquiryPermissionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        inquiry_id = self.request.query_params.get('inquiry')
+        if inquiry_id:
+            queryset = queryset.filter(inquiry_id=inquiry_id)
+        return queryset
+
+    @action(detail=False, methods=['post'])
+    def bulk_update(self, request):
+        """Bulk update permissions"""
+        permissions_data = request.data
+
+        if not isinstance(permissions_data, list):
+            return Response({'error': 'Expected list of permissions'}, status=status.HTTP_400_BAD_REQUEST)
+
+        updated_permissions = []
+        for perm_data in permissions_data:
+            perm_id = perm_data.get('id')
+            if perm_id:
+                # Update existing
+                try:
+                    permission = InquiryPermission.objects.get(id=perm_id)
+                    serializer = InquiryPermissionSerializer(permission, data=perm_data, partial=True)
+                    if serializer.is_valid():
+                        serializer.save()
+                        updated_permissions.append(serializer.data)
+                except InquiryPermission.DoesNotExist:
+                    pass
+            else:
+                # Create new
+                serializer = InquiryPermissionSerializer(data=perm_data)
+                if serializer.is_valid():
+                    serializer.save()
+                    updated_permissions.append(serializer.data)
+
+        return Response(updated_permissions)

@@ -113,7 +113,7 @@ class DynamicModelSerializer(serializers.ModelSerializer, DynamicFieldMixin):
 
             # Dynamically create the method
             def make_method(fc):
-                def method(self, obj):
+                def method(obj):
                     return self.apply_transform(obj, fc)
                 return method
 
@@ -143,8 +143,14 @@ class DynamicModelSerializer(serializers.ModelSerializer, DynamicFieldMixin):
                 self.fields[count_field_name] = serializers.SerializerMethodField()
 
                 def make_count_method(rel_path):
-                    def method(self, obj):
-                        return getattr(obj, rel_path).count()
+                    def method(obj):
+                        try:
+                            related_obj = getattr(obj, rel_path)
+                            if hasattr(related_obj, 'count'):
+                                return related_obj.count()
+                            return 0
+                        except AttributeError:
+                            return 0
                     return method
 
                 setattr(
