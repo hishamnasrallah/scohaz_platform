@@ -440,24 +440,27 @@ class Condition(models.Model):
         help_text="Whether this condition controls visibility or calculates a value"
     )
 
-    def calculate_value(self, field_data):
-        """
-        Calculate the actual value for calculation-type conditions
-        Returns the calculated value instead of boolean
-        """
-        try:
-            for condition in self.condition_logic:
-                field_name = condition['field']
-                operation = condition['operation']
-                value = condition['value']
+def calculate_value(self, field_data):
+    """
+    Calculate the actual value for calculation-type conditions
+    Returns the calculated value instead of boolean
+    """
+    try:
+        from datetime import datetime, date
 
-                field_value = field_data.get(field_name, 0)
+        for condition in self.condition_logic:
+            field_name = condition['field']
+            operation = condition['operation']
+            value = condition.get('value', 0)
 
-                # Handle field references
-                if isinstance(value, dict) and 'field' in value:
-                    value = field_data.get(value['field'], 0)
+            field_value = field_data.get(field_name, 0)
 
-                # Convert to float for calculations
+            # Handle field references
+            if isinstance(value, dict) and 'field' in value:
+                value = field_data.get(value['field'], 0)
+
+            # Convert to float for calculations (except for dates and conditionals)
+            if operation not in ['age_conditional', 'if', 'if_equals']:
                 try:
                     field_value = float(field_value)
                     if not isinstance(value, (list, dict)):
@@ -465,33 +468,90 @@ class Condition(models.Model):
                 except (ValueError, TypeError):
                     pass
 
-                # Perform calculations
-                if operation == "+":
-                    return field_value + value
-                elif operation == "-":
-                    return field_value - value
-                elif operation == "*":
-                    return field_value * value
-                elif operation == "/":
-                    return field_value / value if value != 0 else 0
-                elif operation == "**":
-                    return field_value ** value
-                elif operation == "sum":
-                    total = 0
-                    for field in value:
-                        if field.startswith('-'):
-                            total -= float(field_data.get(field[1:], 0))
-                        else:
-                            total += float(field_data.get(field, 0))
-                    return total
-                # For direct value copy
-                elif operation == "=" or operation == "copy":
-                    return field_value
+            # Perform calculations
+            if operation == "+":
+                return field_value + value
+            elif operation == "-":
+                return field_value - value
+            elif operation == "*":
+                return field_value * value
+            elif operation == "/":
+                return field_value / value if value != 0 else 0
+            elif operation == "**":
+                return field_value ** value
+            elif operation == "sum":
+                total = 0
+                for field in value:
+                    if field.startswith('-'):
+                        total -= float(field_data.get(field[1:], 0))
+                    else:
+                        total += float(field_data.get(field, 0))
+                return total
+            # For direct value copy
+            elif operation == "=" or operation == "copy":
+                return field_value
 
-        except Exception as e:
-            raise ValidationError(f"Error calculating value: {e}")
+            # NEW: Age-based conditional
+            elif operation == "age_conditional":
+                if field_value:
+                    # Calculate age from DOB
+                    if isinstance(field_value, str):
+                        dob = datetime.strptime(field_value, "%Y-%m-%d").date()
+                    else:
+                        dob = field_value
 
-        return None
+                    today = date.today()
+                    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+                    age_threshold = condition.get('age_threshold', 18)
+                    if age < age_threshold:
+                        under_field = condition.get('under_age_field')
+                        return field_data.get(under_field, 0)
+                    else:
+                        over_field = condition.get('over_age_field')
+                        return field_data.get(over_field, 0)
+                return 0
+
+            # NEW: Simple if-equals conditional
+            elif operation == "if_equals":
+                check_value = condition.get('check_value')
+                then_value = condition.get('then_value', 0)
+                else_value = condition.get('else_value', field_value)
+
+                # Handle field references in then/else values
+                if isinstance(then_value, dict) and 'field' in then_value:
+                    then_value = field_data.get(then_value['field'], 0)
+                if isinstance(else_value, dict) and 'field' in else_value:
+                    else_value = field_data.get(else_value['field'], 0)
+
+                if field_value == check_value:
+                    return then_value
+                else:
+                    return else_value
+
+            # NEW: General if conditional with any operator
+            elif operation == "if":
+                condition_op = condition.get('condition_operator', '=')
+                check_value = condition.get('check_value')
+                then_value = condition.get('then_value', 0)
+                else_value = condition.get('else_value', field_value)
+
+                # Handle field references
+                if isinstance(then_value, dict) and 'field' in then_value:
+                    then_value = field_data.get(then_value['field'], 0)
+                if isinstance(else_value, dict) and 'field' in else_value:
+                    else_value = field_data.get(else_value['field'], 0)
+
+                # Evaluate condition
+                if self._evaluate_single_condition(field_value, condition_op, check_value):
+                    return then_value
+                else:
+                    return else_value
+
+    except Exception as e:
+        raise ValidationError(f"Error calculating value: {e}")
+
+    return None
 
     def evaluate_condition(self, field_data):
         """
