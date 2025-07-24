@@ -112,11 +112,13 @@ class DynamicFlowHelper:
     def format_response(self, pages, categories, fields):
         return {"service_flow": [self.format_page(page, fields) for page in pages]}
 
-    def format_field_data(self, field, format_sub_fields=None, get_visibility_conditions=None):
+    def format_field_data(self, field, format_sub_fields=None, get_visibility_conditions=None, get_calculations=None):
         if not format_sub_fields:
             format_sub_fields = lambda x: []
         if not get_visibility_conditions:
             get_visibility_conditions = lambda x: []
+        if not get_calculations:
+            get_calculations = lambda x: []
 
         field_type = field._field_type.name.lower() if field._field_type else None
         field_data = {
@@ -135,8 +137,9 @@ class DynamicFlowHelper:
             "sub_fields": format_sub_fields(field),
             "is_hidden": field._is_hidden,
             "is_disabled": field._is_disabled,
-            "visibility_conditions": get_visibility_conditions(field),
-
+            "visibility_conditions": get_visibility_conditions(field),  # Only visibility conditions
+            "calculations": get_calculations(field),  # NEW: Calculation conditions
+            "default_value": field._default_value,
             "integrations": self.get_field_integrations(field)
         }
 
@@ -199,7 +202,8 @@ class DynamicFlowHelper:
 
     def format_category(self, category, fields):
         category_fields = [
-            self.format_field_data(f, self.format_sub_fields, self.get_visibility_conditions)
+            self.format_field_data(f, self.format_sub_fields, self.get_visibility_conditions,
+                                   self.get_calculations )
             for f in fields if category in f._category.all()
         ]
         return {
@@ -225,15 +229,35 @@ class DynamicFlowHelper:
             "categories": [self.format_category(c, fields) for c in page.category_set.all()],
         }
 
+    def get_calculations(self, field):
+        """Get only calculation type conditions"""
+        conditions = Condition.objects.filter(
+            target_field=field,
+            active_ind=True,
+            condition_type='calculation'  # Filter for calculations only
+        )
+        return [{
+            "condition_logic": c.condition_logic,
+            "condition_id": c.id
+        } for c in conditions]
+
     def format_sub_fields(self, parent_field):
         sub_fields_data = []
         sub_fields = Field.objects.filter(_parent_field=parent_field)
         for sub_field in sub_fields:
-            sub_fields_data.append(self.format_field_data(sub_field, self.format_sub_fields, self.get_visibility_conditions))
+            sub_fields_data.append(
+                self.format_field_data(
+                    sub_field,
+                    self.format_sub_fields,
+                    self.get_visibility_conditions,
+                    self.get_calculations  # Add calculations here too
+                )
+            )
         return sub_fields_data
 
     def get_visibility_conditions(self, field):
-        conditions = Condition.objects.filter(target_field=field, active_ind=True)
+        conditions = Condition.objects.filter(target_field=field, active_ind=True,
+                                              condition_type='visibility')
         return [{"condition_logic": c.condition_logic} for c in conditions]
 
     def error_handling(self):

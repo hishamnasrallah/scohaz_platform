@@ -126,14 +126,17 @@ class CategoryAdmin(admin.ModelAdmin):
 class ConditionInline(admin.TabularInline):
     model = Condition
     extra = 1
-    fields = ('target_field', 'workflow', 'active_ind', 'condition_logic', 'preview_condition_logic')
+    fields = ('target_field', 'condition_type', 'workflow', 'active_ind', 'condition_logic', 'preview_condition_logic')
     readonly_fields = ('preview_condition_logic',)
     raw_id_fields = ('workflow',)
 
     def preview_condition_logic(self, obj):
         if obj.pk and obj.condition_logic:
             try:
-                logic_preview = "<br>".join([
+                # Add condition type to preview
+                type_label = f"<strong>Type:</strong> {obj.get_condition_type_display()}<br>" if hasattr(obj, 'condition_type') else ""
+
+                logic_preview = type_label + "<br>".join([
                     f"<strong>Field:</strong> {cond.get('field', 'N/A')} "
                     f"<strong>Operation:</strong> {cond.get('operation', 'N/A')} "
                     f"<strong>Value:</strong> {cond.get('value', 'N/A')}"
@@ -306,6 +309,7 @@ class ConditionAdmin(admin.ModelAdmin):
             'fields': (
                 'workflow',
                 'target_field',
+                'condition_type',
                 'condition_logic',
                 'active_ind'
             )

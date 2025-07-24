@@ -430,6 +430,69 @@ class Condition(models.Model):
     )
     position_x = models.FloatField(default=0)
     position_y = models.FloatField(default=0)
+    condition_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('visibility', 'Visibility Condition'),
+            ('calculation', 'Field Calculation'),
+        ],
+        default='visibility',
+        help_text="Whether this condition controls visibility or calculates a value"
+    )
+
+    def calculate_value(self, field_data):
+        """
+        Calculate the actual value for calculation-type conditions
+        Returns the calculated value instead of boolean
+        """
+        try:
+            for condition in self.condition_logic:
+                field_name = condition['field']
+                operation = condition['operation']
+                value = condition['value']
+
+                field_value = field_data.get(field_name, 0)
+
+                # Handle field references
+                if isinstance(value, dict) and 'field' in value:
+                    value = field_data.get(value['field'], 0)
+
+                # Convert to float for calculations
+                try:
+                    field_value = float(field_value)
+                    if not isinstance(value, (list, dict)):
+                        value = float(value)
+                except (ValueError, TypeError):
+                    pass
+
+                # Perform calculations
+                if operation == "+":
+                    return field_value + value
+                elif operation == "-":
+                    return field_value - value
+                elif operation == "*":
+                    return field_value * value
+                elif operation == "/":
+                    return field_value / value if value != 0 else 0
+                elif operation == "**":
+                    return field_value ** value
+                elif operation == "sum":
+                    total = 0
+                    for field in value:
+                        if field.startswith('-'):
+                            total -= float(field_data.get(field[1:], 0))
+                        else:
+                            total += float(field_data.get(field, 0))
+                    return total
+                # For direct value copy
+                elif operation == "=" or operation == "copy":
+                    return field_value
+
+        except Exception as e:
+            raise ValidationError(f"Error calculating value: {e}")
+
+        return None
+
     def evaluate_condition(self, field_data):
         """
         Evaluates the condition based on provided field data.
