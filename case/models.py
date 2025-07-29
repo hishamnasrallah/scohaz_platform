@@ -145,6 +145,15 @@ class Case(models.Model):
             return str(int(last_serial) + 1).zfill(6)
         return "000001"
 
+    def get_full_name(self):
+        """
+        Return the first_name, second_name, third_name, and plus the last_name, with a space in between.
+        """
+        full_name = "%s %s %s %s" % (self.case_data["first_name"], self.case_data["second_name"],
+                                     self.case_data["third_name"], self.case_data["last_name"])
+
+        return full_name.strip()
+
     def __str__(self):
         return f"Case #{self.serial_number}"
 

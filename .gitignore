@@ -13,7 +13,7 @@ __pycache__/
 #crm/*
 testcrm/*
 #local_settings.py
-db.sqlite3
+#db.sqlite3
 db__2.sqlite3
 db__backup.sqlite3
 #db.sqlite3-journal

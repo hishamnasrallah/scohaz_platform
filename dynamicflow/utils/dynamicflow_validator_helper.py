@@ -65,7 +65,9 @@ class DynamicFlowValidator:
             "is_valid": True,
             "extra_keys": [],
             "missing_keys": [],
-            "field_errors": {}
+            "field_errors": {},
+            "calculated_fields": {},
+            "tampering_detected": False
         }
 
         ic(self.merged_data)
@@ -109,6 +111,25 @@ class DynamicFlowValidator:
                     if errors:
                         validation_results["field_errors"][field_path] = errors
 
+        # Server-side recalculation of all calculated fields
+        calculated_fields = self.calculate_all_fields()
+        validation_results["calculated_fields"] = calculated_fields
+
+        # Check for tampering by comparing client values with server calculations
+        tampering_errors = self.validate_calculated_fields(calculated_fields)
+        if tampering_errors:
+            validation_results["tampering_detected"] = True
+            # Add tampering errors to field errors
+            for field_name, errors in tampering_errors.items():
+                if field_name in validation_results["field_errors"]:
+                    validation_results["field_errors"][field_name].extend(errors)
+                else:
+                    validation_results["field_errors"][field_name] = errors
+
+        # Override client values with server-calculated values
+        for field_name, calculated_value in calculated_fields.items():
+            self.merged_data[field_name] = calculated_value
+
         if self.submit:
             if validation_results["field_errors"] or validation_results["missing_keys"]:
                 validation_results["is_valid"] = False
@@ -121,6 +142,152 @@ class DynamicFlowValidator:
             self.merged_data.pop(key, None)
 
         return validation_results
+
+    ##
+    def calculate_all_fields(self) -> Dict[str, Any]:
+        """
+        Recalculate all calculated fields on the server side.
+        This ensures we never trust client-provided calculated values.
+        """
+        from dynamicflow.models import Condition
+
+        # Get all calculation conditions for fields in this service flow
+        calculated_fields = {}
+        calculation_conditions = []
+
+        # Extract all fields that have calculation conditions
+        for page in self.service_flow.get("service_flow", []):
+            for category in page.get("categories", []):
+                for field in category.get("fields", []):
+                    if field.get("calculations"):
+                        for calc in field["calculations"]:
+                            calculation_conditions.append({
+                                'field_name': field['name'],
+                                'condition_id': calc.get('condition_id'),
+                                'condition_logic': calc.get('condition_logic')
+                            })
+
+        # Sort conditions by dependency order
+        sorted_conditions = self._sort_conditions_by_dependency(calculation_conditions)
+
+        # Recalculate all fields
+        for condition_info in sorted_conditions:
+            try:
+                condition = Condition.objects.get(
+                    id=condition_info['condition_id'],
+                    condition_type='calculation',
+                    active_ind=True
+                )
+
+                # Calculate the value
+                calculated_value = condition.calculate_value(self.merged_data)
+
+                if calculated_value is not None:
+                    field_name = condition_info['field_name']
+                    calculated_fields[field_name] = calculated_value
+
+                    # Update merged_data for cascading calculations
+                    self.merged_data[field_name] = calculated_value
+
+            except Condition.DoesNotExist:
+                continue
+            except Exception as e:
+                # Log calculation errors but don't fail the entire validation
+                print(f"Error calculating field {condition_info['field_name']}: {str(e)}")
+
+        return calculated_fields
+
+    def _sort_conditions_by_dependency(self, conditions: List[Dict]) -> List[Dict]:
+        """
+        Sort conditions based on their dependencies to ensure proper calculation order.
+        """
+        # Build dependency graph
+        dependencies = {}
+        for condition in conditions:
+            field_name = condition['field_name']
+            deps = set()
+
+            # Extract dependencies from condition logic
+            for logic in condition.get('condition_logic', []):
+                # Direct field reference
+                if 'field' in logic:
+                    deps.add(logic['field'])
+
+                # Field references in values
+                if isinstance(logic.get('value'), dict) and 'field' in logic['value']:
+                    deps.add(logic['value']['field'])
+
+                # For sum operations
+                if logic.get('operation') == 'sum' and isinstance(logic.get('value'), list):
+                    for field in logic['value']:
+                        if isinstance(field, str):
+                            deps.add(field.lstrip('-'))
+
+                # For age_conditional
+                if logic.get('operation') == 'age_conditional':
+                    if logic.get('under_age_field'):
+                        deps.add(logic['under_age_field'])
+                    if logic.get('over_age_field'):
+                        deps.add(logic['over_age_field'])
+
+            dependencies[field_name] = deps
+
+        # Topological sort
+        sorted_fields = []
+        visited = set()
+
+        def visit(field_name):
+            if field_name in visited:
+                return
+            visited.add(field_name)
+
+            # Visit dependencies first
+            for dep in dependencies.get(field_name, set()):
+                if dep in dependencies:  # Only visit if it's a calculated field
+                    visit(dep)
+
+            # Find the condition for this field
+            for condition in conditions:
+                if condition['field_name'] == field_name:
+                    sorted_fields.append(condition)
+                    break
+
+        # Visit all fields
+        for field_name in dependencies:
+            visit(field_name)
+
+        return sorted_fields
+
+    def validate_calculated_fields(self, calculated_fields: Dict[str, Any]) -> Dict[str, List[str]]:
+        """
+        Validate that client-provided calculated values match server calculations.
+        Returns a dict of field_name -> list of errors.
+        """
+        tampering_errors = {}
+
+        for field_name, server_value in calculated_fields.items():
+            client_value = self.merged_data.get(field_name)
+
+            if client_value is not None:
+                # Convert to float for numeric comparison
+                try:
+                    server_float = float(server_value)
+                    client_float = float(client_value)
+
+                    # Allow small floating point differences
+                    if abs(server_float - client_float) > 0.01:
+                        tampering_errors[field_name] = [
+                            f"Value mismatch detected. Expected: {server_value}, Received: {client_value}"
+                        ]
+                except (ValueError, TypeError):
+                    # For non-numeric values, do exact comparison
+                    if server_value != client_value:
+                        tampering_errors[field_name] = [
+                            f"Value mismatch detected. Expected: {server_value}, Received: {client_value}"
+                        ]
+
+        return tampering_errors
+    ##
     def _check_file_in_uploaded_files(self, field_info: Dict[str, Any]) -> bool:
         """
         Check if a file field exists in the uploaded_files array.

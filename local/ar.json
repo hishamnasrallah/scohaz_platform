@@ -421,14 +421,12 @@
     "password_min_length": "يجب أن تكون كلمة المرور 6 أحرف على الأقل",
     "remember_me": "تذكرني",
     "sign_in": "تسجيل الدخول",
-
     "connection_error": "غير قادر على الاتصال بالخادم. يرجى التحقق من اتصالك.",
     "fill_required_fields": "يرجى ملء جميع الحقول المطلوبة بشكل صحيح.",
     "complete_all_fields": "يرجى إكمال جميع الحقول المطلوبة",
     "contact_admin": "اتصل بالمسؤول",
     "change_language": "تغيير اللغة",
     "all_rights_reserved": "جميع الحقوق محفوظة.",
-
     "brand_tagline": "حيث يلتقي الكود بالحياة، تصبح الأحلام حقيقة",
     "build_faster_deploy_smarter": "ابنِ بشكل أسرع، انشر بذكاء",
     "platform_description": "حوّل أفكارك إلى تطبيقات قوية مع منصتنا منخفضة الكود للمؤسسات.",
@@ -438,7 +436,6 @@
     "feature_api_desc": "بنية RESTful",
     "feature_secure": "أمان المؤسسات",
     "feature_secure_desc": "أمان بمستوى البنوك",
-
     "applications": "التطبيقات",
     "my_applications": "تطبيقاتي",
     "new_cases": "الحالات الجديدة",
@@ -452,11 +449,9 @@
     "failed_to_assign": "فشل تعيين الحالة",
     "failed_to_perform_action": "فشل تنفيذ الإجراء: {{action}}",
     "failed_to_load_applications": "فشل تحميل التطبيقات",
-
     "assigned_to_me": "معين لي",
     "pending_my_approval": "في انتظار موافقتي",
     "already_approved": "تمت الموافقة عليها",
-
     "serial_number": "الرقم التسلسلي",
     "case_type": "نوع الحالة",
     "status": "الحالة",
@@ -464,7 +459,6 @@
     "created": "تاريخ الإنشاء",
     "actions": "الإجراءات",
     "years": "سنوات",
-
     "loading_cases": "جاري تحميل الحالات",
     "unknown_applicant": "مقدم طلب غير معروف",
     "unknown_type": "نوع غير معروف",
@@ -481,12 +475,10 @@
     "you_can_approve": "يمكنك الموافقة على هذه الحالة",
     "waiting_for_approvals": "في انتظار {{remaining}} موافقات إضافية",
     "cases_awaiting_approval": "الحالات في انتظار موافقتك المتوازية",
-
     "no_available_cases": "لا توجد حالات متاحة",
     "no_available_cases_desc": "لا توجد حالات متاحة للتعيين في الوقت الحالي.",
     "no_assigned_cases": "لا توجد حالات معينة",
     "no_assigned_cases_desc": "ليس لديك أي حالات معينة حالياً.",
-
     "save": "حفظ",
     "cancel": "إلغاء",
     "delete": "حذف",
@@ -499,13 +491,11 @@
     "reject": "رفض",
     "return": "إرجاع",
     "pending": "قيد الانتظار",
-
     "no_results_found": "لم يتم العثور على نتائج",
     "validation_error": "حدث خطأ في التحقق",
     "invalid_request": "طلب غير صالح",
     "error_occurred": "حدث خطأ",
     "try_again": "يرجى المحاولة مرة أخرى",
-
     "home": "الرئيسية",
     "dashboard": "لوحة القيادة",
     "settings": "الإعدادات",
@@ -513,23 +503,19 @@
     "logout": "تسجيل الخروج",
     "help": "مساعدة",
     "about": "حول",
-
     "today": "اليوم",
     "tomorrow": "غداً",
     "this_week": "هذا الأسبوع",
     "last_week": "الأسبوع الماضي",
     "this_month": "هذا الشهر",
     "last_month": "الشهر الماضي",
-
     "notifications": "الإشعارات",
     "mark_as_read": "وضع علامة كمقروء",
     "no_notifications": "لا توجد إشعارات جديدة",
-
     "are_you_sure": "هل أنت متأكد؟",
     "confirm_delete": "هل أنت متأكد من أنك تريد حذف هذا العنصر؟",
     "confirm_logout": "هل أنت متأكد من أنك تريد تسجيل الخروج؟",
     "operation_cannot_be_undone": "لا يمكن التراجع عن هذه العملية.",
-
     "add_note": "إضافة ملاحظة",
     "notes": "الملاحظات",
     "enter_your_note": "أدخل ملاحظتك هنا...",
@@ -624,7 +610,7 @@
     "error_saving": "خطأ في حفظ إعدادات الاستعلام",
     "no_configurations": "لم يتم العثور على إعدادات استعلامات",
     "create_first_inquiry": "أنشئ أول إعدادات استعلام لديك",
-    "inquiries": "الاستعلامات",
+    "inquiries": "الاستعلامات تعديل الترجمة",
     "data_inquiries": "استعلامات البيانات",
     "available": "متاح",
     "recent_inquiries": "الحديثة",

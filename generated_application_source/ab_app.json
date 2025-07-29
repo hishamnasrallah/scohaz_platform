@@ -1,0 +1,159 @@
+[
+    {
+        "name": "Asset",
+        "fields": [
+            {
+                "name": "name",
+                "type": "CharField",
+                "options": "max_length=255, null=True, blank=True"
+            },
+            {
+                "name": "amount",
+                "type": "BigIntegerField",
+                "options": "null=True, blank=True"
+            },
+            {
+                "name": "choice",
+                "type": "CharField",
+                "options": "max_length=255, null=True, blank=True",
+                "choices": [
+                    [
+                        "male",
+                        "Male"
+                    ],
+                    [
+                        "female",
+                        "Female"
+                    ]
+                ]
+            },
+            {
+                "name": "created_at",
+                "type": "DateTimeField",
+                "options": "auto_now_add=True"
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTimeField",
+                "options": "auto_now=True"
+            }
+        ],
+        "relationships": [
+            {
+                "name": "contact_id",
+                "type": "ForeignKey",
+                "related_model": "ab_app.Contact",
+                "options": "on_delete=models.CASCADE, related_name='asset_contact_id_set'"
+            },
+            {
+                "name": "type",
+                "type": "OneToOneField",
+                "related_model": "lookup.Lookup",
+                "options": "on_delete=models.CASCADE, limit_choices_to={'parent_lookup__name': 'Asset Type'}, related_name='asset_type_set'"
+            }
+        ],
+        "meta": {
+            "db_table": "asset"
+        }
+    },
+    {
+        "name": "Course",
+        "fields": [
+            {
+                "name": "name",
+                "type": "CharField",
+                "options": "max_length=255, null=True, blank=True, unique=True"
+            },
+            {
+                "name": "start_date",
+                "type": "DateField",
+                "options": "null=True, blank=True"
+            },
+            {
+                "name": "end_date",
+                "type": "DateField",
+                "options": "null=True, blank=True"
+            },
+            {
+                "name": "created_at",
+                "type": "DateTimeField",
+                "options": "auto_now_add=True"
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTimeField",
+                "options": "auto_now=True"
+            }
+        ],
+        "relationships": [],
+        "meta": {
+            "db_table": "course"
+        }
+    },
+    {
+        "name": "Contact",
+        "fields": [
+            {
+                "name": "name",
+                "type": "CharField",
+                "options": "max_length=255, null=True, blank=True"
+            },
+            {
+                "name": "number",
+                "type": "IntegerField",
+                "options": "null=True, blank=True"
+            },
+            {
+                "name": "date",
+                "type": "DateField",
+                "options": "null=True, blank=True"
+            },
+            {
+                "name": "datetime",
+                "type": "DateTimeField",
+                "options": "null=True, blank=True"
+            },
+            {
+                "name": "file",
+                "type": "FileField",
+                "options": "upload_to='uploads/', null=True, blank=True"
+            },
+            {
+                "name": "time",
+                "type": "TimeField",
+                "options": "null=True, blank=True"
+            },
+            {
+                "name": "float",
+                "type": "FloatField",
+                "options": "null=True, blank=True"
+            },
+            {
+                "name": "decimal",
+                "type": "DecimalField",
+                "options": "max_digits=10, decimal_places=2, null=True, blank=True"
+            },
+            {
+                "name": "created_at",
+                "type": "DateTimeField",
+                "options": "auto_now_add=True"
+            },
+            {
+                "name": "updated_at",
+                "type": "DateTimeField",
+                "options": "auto_now=True"
+            }
+        ],
+        "relationships": [
+            {
+                "name": "courses",
+                "type": "ManyToManyField",
+                "related_model": "ab_app.Course",
+                "options": "related_name='contact_courses_set'"
+            }
+        ],
+        "meta": {
+            "db_table": "contact"
+        }
+    }
+]

@@ -32,9 +32,9 @@ from .models import PDFTemplate, PDFElement
 class DataService:
     """Simple service to fetch data from models"""
 
-    def __init__(self, template: PDFTemplate, object_id: Optional[int] = None):
+    def __init__(self, template: PDFTemplate, serial_number: Optional[str] = None):
         self.template = template
-        self.object_id = object_id
+        self.serial_number = str("000" + str(serial_number))
 
     def fetch_data(self) -> Dict[str, Any]:
         """Fetch data from the configured model"""
@@ -50,9 +50,9 @@ class DataService:
             queryset = queryset.filter(**self.template.query_filter)
 
         # Get single object if ID provided
-        if self.object_id:
+        if self.serial_number:
             try:
-                obj = queryset.get(pk=self.object_id)
+                obj = queryset.get(serial_number=self.serial_number)
                 return {'object': obj}
             except model_class.DoesNotExist:
                 return {}

@@ -182,7 +182,7 @@ class GeneratePDFView(views.APIView):
         # Fetch data
         data_service = DataService(
             template=template,
-            object_id=serializer.validated_data.get('object_id')
+            serial_number=serializer.validated_data.get('object_id')
         )
         data = data_service.fetch_data()
 
