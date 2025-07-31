@@ -1,0 +1,6 @@
+{
+"@@locale": "{{ locale }}",
+{% for key, value in translations.items() %}
+    "{{ key }}": "{{ value }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+}

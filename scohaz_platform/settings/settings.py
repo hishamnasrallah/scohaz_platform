@@ -48,12 +48,15 @@ INSTALLED_APPS += [
     "django_celery_beat",
     "django_celery_results",
     "django_filters",
+    'projects',
+    'builder',
+    'builds',
 
 
 ]
 
 CUSTOM_APPS = [
-    'ab_app',
+    # 'ab_app',
 
 ]
 INSTALLED_APPS += CUSTOM_APPS + [
@@ -96,15 +99,15 @@ INSTALLED_APPS += CUSTOM_APPS + [
 # }
 
 APPS_CURRENT_USER_MIDDLEWARE = [
-    'ab_app.middleware.CurrentUserMiddleware',
+    # 'ab_app.middleware.CurrentUserMiddleware',
     'reporting.middleware.CurrentUserMiddleware',
     #// TODO: add other modules
 ]
 
 APP_MIDDLEWARE_MAPPING = {
-    'ab_app': [
-        'ab_app.middleware.DynamicModelMiddleware',
-    ],
+    # 'ab_app': [
+    #     'ab_app.middleware.DynamicModelMiddleware',
+    # ],
 
     'reporting': [
         'reporting.middleware.DynamicModelMiddleware',
@@ -378,3 +381,8 @@ EXCLUDED_PATHS = {
 #         'reporting_templates.can_generate_pdf',
 #     ],
 # }
+
+
+# Flutter Builder Settings
+FLUTTER_SDK_PATH = os.environ.get('FLUTTER_SDK_PATH', 'C:\\flutter')
+ANDROID_SDK_PATH = os.environ.get('ANDROID_SDK_PATH', 'C:\\android-sdk')

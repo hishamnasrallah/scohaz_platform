@@ -57,7 +57,7 @@ urlpatterns = [
     path('dynamic/', include('dynamicflow.urls'), name='dynamicflow'),
     path('version/', include('version.urls'), name='version'),
     path('integration/', include('integration.urls'), name='integartion'),
-    path('translations/', include('misc.urls')),  # Include translations app URLs
+    # path('translations/', include('misc.urls')),  # Include translations app URLs
     path('define/', include("lowcode.urls"), name='Project Design'),
     path('conditional_approvals/', include("conditional_approval.urls"), name='Conditional Approvals'),
     path('license/', include("license_subscription_manager.urls"), name='license_subscription_manager'),
@@ -71,6 +71,10 @@ urlpatterns = [
     # Include dynamically registered app URLs
     path('api/applications/urls/', ApplicationURLsView.as_view(), name='application_urls'),
     path('api/applications/categorized-urls/', CategorizedApplicationURLsView.as_view(), name='categorized_application_urls'),
+
+    path('api/projects/', include('projects.urls')),
+    path('api/builder/', include('builder.urls')),
+    path('api/builds/', include('builds.urls')),
 ]
 
 # Dynamically register app URLs

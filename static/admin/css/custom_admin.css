@@ -1,0 +1,465 @@
+/* Flutter Visual Builder - Custom Admin Styles */
+
+/* General Enhancements */
+.module h2 {
+    background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+    color: white;
+    padding: 12px 20px;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+/* Status Badges */
+.status-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 16px;
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.status-success { background: #D1F2EB; color: #198754; }
+.status-error, .status-failed { background: #F8D7DA; color: #DC3545; }
+.status-warning, .status-building { background: #FFF3CD; color: #FFA500; }
+.status-info, .status-pending { background: #D1E7FF; color: #0D6EFD; }
+
+/* Animated Status */
+.status-animated {
+    position: relative;
+    padding-left: 24px;
+}
+
+.spinner {
+    position: absolute;
+    left: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 12px;
+    height: 12px;
+    border: 2px solid transparent;
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: translateY(-50%) rotate(360deg); }
+}
+
+/* Version Badge */
+.version-badge {
+    background: #6C757D;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+/* Info Tables */
+.info-table {
+    background: #F8F9FA;
+    border: 1px solid #DEE2E6;
+    border-radius: 4px;
+    padding: 0;
+    margin: 10px 0;
+    width: 100%;
+}
+
+.info-table th {
+    background: #E9ECEF;
+    padding: 8px 12px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 1px solid #DEE2E6;
+    width: 40%;
+}
+
+.info-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #DEE2E6;
+}
+
+.info-table tr:last-child td,
+.info-table tr:last-child th {
+    border-bottom: none;
+}
+
+/* Build History Table */
+.build-history-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+.build-history-table th {
+    background: #F8F9FA;
+    padding: 8px;
+    text-align: left;
+    font-weight: 600;
+    border: 1px solid #DEE2E6;
+}
+
+.build-history-table td {
+    padding: 8px;
+    border: 1px solid #DEE2E6;
+}
+
+/* Component Tree View */
+.component-tree {
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    background: #F8F9FA;
+    padding: 15px;
+    border-radius: 4px;
+    border: 1px solid #DEE2E6;
+    overflow-x: auto;
+}
+
+/* JSON Editor Container */
+.json-editor-container {
+    position: relative;
+    border: 1px solid #DEE2E6;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.json-editor-toolbar {
+    background: #F8F9FA;
+    padding: 8px 12px;
+    border-bottom: 1px solid #DEE2E6;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.json-editor-toolbar button {
+    background: white;
+    border: 1px solid #DEE2E6;
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.json-editor-toolbar button:hover {
+    background: #E9ECEF;
+    border-color: #ADB5BD;
+}
+
+.json-status {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.json-status.valid { color: #198754; }
+.json-status.invalid { color: #DC3545; }
+
+.json-error {
+    background: #F8D7DA;
+    color: #721C24;
+    padding: 8px 12px;
+    font-size: 12px;
+    display: none;
+}
+
+.json-error.show {
+    display: block;
+}
+
+textarea.json-editor {
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    border: none;
+    padding: 12px;
+    width: 100%;
+    min-height: 300px;
+    resize: vertical;
+}
+
+/* YAML Editor */
+.yaml-editor-container {
+    border: 1px solid #DEE2E6;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.yaml-editor-toolbar {
+    background: #F8F9FA;
+    padding: 8px 12px;
+    border-bottom: 1px solid #DEE2E6;
+}
+
+textarea.yaml-editor {
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    border: none;
+    padding: 12px;
+    width: 100%;
+}
+
+/* Code Editor */
+.code-editor-container {
+    border: 1px solid #DEE2E6;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.code-editor-header {
+    background: #2D2D2D;
+    color: white;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.code-language {
+    font-size: 11px;
+    opacity: 0.8;
+}
+
+.code-copy-btn {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+}
+
+.code-copy-btn:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+/* Code Preview */
+.code-preview {
+    background: #F8F9FA;
+    border: 1px solid #DEE2E6;
+    border-radius: 4px;
+    padding: 12px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* Button Styles */
+.button {
+    display: inline-block;
+    padding: 6px 16px;
+    background: #0D6EFD;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-size: 13px;
+    transition: all 0.2s;
+    border: none;
+    cursor: pointer;
+}
+
+.button:hover {
+    background: #0B5ED7;
+    color: white;
+    text-decoration: none;
+}
+
+.button-small {
+    padding: 4px 12px;
+    font-size: 12px;
+}
+
+.button-success {
+    background: #198754;
+}
+
+.button-success:hover {
+    background: #157347;
+}
+
+.button-warning {
+    background: #FFC107;
+    color: #000;
+}
+
+.button-warning:hover {
+    background: #FFCA2C;
+}
+
+.button-danger {
+    background: #DC3545;
+}
+
+.button-danger:hover {
+    background: #BB2D3B;
+}
+
+.button .icon {
+    margin-right: 4px;
+}
+
+/* Component Icon */
+.component-icon {
+    display: inline-block;
+    width: 32px;
+    text-align: center;
+}
+
+/* Mapping Preview Table */
+.mapping-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.mapping-preview-table th {
+    background: #F8F9FA;
+    padding: 8px;
+    text-align: left;
+    border: 1px solid #DEE2E6;
+}
+
+.mapping-preview-table td {
+    padding: 8px;
+    border: 1px solid #DEE2E6;
+}
+
+.mapping-preview-table code {
+    background: #F8F9FA;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: 'Monaco', 'Consolas', monospace;
+}
+
+/* Type Badge */
+.type-badge {
+    background: #E9ECEF;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-family: monospace;
+}
+
+/* Build Output */
+.build-output {
+    background: #1E1E1E;
+    color: #D4D4D4;
+    padding: 15px;
+    border-radius: 4px;
+    font-family: 'Monaco', 'Consolas', monospace;
+    font-size: 12px;
+    overflow-x: auto;
+}
+
+.build-command {
+    color: #4EC9B0;
+    margin-bottom: 10px;
+}
+
+.build-log {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.truncated-message {
+    color: #FFC107;
+    font-style: italic;
+    margin-top: 10px;
+}
+
+/* Error Details */
+.error-details {
+    background: #F8D7DA;
+    border: 1px solid #F5C6CB;
+    border-radius: 4px;
+    padding: 15px;
+}
+
+.error-message {
+    color: #721C24;
+    font-weight: 500;
+    margin-bottom: 10px;
+}
+
+.stacktrace {
+    background: #FFFFFF;
+    border: 1px solid #F5C6CB;
+    padding: 10px;
+    font-size: 12px;
+    overflow-x: auto;
+}
+
+/* Download Stats */
+.download-stats {
+    background: #F8F9FA;
+    padding: 15px;
+    border-radius: 4px;
+}
+
+.download-stats h4 {
+    margin: 15px 0 10px 0;
+    font-size: 14px;
+}
+
+.download-stats ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+/* Fullscreen Mode */
+.json-editor-fullscreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    background: white;
+}
+
+.json-editor-fullscreen .json-editor {
+    height: calc(100vh - 50px) !important;
+}
+
+/* Usage Count */
+.usage-count {
+    background: #E9ECEF;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+}
+
+/* Django Admin Overrides */
+#changelist-filter {
+    width: 240px;
+}
+
+.change-list .results {
+    width: calc(100% - 260px);
+}
+
+/* Responsive Design */
+@media (max-width: 767px) {
+    #changelist-filter {
+        width: 200px;
+    }
+
+    .change-list .results {
+        width: calc(100% - 220px);
+    }
+
+    .json-editor-toolbar {
+        flex-wrap: wrap;
+    }
+
+    .info-table th {
+        width: auto;
+    }
+}
