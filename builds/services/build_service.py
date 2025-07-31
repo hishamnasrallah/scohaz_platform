@@ -209,9 +209,10 @@ class BuildService:
         """Log build progress to database."""
         BuildLog.objects.create(
             build=build,
-            level=level,
+            level=level.lower(),  # Convert to lowercase to match model choices
             message=message,
-            timestamp=timezone.now()
+            stage='build_process'  # Add the required stage field
+            # Remove timestamp=timezone.now() as created_at is auto-populated
         )
 
     def _handle_build_failure(self, build: Build, output: str) -> None:

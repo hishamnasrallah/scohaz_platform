@@ -310,14 +310,11 @@ class BuildAdmin(TimestampMixin, StatusColorMixin, admin.ModelAdmin):
         # Create new build with same configuration
         new_build = Build.objects.create(
             project=build.project,
-            version=build.version,
-            platform=build.platform,
-            build_config=build.build_config,
+            version_number=build.version_number,  # Changed from version to version_number
+            build_type=build.build_type,
+            generation_config=build.generation_config,
             status='pending'
         )
-
-        messages.success(request, f'Build #{new_build.build_number} created and queued')
-        return redirect('admin:builds_build_change', new_build.pk)
 
     def cancel_view(self, request, build_id):
         build = Build.objects.get(pk=build_id)
@@ -349,7 +346,7 @@ class BuildAdmin(TimestampMixin, StatusColorMixin, admin.ModelAdmin):
 
         # Write build info
         response.write(f'Build #{build.build_number} - {build.project.name}\n')
-        response.write(f'Version: {build.version}\n')
+        response.write(f'Version: {build.version_number}\n')
         response.write(f'Status: {build.status}\n')
         response.write(f'Started: {build.started_at}\n')
         response.write(f'Completed: {build.completed_at}\n')
@@ -363,8 +360,8 @@ class BuildAdmin(TimestampMixin, StatusColorMixin, admin.ModelAdmin):
 
         # Write log entries
         response.write('BUILD LOGS:\n')
-        for log in build.buildlog_set.order_by('timestamp'):
-            response.write(f'[{log.timestamp.strftime("%Y-%m-%d %H:%M:%S")}] [{log.level.upper()}] {log.message}\n')
+        for log in build.logs.order_by('created_at'):  # Changed from buildlog_set to logs, and timestamp to created_at
+            response.write(f'[{log.created_at.strftime("%Y-%m-%d %H:%M:%S")}] [{log.level.upper()}] {log.message}\n')
 
         return response
 

@@ -51,7 +51,10 @@ class Build(models.Model):
         blank=True,
         help_text="Code generation configuration used"
     )
-
+    build_log = models.TextField(
+        blank=True,
+        help_text="Complete build output log"
+    )
     # Build status
     status = models.CharField(
         max_length=20,

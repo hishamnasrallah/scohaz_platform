@@ -107,6 +107,7 @@ class FlutterProjectAdmin(JSONFieldMixin, ExportMixin, TimestampMixin, admin.Mod
     def build_project_view(self, request, project_id):
         """Quick build with default settings"""
         from builds.models import Build
+        from builds.services.build_service import BuildService  # Add this import
 
         project = get_object_or_404(FlutterProject, pk=project_id)
 
@@ -122,16 +123,53 @@ class FlutterProjectAdmin(JSONFieldMixin, ExportMixin, TimestampMixin, admin.Mod
         # Create build with default settings
         build = Build.objects.create(
             project=project,
-            build_type='debug',  # Default to debug for testing
+            build_type='debug',
             version_number='1.0.0',
             build_number=next_build_number,
             status='pending'
         )
 
-        messages.success(request, f'Build #{build.build_number} created successfully!')
+        # Trigger build process immediately (for testing)
+        try:
+            build_service = BuildService()
+            build_service.start_build(build)
+            messages.success(request, f'Build #{build.build_number} started successfully!')
+        except Exception as e:
+            messages.error(request, f'Build failed to start: {str(e)}')
 
         # Redirect to build details
         return redirect('admin:builds_build_change', build.id)
+
+    # def build_project_view(self, request, project_id):
+    #     """Quick build with default settings"""
+    #     from builds.models import Build
+    #
+    #     project = get_object_or_404(FlutterProject, pk=project_id)
+    #
+    #     # Check permissions
+    #     if project.user != request.user and not request.user.is_superuser:
+    #         messages.error(request, 'You do not have permission to build this project.')
+    #         return redirect('admin:projects_flutterproject_change', project_id)
+    #
+    #     # Get last build number
+    #     last_build = project.builds.order_by('-build_number').first()
+    #     next_build_number = (last_build.build_number + 1) if last_build else 1
+    #
+    #     # Create build with default settings
+    #     build = Build.objects.create(
+    #         project=project,
+    #         build_type='debug',  # Default to debug for testing
+    #         version_number='1.0.0',
+    #         build_number=next_build_number,
+    #         status='pending'
+    #     )
+    #
+    #     messages.success(request, f'Build #{build.build_number} created successfully!')
+    #
+    #     # Redirect to build details
+    #     return redirect('admin:builds_build_change', build.id)
+
+
     def preview_project_view(self, request, project_id):
         """Preview project"""
         messages.info(request, 'Preview functionality not implemented yet')
