@@ -19,8 +19,8 @@ class BuildLogInline(admin.TabularInline):
     model = BuildLog
     extra = 0
     can_delete = False
-    readonly_fields = ['timestamp', 'level', 'message_preview']
-    fields = ['timestamp', 'level', 'message_preview']
+    readonly_fields = ['created_at', 'level', 'message_preview']
+    fields = ['created_at', 'level', 'message_preview']
 
     def message_preview(self, obj):
         if len(obj.message) > 100:
@@ -35,10 +35,10 @@ class BuildLogInline(admin.TabularInline):
 @admin.register(Build)
 class BuildAdmin(TimestampMixin, StatusColorMixin, admin.ModelAdmin):
     form = BuildForm
-    list_display = ['build_number', 'project_link', 'version', 'status_display',
-                    'platform', 'duration', 'apk_size', 'created_at', 'actions_display']
-    list_filter = ['status', 'platform', 'created_at', 'project__user']
-    search_fields = ['project__name', 'version', 'build_number', 'commit_hash']
+    list_display = ['build_number', 'project_link', 'version_number', 'status_display',
+                    'build_type', 'duration', 'apk_size', 'created_at', 'actions_display']
+    list_filter = ['status', 'build_type', 'created_at', 'project__user']
+    search_fields = ['project__name', 'version_number', 'build_number']
     readonly_fields = ['build_number', 'created_at', 'updated_at', 'started_at',
                        'completed_at', 'duration', 'build_info', 'build_output',
                        'error_details', 'download_stats']
@@ -46,14 +46,18 @@ class BuildAdmin(TimestampMixin, StatusColorMixin, admin.ModelAdmin):
 
     fieldsets = (
         ('Build Information', {
-            'fields': ('project', 'build_number', 'version', 'platform', 'status')
+            'fields': ('project', 'build_number', 'version_number', 'build_type', 'status')
         }),
         ('Build Configuration', {
-            'fields': ('commit_hash', 'build_config', 'environment_variables'),
+            'fields': ('generation_config',),
+            'classes': ('collapse',)
+        }),
+        ('Build Progress', {
+            'fields': ('progress', 'flutter_version', 'dart_version'),
             'classes': ('collapse',)
         }),
         ('Build Output', {
-            'fields': ('apk_file', 'build_output', 'error_details'),
+            'fields': ('apk_file', 'apk_size', 'error_message'),
             'classes': ('wide',)
         }),
         ('Build Statistics', {
@@ -61,7 +65,7 @@ class BuildAdmin(TimestampMixin, StatusColorMixin, admin.ModelAdmin):
             'classes': ('collapse',)
         }),
         ('Timestamps', {
-            'fields': ('created_at', 'started_at', 'completed_at', 'duration'),
+            'fields': ('created_at', 'started_at', 'completed_at', 'duration_seconds'),
             'classes': ('collapse',)
         })
     )
@@ -71,7 +75,7 @@ class BuildAdmin(TimestampMixin, StatusColorMixin, admin.ModelAdmin):
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        return qs.select_related('project', 'project__user').prefetch_related('buildlog_set')
+        return qs.select_related('project', 'project__user').prefetch_related('logs')
 
     def build_number(self, obj):
         return format_html(
@@ -96,15 +100,16 @@ class BuildAdmin(TimestampMixin, StatusColorMixin, admin.ModelAdmin):
         # Add spinner for building status
         if obj.status == 'building':
             return format_html(
-                '<span class="status-badge status-{} status-animated">'
+                '<span class="status-badge" style="background-color: {}; color: {};">'
                 '<span class="spinner"></span> {}</span>',
-                status_data['class'], status_data['label']
+                status_data['bg'], status_data['color'], status_data['label']
             )
 
         return format_html(
-            '<span class="status-badge status-{}">{}</span>',
-            status_data['class'], status_data['label']
+            '<span class="status-badge" style="background-color: {}; color: {};">{}</span>',
+            status_data['bg'], status_data['color'], status_data['label']
         )
+
     status_display.short_description = 'Status'
     status_display.admin_order_field = 'status'
 
@@ -372,11 +377,11 @@ class BuildAdmin(TimestampMixin, StatusColorMixin, admin.ModelAdmin):
 
 @admin.register(BuildLog)
 class BuildLogAdmin(admin.ModelAdmin):
-    list_display = ['build_link', 'timestamp', 'level_display', 'message_preview']
-    list_filter = ['level', 'timestamp', 'build__status']
+    list_display = ['build_link', 'created_at', 'level_display', 'message_preview']
+    list_filter = ['level', 'created_at', 'build__status']
+    readonly_fields = ['build', 'created_at', 'level', 'message', 'details']
+    date_hierarchy = 'created_at'
     search_fields = ['message', 'build__build_number']
-    readonly_fields = ['build', 'timestamp', 'level', 'message', 'extra_data']
-    date_hierarchy = 'timestamp'
 
     def build_link(self, obj):
         url = reverse('admin:builds_build_change', args=[obj.build.pk])

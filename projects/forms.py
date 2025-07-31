@@ -18,14 +18,15 @@ class FlutterProjectForm(forms.ModelForm):
                 'rows': 3,
                 'placeholder': 'Brief description of your Flutter application'
             }),
-            'ui_structure': JSONEditorWidget(attrs={
-                'style': 'height: 400px;'
-            }),
             'package_name': forms.TextInput(attrs={
                 'placeholder': 'com.example.myapp',
                 'pattern': r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'
             }),
-            'supported_languages': forms.CheckboxSelectMultiple()
+            'supported_languages': forms.CheckboxSelectMultiple(),
+            'primary_color': forms.TextInput(attrs={
+                'type': 'color',
+                'style': 'width: 80px; height: 40px;'
+            })
         }
 
     def clean_package_name(self):
@@ -50,21 +51,21 @@ class FlutterProjectForm(forms.ModelForm):
 
         return package_name
 
-    def clean_ui_structure(self):
-        ui_structure = self.cleaned_data.get('ui_structure')
-
-        if not ui_structure:
-            return {}
-
-        # Validate JSON structure
-        if not isinstance(ui_structure, dict):
-            raise ValidationError('UI structure must be a JSON object')
-
-        # Validate required fields
-        if 'version' not in ui_structure:
-            ui_structure['version'] = '1.0'
-
-        return ui_structure
+    # def clean_ui_structure(self):
+    #     ui_structure = self.cleaned_data.get('ui_structure')
+    #
+    #     if not ui_structure:
+    #         return {}
+    #
+    #     # Validate JSON structure
+    #     if not isinstance(ui_structure, dict):
+    #         raise ValidationError('UI structure must be a JSON object')
+    #
+    #     # Validate required fields
+    #     if 'version' not in ui_structure:
+    #         ui_structure['version'] = '1.0'
+    #
+    #     return ui_structure
 
     def clean(self):
         cleaned_data = super().clean()

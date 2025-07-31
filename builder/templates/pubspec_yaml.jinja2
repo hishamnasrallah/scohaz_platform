@@ -1,56 +1,49 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
-{% for screen in screens %}
-    import 'screens/{{ screen.name|lower }}.dart';
+name: {{ package_name.split('.')[-1] }}
+description: {{ description|default('A Flutter application') }}
+version: {{ version|default('1.0.0+1') }}
+
+environment:
+sdk: ">=2.19.0 <3.0.0"
+flutter: ">=3.0.0"
+
+dependencies:
+flutter:
+sdk: flutter
+flutter_localizations:
+sdk: flutter
+cupertino_icons: ^1.0.5
+{% for dep, version in dependencies.items() %}
+    {{ dep }}: {{ version }}
 {% endfor %}
 
-void main() {
-runApp(const MyApp());
-}
+dev_dependencies:
+flutter_test:
+sdk: flutter
+flutter_lints: ^2.0.0
+{% for dep, version in dev_dependencies.items() %}
+    {{ dep }}: {{ version }}
+{% endfor %}
 
-class MyApp extends StatelessWidget {
-const MyApp({Key? key}) : super(key: key);
+flutter:
+uses-material-design: true
+generate: true
 
-@override
-Widget build(BuildContext context) {
-return MaterialApp(
-title: '{{ app_name }}',
-debugShowCheckedModeBanner: false,
-theme: ThemeData(
-primarySwatch: Colors.blue,
-useMaterial3: true,
-),
-{% if supported_languages %}
-    localizationsDelegates: const [
-    AppLocalizations.delegate,
-    GlobalMaterialLocalizations.delegate,
-    GlobalWidgetsLocalizations.delegate,
-    GlobalCupertinoLocalizations.delegate,
-    ],
-    supportedLocales: const [
-    {% for lang in supported_languages %}
-        Locale('{{ lang }}'),
+{% if assets %}
+    assets:
+    {% for asset in assets %}
+        - {{ asset }}
     {% endfor %}
-    ],
-    locale: const Locale('{{ default_language }}'),
 {% endif %}
-{% if home_screen %}
-    home: const {{ home_screen.name }}(),
-{% else %}
-    home: const Scaffold(
-    body: Center(
-    child: Text('No screens defined'),
-    ),
-    ),
-{% endif %}
-{% if screens|length > 1 %}
-    routes: {
-    {% for screen in screens %}
-        '/{{ screen.route|default(screen.name|lower) }}': (context) => const {{ screen.name }}(),
+
+{% if fonts %}
+    fonts:
+    {% for font in fonts %}
+        - family: {{ font.family }}
+        fonts:
+        {% for font_file in font.fonts %}
+            - asset: {{ font_file.asset }}
+            {% if font_file.weight %}weight: {{ font_file.weight }}{% endif %}
+            {% if font_file.style %}style: {{ font_file.style }}{% endif %}
+        {% endfor %}
     {% endfor %}
-    },
 {% endif %}
-);
-}
-}

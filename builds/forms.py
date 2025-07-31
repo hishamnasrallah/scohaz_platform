@@ -41,28 +41,17 @@ class BuildForm(forms.ModelForm):
         model = Build
         fields = '__all__'
         widgets = {
-            'build_log': forms.Textarea(attrs={
-                'rows': 10,
-                'readonly': True,
-                'class': 'build-log-textarea'
-            }),
             'error_message': forms.Textarea(attrs={
                 'rows': 3,
                 'readonly': True,
                 'class': 'error-message-textarea'
             }),
-            'error_stacktrace': forms.Textarea(attrs={
-                'rows': 8,
-                'readonly': True,
-                'class': 'stacktrace-textarea'
+            'version_number': forms.TextInput(attrs={
+                'placeholder': '1.0.0',
+                'pattern': r'^\d+\.\d+\.\d+$'
             }),
-            'version': forms.TextInput(attrs={
-                'placeholder': '1.0.0+1',
-                'pattern': r'^\d+\.\d+\.\d+\+\d+$'
-            }),
-            'commit_hash': forms.TextInput(attrs={
-                'placeholder': 'git commit hash (optional)',
-                'maxlength': 40
+            'build_number': forms.NumberInput(attrs={
+                'min': 1
             })
         }
         help_texts = {

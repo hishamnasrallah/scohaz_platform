@@ -13,11 +13,11 @@ from admin_utils.admin_mixins import JSONFieldMixin, TimestampMixin
 @admin.register(WidgetMapping)
 class WidgetMappingAdmin(JSONFieldMixin, TimestampMixin, admin.ModelAdmin):
     form = WidgetMappingForm
-    list_display = ['ui_type', 'flutter_widget', 'category', 'property_count',
-                    'has_children', 'is_active', 'test_mapping']
-    list_filter = ['category', 'is_active', 'has_children', 'created_at']
-    search_fields = ['ui_type', 'flutter_widget', 'description']
-    list_editable = ['is_active']
+    list_display = ['component', 'flutter_widget_name', 'category_display', 'property_count',
+                    'requires_context', 'test_mapping']
+    list_filter = ['component__category', 'requires_context', 'created_at']
+    search_fields = ['component__name', 'component__flutter_widget', 'component__description']
+    list_editable = []
     readonly_fields = ['created_at', 'updated_at', 'mapping_preview', 'example_usage']
 
     fieldsets = (
@@ -46,6 +46,26 @@ class WidgetMappingAdmin(JSONFieldMixin, TimestampMixin, admin.ModelAdmin):
             'classes': ('collapse',)
         })
     )
+    def flutter_widget_name(self, obj):
+        return obj.component.flutter_widget if obj.component else '-'
+    flutter_widget_name.short_description = 'Flutter Widget'
+
+    def category_display(self, obj):
+        return obj.component.get_category_display() if obj.component else '-'
+    category_display.short_description = 'Category'
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path('<int:pk>/test/', self.test_mapping_view, name='test_widget_mapping'),
+        ]
+        return custom_urls + urls
+
+    def test_mapping_view(self, request, pk):
+        """View for testing widget mapping"""
+        from django.shortcuts import redirect
+        messages.info(request, 'Widget mapping test not implemented yet')
+        return redirect('admin:builder_widgetmapping_change', pk)
 
     def property_count(self, obj):
         if obj.properties_mapping:
@@ -198,34 +218,30 @@ class WidgetMappingAdmin(JSONFieldMixin, TimestampMixin, admin.ModelAdmin):
 @admin.register(GenerationConfig)
 class GenerationConfigAdmin(TimestampMixin, admin.ModelAdmin):
     form = GenerationConfigForm
-    list_display = ['name', 'project', 'flutter_version', 'target_platform',
-                    'is_active', 'last_used', 'generate_button']
-    list_filter = ['flutter_version', 'target_platform', 'is_active', 'created_at']
+    list_display = ['name', 'flutter_version', 'dart_version',
+                    'is_default', 'is_active', 'generate_button']
+    list_filter = ['flutter_version', 'is_active', 'is_default', 'created_at']
+    readonly_fields = ['created_at', 'updated_at', 'config_preview']
     search_fields = ['name', 'description', 'project__name']
-    readonly_fields = ['created_at', 'updated_at', 'last_used', 'config_preview']
 
     fieldsets = (
         ('Basic Information', {
-            'fields': ('name', 'project', 'description', 'is_active')
+            'fields': ('name', 'description', 'is_active', 'is_default')
         }),
         ('Flutter Configuration', {
             'fields': ('flutter_version', 'dart_version', 'target_platform', 'min_sdk_version')
         }),
         ('Build Settings', {
-            'fields': ('enable_proguard', 'enable_multidex', 'build_mode'),
+            'fields': ('enable_material3', 'enable_null_safety', 'use_const_constructors'),
             'classes': ('collapse',)
         }),
         ('Dependencies', {
-            'fields': ('dependencies', 'dev_dependencies'),
+            'fields': ('default_packages',),
             'classes': ('wide',),
-            'description': 'Specify package dependencies in YAML format'
+            'description': 'Default package dependencies'
         }),
-        ('Assets & Resources', {
-            'fields': ('assets_config', 'fonts_config'),
-            'classes': ('collapse',)
-        }),
-        ('Advanced Settings', {
-            'fields': ('gradle_config', 'ios_config', 'additional_config'),
+        ('Templates', {
+            'fields': ('main_template', 'pubspec_template'),
             'classes': ('collapse',)
         }),
         ('Preview', {
@@ -233,19 +249,30 @@ class GenerationConfigAdmin(TimestampMixin, admin.ModelAdmin):
             'classes': ('wide',)
         }),
         ('Timestamps', {
-            'fields': ('created_at', 'updated_at', 'last_used'),
+            'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)
         })
     )
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path('<int:pk>/generate/', self.generate_with_config_view, name='generate_with_config'),
+        ]
+        return custom_urls + urls
+
+    def generate_with_config_view(self, request, pk):
+        """View for generating with this config"""
+        from django.shortcuts import redirect
+        messages.info(request, 'Generation not implemented yet')
+        return redirect('admin:builder_generationconfig_change', pk)
 
     def generate_button(self, obj):
-        if obj.project:
-            url = reverse('admin:generate_with_config', args=[obj.pk])
-            return format_html(
-                '<a class="button button-small" href="{}">Generate</a>',
-                url
-            )
-        return '-'
+        url = reverse('admin:generate_with_config', args=[obj.pk])
+        return format_html(
+            '<a class="button button-small" href="{}">Generate</a>',
+            url
+        )
     generate_button.short_description = 'Actions'
 
     def config_preview(self, obj):

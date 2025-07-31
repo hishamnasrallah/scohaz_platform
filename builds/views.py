@@ -5,8 +5,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.http import FileResponse, Http404
-from django.db.models import Count, Avg, Sum, Q
+from django.db.models import Count, Avg, Sum, Q, F
 from django.utils import timezone
+from django.db import models
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
 
@@ -16,7 +17,6 @@ from .serializers import (
     TriggerBuildSerializer, BuildStatusSerializer, BuildStatsSerializer
 )
 from .filters import BuildFilter
-from .tasks import execute_flutter_build
 from projects.models import FlutterProject
 from projects.permissions import IsProjectOwner
 
@@ -143,10 +143,8 @@ class TriggerBuildAPIView(APIView):
             )
 
             # Trigger async build task
-            execute_flutter_build.delay(
-                build_id=build.id,
-                build_type=data['build_type']
-            )
+            from .tasks import process_build_task
+            process_build_task.delay(build.id)
 
             # Return build details
             build_serializer = BuildSerializer(

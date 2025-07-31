@@ -8,7 +8,7 @@ from django.shortcuts import redirect
 from django.contrib import messages
 from django.http import HttpResponse
 import json
-
+from django.shortcuts import get_object_or_404, render
 from .models import FlutterProject, Screen, ComponentTemplate
 from .forms import FlutterProjectForm, ScreenForm, ComponentTemplateForm
 from .admin_actions import duplicate_project, generate_preview, export_project_json
@@ -31,12 +31,11 @@ class BuildCountFilter(SimpleListFilter):
 
     def queryset(self, request, queryset):
         if self.value() == '0':
-            return queryset.annotate(build_count=Count('build')).filter(build_count=0)
+            return queryset.annotate(build_count=Count('builds')).filter(build_count=0)
         elif self.value() == '1-5':
-            return queryset.annotate(build_count=Count('build')).filter(build_count__gte=1, build_count__lte=5)
+            return queryset.annotate(build_count=Count('builds')).filter(build_count__gte=1, build_count__lte=5)
         elif self.value() == '6+':
-            return queryset.annotate(build_count=Count('build')).filter(build_count__gt=5)
-
+            return queryset.annotate(build_count=Count('builds')).filter(build_count__gt=5)
 
 class ScreenInline(admin.TabularInline):
     model = Screen
@@ -79,9 +78,9 @@ class FlutterProjectAdmin(JSONFieldMixin, ExportMixin, TimestampMixin, admin.Mod
             'fields': ('app_version', 'supported_languages', 'default_language'),
             'classes': ('collapse',)
         }),
-        ('UI Structure', {
-            'fields': ('ui_structure',),
-            'classes': ('wide',)
+        ('Appearance', {
+            'fields': ('primary_color', 'app_icon'),
+            'classes': ('collapse',)
         }),
         ('Statistics', {
             'fields': ('project_info', 'build_history'),
@@ -96,13 +95,55 @@ class FlutterProjectAdmin(JSONFieldMixin, ExportMixin, TimestampMixin, admin.Mod
     inlines = [ScreenInline]
     actions = [duplicate_project, generate_preview, export_project_json]
 
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path('<int:project_id>/build/', self.build_project_view, name='build_project'),
+            path('<int:project_id>/preview/', self.preview_project_view, name='preview_project'),
+        ]
+        return custom_urls + urls
+
+    def build_project_view(self, request, project_id):
+        """Quick build with default settings"""
+        from builds.models import Build
+
+        project = get_object_or_404(FlutterProject, pk=project_id)
+
+        # Check permissions
+        if project.user != request.user and not request.user.is_superuser:
+            messages.error(request, 'You do not have permission to build this project.')
+            return redirect('admin:projects_flutterproject_change', project_id)
+
+        # Get last build number
+        last_build = project.builds.order_by('-build_number').first()
+        next_build_number = (last_build.build_number + 1) if last_build else 1
+
+        # Create build with default settings
+        build = Build.objects.create(
+            project=project,
+            build_type='debug',  # Default to debug for testing
+            version_number='1.0.0',
+            build_number=next_build_number,
+            status='pending'
+        )
+
+        messages.success(request, f'Build #{build.build_number} created successfully!')
+
+        # Redirect to build details
+        return redirect('admin:builds_build_change', build.id)
+    def preview_project_view(self, request, project_id):
+        """Preview project"""
+        messages.info(request, 'Preview functionality not implemented yet')
+        return redirect('admin:projects_flutterproject_change', project_id)
+
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         return qs.select_related('user', 'app_version').prefetch_related(
-            'supported_languages', 'screen_set', 'build_set'
+            'supported_languages', 'screens', 'builds'
         ).annotate(
-            build_count=Count('build'),
-            screen_count=Count('screen')
+            build_count=Count('builds'),
+            screen_count=Count('screens')
         )
 
     def version_display(self, obj):
@@ -129,12 +170,12 @@ class FlutterProjectAdmin(JSONFieldMixin, ExportMixin, TimestampMixin, admin.Mod
     language_count.short_description = 'Languages'
 
     def screen_count(self, obj):
-        return getattr(obj, 'screen_count', obj.screen_set.count())
+        return getattr(obj, 'screen_count', obj.screens.count())
     screen_count.short_description = 'Screens'
     screen_count.admin_order_field = 'screen_count'
 
     def build_count(self, obj):
-        count = getattr(obj, 'build_count', obj.build_set.count())
+        count = getattr(obj, 'build_count', obj.builds.count())
         if count > 0:
             url = reverse('admin:builds_build_changelist') + f'?project__id__exact={obj.pk}'
             return format_html('<a href="{}">{} builds</a>', url, count)
@@ -158,10 +199,10 @@ class FlutterProjectAdmin(JSONFieldMixin, ExportMixin, TimestampMixin, admin.Mod
 
     def project_info(self, obj):
         info = {
-            'Screens': obj.screen_set.count(),
+            'Screens': obj.screens.count(),
             'Total Components': sum(
                 len(screen.ui_structure.get('components', []))
-                for screen in obj.screen_set.all()
+                for screen in obj.screens.all()
             ),
             'Languages': obj.supported_languages.count(),
             'Builds': obj.build_set.count(),
@@ -251,7 +292,18 @@ class ScreenAdmin(JSONFieldMixin, admin.ModelAdmin):
             'classes': ('collapse',)
         })
     )
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path('<int:screen_id>/preview/', self.preview_screen_view, name='preview_screen'),
+        ]
+        return custom_urls + urls
 
+    def preview_screen_view(self, request, screen_id):
+        """Preview screen"""
+        messages.info(request, 'Screen preview functionality not implemented yet')
+        return redirect('admin:projects_screen_change', screen_id)
     def project_link(self, obj):
         url = reverse('admin:projects_flutterproject_change', args=[obj.project.pk])
         return format_html('<a href="{}">{}</a>', url, obj.project.name)
@@ -375,6 +427,18 @@ class ComponentTemplateAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         })
     )
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path('<int:component_id>/preview/', self.preview_component_view, name='preview_component'),
+        ]
+        return custom_urls + urls
+
+    def preview_component_view(self, request, component_id):
+        """Preview component"""
+        messages.info(request, 'Component preview functionality not implemented yet')
+        return redirect('admin:projects_componenttemplate_change', component_id)
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)

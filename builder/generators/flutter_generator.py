@@ -10,8 +10,8 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from utils.multilangual_helpers import read_translation
-from version.models import LocalVersion
 # from utils.multilingual_helpers import read_translation
+from version.models import LocalVersion
 from .widget_generator import WidgetGenerator
 from .property_mapper import PropertyMapper
 
@@ -64,13 +64,42 @@ class FlutterGenerator:
 
         return translations
 
-    def generate(self) -> Dict[str, str]:
-        """
-        Generate complete Flutter project from UI structure
+    def generate_project(self) -> Dict[str, str]:
+        """Alias for generate method for compatibility"""
+        return self.generate()
 
-        Returns:
-            Dictionary mapping file paths to file contents
-        """
+    def generate_screen_code(self, screen_name: str, ui_structure: Dict, include_imports: bool = True) -> Dict:
+        """Generate code for a single screen"""
+        # Generate widget code
+        widget_code = self.widget_generator.generate_widget(
+            ui_structure,
+            self.translations,
+            indent_level=2
+        )
+
+        # Build screen file
+        imports = self._collect_imports(ui_structure) if include_imports else []
+
+        code = f'''import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+{chr(10).join(imports)}
+
+class {screen_name} extends StatelessWidget {{
+  const {screen_name}({{Key? key}}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {{
+    return {widget_code};
+  }}
+}}
+'''
+
+        return {
+            'code': code,
+            'imports': list(self.widget_generator.imports),
+            'widget_tree': ui_structure,
+            'translations_used': list(self.widget_generator.used_translation_keys)
+        }
         files = {}
 
         try:

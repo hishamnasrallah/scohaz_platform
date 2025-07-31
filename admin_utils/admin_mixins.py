@@ -52,10 +52,13 @@ class StatusColorMixin:
 
     def get_status_info(self, status):
         """Get status color and label"""
-        return self.STATUS_COLORS.get(
+        info = self.STATUS_COLORS.get(
             status.lower(),
             {'color': '#000', 'bg': '#FFF', 'label': status.title()}
         )
+        # Add CSS class based on status
+        info['class'] = status.lower()
+        return info
 
     def colored_status(self, obj):
         """Display status with color"""

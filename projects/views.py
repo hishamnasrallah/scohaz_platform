@@ -165,7 +165,7 @@ class FlutterProjectViewSet(viewsets.ModelViewSet):
         project = self.get_object()
 
         if request.method == 'GET':
-            screens = project.screen_set.all()
+            screens = project.screens.all()
             serializer = ScreenSerializer(screens, many=True)
             return Response(serializer.data)
 
@@ -175,7 +175,7 @@ class FlutterProjectViewSet(viewsets.ModelViewSet):
                 # Check if making this the home screen
                 if serializer.validated_data.get('is_home', False):
                     # Unset any existing home screen
-                    project.screen_set.update(is_home=False)
+                    project.screens.update(is_home=False)
 
                 serializer.save(project=project)
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
