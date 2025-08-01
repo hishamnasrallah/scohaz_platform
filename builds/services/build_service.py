@@ -123,37 +123,26 @@ class BuildService:
 
                 self.file_manager.write_project_files(build_dir, flutter_files_only)
 
-                # Create or update local.properties (don't overwrite the whole file)
-                local_properties_path = os.path.join(build_dir, 'android', 'local.properties')
-                if os.path.exists(local_properties_path):
-                    # Read existing content
-                    with open(local_properties_path, 'r') as f:
-                        existing_content = f.read()
+                # Update app version in pubspec.yaml instead of local.properties
+                pubspec_path = os.path.join(build_dir, 'pubspec.yaml')
+                if os.path.exists(pubspec_path):
+                    with open(pubspec_path, 'r') as f:
+                        pubspec_content = f.read()
 
-                    # Update or add our properties
-                    properties = {
-                        'flutter.buildMode': build.build_type,
-                        'flutter.versionName': str(build.version_number),
-                        'flutter.versionCode': str(build.build_number)
-                    }
+                    # Update version line
+                    import re
+                    version_line = f'version: {build.version_number}+{build.build_number}'
+                    pubspec_content = re.sub(
+                        r'^version:.*$',
+                        version_line,
+                        pubspec_content,
+                        flags=re.MULTILINE
+                    )
 
-                    lines = existing_content.split('\n')
-                    updated_lines = []
+                    with open(pubspec_path, 'w') as f:
+                        f.write(pubspec_content)
 
-                    for line in lines:
-                        if '=' in line:
-                            key = line.split('=')[0].strip()
-                            if key not in properties:
-                                updated_lines.append(line)
-                        else:
-                            updated_lines.append(line)
-
-                    # Add our properties
-                    for key, value in properties.items():
-                        updated_lines.append(f'{key}={value}')
-
-                    with open(local_properties_path, 'w') as f:
-                        f.write('\n'.join(updated_lines))
+                    logger.info(f"Updated pubspec.yaml with version: {version_line}")
                 else:
                     # Create new local.properties
                     with open(local_properties_path, 'w') as f:

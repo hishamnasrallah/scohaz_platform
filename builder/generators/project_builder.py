@@ -64,8 +64,8 @@ class FlutterProjectBuilder:
             self._generate_readme()
             self._generate_gitignore()
             self._generate_analysis_options()
-            self._generate_android_files()
-            self._generate_ios_files()
+            # self._generate_android_files()
+            # self._generate_ios_files()
 
             # Copy assets if any
             self._copy_assets()
@@ -310,8 +310,10 @@ linter:
         self._write_file('analysis_options.yaml', analysis_options)
 
     def _generate_android_files(self):
-        """Generate Android-specific files"""
-        # MainActivity.kt
+        """Skip Android file generation - let Flutter handle it"""
+        logger.info("Skipping Android file generation - using Flutter defaults")
+
+        pass
         package_name = self.project.package_name
         package_path = package_name.replace('.', '/')
 
@@ -361,14 +363,14 @@ class MainActivity: FlutterActivity() {{
 
         # build.gradle (project level)
         project_build_gradle = '''buildscript {
-    ext.kotlin_version = '1.7.10'
+    ext.kotlin_version = '1.9.0'
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:7.3.0'
+        classpath 'com.android.tools.build:gradle:8.1.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }

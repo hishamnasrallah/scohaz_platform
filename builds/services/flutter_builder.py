@@ -171,20 +171,11 @@ class FlutterBuilder:
             logger.info("Cleaning previous builds...")
             self._run_flutter_clean(project_path)
 
-            # Check if local.properties exists and has SDK paths
-            local_properties_path = os.path.join(project_path, 'android', 'local.properties')
-            if not os.path.exists(local_properties_path):
-                logger.warning("local.properties not found, creating it...")
-                sdk_dir = self.config.android_sdk_path or os.environ.get('ANDROID_SDK_ROOT', '')
-                flutter_sdk = self.config.flutter_sdk_path or os.environ.get('FLUTTER_ROOT', '')
-
-                if sdk_dir:
-                    with open(local_properties_path, 'w') as f:
-                        f.write(f'sdk.dir={sdk_dir}\n')
-                        f.write(f'flutter.sdk={flutter_sdk}\n')
-                else:
-                    logger.error("Android SDK path not found in environment")
-                    return False, "Android SDK not configured. Set ANDROID_SDK_ROOT environment variable.", None
+            # Let Flutter handle local.properties creation
+            # Just ensure we have the right environment variables set
+            env = self.config.get_environment()
+            if not env.get('ANDROID_SDK_ROOT') and not env.get('ANDROID_HOME'):
+                logger.warning("Android SDK environment variables not set. Flutter will try to auto-detect.")
 
             # For debug builds, use simpler approach
             if build_mode == 'debug':
@@ -236,9 +227,15 @@ class FlutterBuilder:
                     lines = error_output.split('\n')
                     error_context = []
 
-                    # Find lines around "BUILD FAILED"
+                    # Look for Kotlin compilation errors specifically
                     for i, line in enumerate(lines):
-                        if "BUILD FAILED" in line:
+                        if "compileDebugKotlin" in line or "Compilation error" in line:
+                            # Get more context around Kotlin errors
+                            start = max(0, i - 20)
+                            end = min(len(lines), i + 10)
+                            error_context = lines[start:end]
+                            break
+                        elif "BUILD FAILED" in line:
                             # Get 10 lines before and after
                             start = max(0, i - 10)
                             end = min(len(lines), i + 5)
@@ -247,6 +244,10 @@ class FlutterBuilder:
 
                     if error_context:
                         error_output = '\n'.join(error_context)
+
+                # Add specific Kotlin error checks
+                if "compileDebugKotlin" in error_output:
+                    error_output += "\n\nKotlin compilation failed. This might be due to version incompatibility."
 
                 # Check for common issues
                 if "SDK location not found" in error_output:
@@ -301,36 +302,19 @@ class FlutterBuilder:
             return False
 
     def _fix_gradle_issues(self, project_path: str) -> bool:
-        """Fix common Gradle issues before building."""
+        """Ensure gradle wrapper is executable"""
         try:
-            # Check if gradle wrapper exists
             gradlew_path = os.path.join(project_path, 'android', 'gradlew')
-            if not os.path.exists(gradlew_path):
-                logger.warning("Gradle wrapper not found, regenerating...")
-                # Run flutter create to regenerate Android files
-                result = self.command_runner.run_command(
-                    [self.flutter_path, 'create', '.', '--platforms', 'android'],
-                    cwd=project_path,
-                    timeout=60
-                )
-                if result.returncode != 0:
-                    logger.error(f"Failed to regenerate Android files: {result.stderr}")
-                    return False
 
             # Make gradlew executable on Unix-like systems
-            if os.name != 'nt':
+            if os.path.exists(gradlew_path) and os.name != 'nt':
                 os.chmod(gradlew_path, 0o755)
-
-                # Don't try to accept licenses automatically - just warn
-            logger.info("Note: Android licenses must be accepted manually if not already done")
-            logger.info("Run 'flutter doctor --android-licenses' if you encounter license issues")
 
             return True
 
         except Exception as e:
             logger.error(f"Failed to fix Gradle issues: {e}")
             return False
-
     def _run_flutter_clean(self, project_path: str) -> bool:
         """Run flutter clean to remove previous build artifacts."""
         result = self.command_runner.run_command(
