@@ -23,6 +23,65 @@ class FlutterBuilder:
         self.config = BuildConfig()
         self.flutter_path = self._get_flutter_path()
 
+    @staticmethod
+    def create_flutter_project(project_path: str, name: str, org: str, description: str = None) -> Tuple[bool, str]:
+        """
+        Create a new Flutter project using flutter create.
+
+        Args:
+            project_path: Path where the project should be created
+            name: Project name
+            org: Organization identifier (e.g., com.example)
+            description: Project description
+
+        Returns:
+            Tuple of (success, error_message)
+        """
+        logger.info(f"Creating Flutter project: {name} at {project_path}")
+
+        try:
+            # Get flutter path
+            flutter_path = 'flutter'
+            if hasattr(settings, 'FLUTTER_SDK_PATH') and settings.FLUTTER_SDK_PATH:
+                if os.name == 'nt':  # Windows
+                    flutter_path = os.path.join(settings.FLUTTER_SDK_PATH, 'bin', 'flutter.bat')
+                else:
+                    flutter_path = os.path.join(settings.FLUTTER_SDK_PATH, 'bin', 'flutter')
+
+            # Build flutter create command
+            cmd = [
+                flutter_path, 'create',
+                '--project-name', name,
+                '--org', org,
+                '--platforms', 'android',  # Only Android for now
+                '.'  # Create in current directory
+            ]
+
+            if description:
+                cmd.extend(['--description', description])
+
+            # Run flutter create using subprocess directly
+            result = subprocess.run(
+                cmd,
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=120  # 2 minutes timeout
+            )
+
+            if result.returncode == 0:
+                logger.info("Flutter project created successfully")
+                return True, None
+            else:
+                logger.error(f"Failed to create Flutter project: {result.stderr}")
+                return False, result.stderr
+
+        except subprocess.TimeoutExpired:
+            return False, "Flutter create timed out"
+        except Exception as e:
+            logger.error(f"Exception creating Flutter project: {str(e)}")
+            return False, str(e)
+
     def check_flutter_sdk(self) -> bool:
         """
         Check if Flutter SDK is properly installed and configured.
@@ -62,6 +121,11 @@ class FlutterBuilder:
         logger.info(f"Building APK for project at {project_path}")
 
         try:
+            # Fix any Gradle issues first
+            logger.info("Checking and fixing Gradle configuration...")
+            if not self._fix_gradle_issues(project_path):
+                logger.warning("Some Gradle issues could not be fixed")
+
             # First, get dependencies
             logger.info("Running flutter pub get...")
             pub_result = self._run_pub_get(project_path)
@@ -86,8 +150,26 @@ class FlutterBuilder:
                     logger.error("APK file not found after successful build")
                     return False, "APK file not found", None
             else:
-                logger.error(f"Build failed: {build_result.stderr}")
-                return False, f"{build_result.stdout}\n{build_result.stderr}", None
+                # Extract meaningful error from output
+                error_output = f"{build_result.stdout}\n{build_result.stderr}"
+
+                # Look for common Gradle errors
+                if "FAILURE: Build failed with an exception" in error_output:
+                    # Extract the actual error message
+                    lines = error_output.split('\n')
+                    error_start = False
+                    error_lines = []
+                    for line in lines:
+                        if "FAILURE: Build failed" in line:
+                            error_start = True
+                        if error_start:
+                            error_lines.append(line)
+                        if "BUILD FAILED" in line:
+                            break
+                    error_output = '\n'.join(error_lines[-20:])  # Last 20 lines of error
+
+                logger.error(f"Build failed with output:\n{error_output}")
+                return False, error_output, None
 
         except subprocess.TimeoutExpired:
             logger.error("Build timed out")
@@ -128,6 +210,39 @@ class FlutterBuilder:
             logger.error(f"Failed to fetch dependencies: {result.stderr}")
             return False
 
+    def _fix_gradle_issues(self, project_path: str) -> bool:
+        """Fix common Gradle issues before building."""
+        try:
+            # Check if gradle wrapper exists
+            gradlew_path = os.path.join(project_path, 'android', 'gradlew')
+            if not os.path.exists(gradlew_path):
+                logger.warning("Gradle wrapper not found, regenerating...")
+                # Run flutter create to regenerate Android files
+                result = self.command_runner.run_command(
+                    [self.flutter_path, 'create', '.', '--platforms', 'android'],
+                    cwd=project_path,
+                    timeout=60
+                )
+                if result.returncode != 0:
+                    logger.error(f"Failed to regenerate Android files: {result.stderr}")
+                    return False
+
+            # Make gradlew executable on Unix-like systems
+            if os.name != 'nt':
+                os.chmod(gradlew_path, 0o755)
+
+            # Accept Android licenses
+            logger.info("Checking Android licenses...")
+            license_result = self.command_runner.run_command(
+                [self.flutter_path, 'doctor', '--android-licenses', '-v'],
+                timeout=30
+            )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to fix Gradle issues: {e}")
+            return False
+
     def _run_flutter_clean(self, project_path: str) -> bool:
         """Run flutter clean to remove previous build artifacts."""
         result = self.command_runner.run_command(
@@ -145,6 +260,18 @@ class FlutterBuilder:
 
     def _run_build_apk(self, project_path: str, build_mode: str) -> subprocess.CompletedProcess:
         """Run flutter build apk command."""
+        # First, let's try to get more detailed error info by running gradle directly
+        logger.info("Running gradle wrapper to check for issues...")
+        gradlew_cmd = 'gradlew.bat' if os.name == 'nt' else './gradlew'
+        gradle_check = self.command_runner.run_command(
+            [gradlew_cmd, 'tasks'],
+            cwd=os.path.join(project_path, 'android'),
+            timeout=60
+        )
+
+        if gradle_check.returncode != 0:
+            logger.warning(f"Gradle check failed: {gradle_check.stderr}")
+
         cmd = [self.flutter_path, 'build', 'apk']
 
         # Add build mode flag
@@ -157,15 +284,21 @@ class FlutterBuilder:
 
         # Add additional flags
         cmd.extend([
-            # '--no-sound-null-safety',  # For compatibility
             '--verbose'  # Detailed output
         ])
+
+        # Set up environment with proper Android SDK
+        env = os.environ.copy()
+        if self.config.android_sdk_path:
+            env['ANDROID_SDK_ROOT'] = self.config.android_sdk_path
+            env['ANDROID_HOME'] = self.config.android_sdk_path
 
         # Run build command
         return self.command_runner.run_command(
             cmd,
             cwd=project_path,
-            timeout=self.config.get_build_timeout()
+            timeout=self.config.get_build_timeout(),
+            env=env
         )
 
     def _find_apk_file(self, project_path: str, build_mode: str) -> Optional[str]:

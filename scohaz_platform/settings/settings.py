@@ -397,7 +397,7 @@ ANDROID_SDK_PATH = r'C:\android-sdk'
 ANDROID_CMDLINE_TOOLS = os.path.join(ANDROID_SDK_PATH, 'cmdline-tools', 'latest')
 
 # Java path (update to your Java 17 path)
-JAVA_HOME = r'C:\Program Files\Eclipse Adoptium\jdk-17.0.9.9-hotspot'
+JAVA_HOME = r'C:\Program Files\Eclipse Adoptium\jdk-21.0.8.9-hotspot'
 
 # Set environment variables
 os.environ['FLUTTER_ROOT'] = FLUTTER_SDK_PATH

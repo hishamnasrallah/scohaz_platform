@@ -99,22 +99,70 @@ class BuildService:
                     logger.error(f"Traceback: {traceback.format_exc()}")
                     raise RuntimeError(f"Code generation failed: {str(gen_error)}")
 
-                # Write generated files (this will overwrite the template files)
+                # Write generated files (only Dart/Flutter files, preserve platform files)
                 logger.info(f"Writing custom files to {build_dir}")
                 self._log_build_progress(build, f"Writing custom project files", level='info')
 
-                self.file_manager.write_project_files(build_dir, generated_files)
+                # Only write Dart/Flutter specific files
+                flutter_files_only = {}
+                for file_path, content in generated_files.items():
+                    # Only include:
+                    # - Dart source files (lib/)
+                    # - Flutter configuration (pubspec.yaml, l10n.yaml)
+                    # - Asset files
+                    # Skip all platform-specific files (android/, ios/, web/, etc.)
+                    if (file_path.startswith('lib/') or
+                            file_path == 'pubspec.yaml' or
+                            file_path == 'l10n.yaml' or
+                            file_path.startswith('assets/') or
+                            file_path == 'analysis_options.yaml'):
+                        flutter_files_only[file_path] = content
+                        logger.debug(f"Writing Flutter file: {file_path}")
+                    else:
+                        logger.debug(f"Skipping platform-specific file: {file_path}")
 
-                # Update local.properties with correct paths
-                local_properties_content = f'''sdk.dir={self.config.android_sdk_path}
-flutter.sdk={self.config.flutter_sdk_path}
+                self.file_manager.write_project_files(build_dir, flutter_files_only)
+
+                # Create or update local.properties (don't overwrite the whole file)
+                local_properties_path = os.path.join(build_dir, 'android', 'local.properties')
+                if os.path.exists(local_properties_path):
+                    # Read existing content
+                    with open(local_properties_path, 'r') as f:
+                        existing_content = f.read()
+
+                    # Update or add our properties
+                    properties = {
+                        'flutter.buildMode': build.build_type,
+                        'flutter.versionName': str(build.version_number),
+                        'flutter.versionCode': str(build.build_number)
+                    }
+
+                    lines = existing_content.split('\n')
+                    updated_lines = []
+
+                    for line in lines:
+                        if '=' in line:
+                            key = line.split('=')[0].strip()
+                            if key not in properties:
+                                updated_lines.append(line)
+                        else:
+                            updated_lines.append(line)
+
+                    # Add our properties
+                    for key, value in properties.items():
+                        updated_lines.append(f'{key}={value}')
+
+                    with open(local_properties_path, 'w') as f:
+                        f.write('\n'.join(updated_lines))
+                else:
+                    # Create new local.properties
+                    with open(local_properties_path, 'w') as f:
+                        f.write(f'''sdk.dir={self.config.android_sdk_path or os.environ.get('ANDROID_SDK_ROOT', '')}
+flutter.sdk={self.config.flutter_sdk_path or os.environ.get('FLUTTER_ROOT', '')}
 flutter.buildMode={build.build_type}
 flutter.versionName={build.version_number}
 flutter.versionCode={build.build_number}
-'''
-                local_properties_path = os.path.join(build_dir, 'android', 'local.properties')
-                with open(local_properties_path, 'w') as f:
-                    f.write(local_properties_content)
+''')
 
                 # Build APK
                 logger.info("Building APK...")
@@ -346,3 +394,36 @@ flutter.versionCode={build.build_number}
         for directory in directories:
             dir_path = os.path.join(build_dir, directory)
             os.makedirs(dir_path, exist_ok=True)
+
+    def _fix_gradle_issues(self, project_path: str) -> bool:
+        """Fix common Gradle issues before building."""
+        try:
+            # Check if gradle wrapper exists
+            gradlew_path = os.path.join(project_path, 'android', 'gradlew')
+            if not os.path.exists(gradlew_path):
+                logger.warning("Gradle wrapper not found, regenerating...")
+                # Run flutter create to regenerate Android files
+                result = self.command_runner.run_command(
+                    [self.flutter_path, 'create', '.', '--platforms', 'android'],
+                    cwd=project_path,
+                    timeout=60
+                )
+                if result.returncode != 0:
+                    logger.error(f"Failed to regenerate Android files: {result.stderr}")
+                    return False
+
+            # Make gradlew executable on Unix-like systems
+            if os.name != 'nt':
+                os.chmod(gradlew_path, 0o755)
+
+            # Accept Android licenses
+            logger.info("Checking Android licenses...")
+            license_result = self.command_runner.run_command(
+                [self.flutter_path, 'doctor', '--android-licenses', '-v'],
+                timeout=30
+            )
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to fix Gradle issues: {e}")
+            return False
