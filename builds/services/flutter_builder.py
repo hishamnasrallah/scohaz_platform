@@ -157,7 +157,7 @@ class FlutterBuilder:
 
         # Add additional flags
         cmd.extend([
-            '--no-sound-null-safety',  # For compatibility
+            # '--no-sound-null-safety',  # For compatibility
             '--verbose'  # Detailed output
         ])
 

@@ -311,8 +311,25 @@ linter:
 
     def _generate_android_files(self):
         """Generate Android-specific files"""
+        # MainActivity.kt
+        package_name = self.project.package_name
+        package_path = package_name.replace('.', '/')
+
+        main_activity_content = f'''package {package_name}
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity: FlutterActivity() {{
+}}
+'''
+        self._write_file(f'android/app/src/main/kotlin/{package_path}/MainActivity.kt', main_activity_content)
+
         # AndroidManifest.xml
-        manifest_content = f"""<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+        manifest_content = f'''<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="{package_name}">
+    
+    <uses-permission android:name="android.permission.INTERNET"/>
+    
     <application
         android:label="{self.project.name}"
         android:name="${{applicationName}}"
@@ -339,11 +356,46 @@ linter:
             android:value="2" />
     </application>
 </manifest>
-"""
+'''
         self._write_file('android/app/src/main/AndroidManifest.xml', manifest_content)
 
+        # build.gradle (project level)
+        project_build_gradle = '''buildscript {
+    ext.kotlin_version = '1.7.10'
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:7.3.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(':app')
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
+'''
+        self._write_file('android/build.gradle', project_build_gradle)
+
         # build.gradle (app level)
-        build_gradle = f"""def localProperties = new Properties()
+        app_build_gradle = f'''def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
 if (localPropertiesFile.exists()) {{
     localPropertiesFile.withReader('UTF-8') {{ reader ->
@@ -388,7 +440,7 @@ android {{
     }}
 
     defaultConfig {{
-        applicationId "{self.project.package_name}"
+        applicationId "{package_name}"
         minSdkVersion flutter.minSdkVersion
         targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
@@ -409,8 +461,39 @@ flutter {{
 dependencies {{
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
 }}
-"""
-        self._write_file('android/app/build.gradle', build_gradle)
+'''
+        self._write_file('android/app/build.gradle', app_build_gradle)
+
+        # settings.gradle
+        settings_gradle = '''include ':app'
+
+def localPropertiesFile = new File(rootProject.projectDir, "local.properties")
+def properties = new Properties()
+
+assert localPropertiesFile.exists()
+localPropertiesFile.withReader("UTF-8") { reader -> properties.load(reader) }
+
+def flutterSdkPath = properties.getProperty("flutter.sdk")
+assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+apply from: "$flutterSdkPath/packages/flutter_tools/gradle/app_plugin_loader.gradle"
+'''
+        self._write_file('android/settings.gradle', settings_gradle)
+
+        # gradle.properties
+        gradle_properties = '''org.gradle.jvmargs=-Xmx1536M
+android.useAndroidX=true
+android.enableJetifier=true
+'''
+        self._write_file('android/gradle.properties', gradle_properties)
+
+        # gradle-wrapper.properties
+        gradle_wrapper_properties = '''distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+distributionUrl=https\\://services.gradle.org/distributions/gradle-7.5-all.zip
+'''
+        self._write_file('android/gradle/wrapper/gradle-wrapper.properties', gradle_wrapper_properties)
 
     def _generate_ios_files(self):
         """Generate iOS-specific files (Info.plist)"""

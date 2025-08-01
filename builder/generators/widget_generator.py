@@ -284,7 +284,74 @@ class WidgetGenerator:
         return self._format_widget('Stack', parts)
 
     # In widget_generator.py, update the _generate_text method:
+    def _generate_app_bar(self, widget_data: Dict, properties: Dict, context: Dict) -> str:
+        """Generate AppBar widget"""
+        parts = []
 
+        # Title
+        if 'title' in properties:
+            if isinstance(properties['title'], dict):
+                # Title is a widget
+                if properties['title'].get('useTranslation'):
+                    key = properties['title']['translationKey']
+                    self.used_translation_keys.add(key)
+                    parts.append(f'title: Text(AppLocalizations.of(context)!.{key})')
+                else:
+                    title_widget = self.generate_widget(properties['title'], context)
+                    parts.append(f'title: {title_widget}')
+            else:
+                # Simple string title
+                title_text = self._escape_string(properties['title'])
+                parts.append(f'title: Text({title_text})')
+
+        # Background color
+        if 'backgroundColor' in properties:
+            color = self.property_mapper.map_color(properties['backgroundColor'])
+            parts.append(f'backgroundColor: {color}')
+
+        # Elevation
+        if 'elevation' in properties:
+            parts.append(f'elevation: {properties["elevation"]}')
+
+        # Center title
+        if 'centerTitle' in properties:
+            parts.append(f'centerTitle: {str(properties["centerTitle"]).lower()}')
+
+        # Leading widget
+        if 'leading' in properties:
+            if isinstance(properties['leading'], dict):
+                leading_widget = self.generate_widget(properties['leading'], context)
+                parts.append(f'leading: {leading_widget}')
+            elif isinstance(properties['leading'], str):
+                # Assume it's an icon name
+                icon_code = self._get_icon_code(properties['leading'])
+                parts.append(f'leading: Icon({icon_code})')
+
+        # Actions
+        if 'actions' in properties and isinstance(properties['actions'], list):
+            action_widgets = [self.generate_widget(action, context) for action in properties['actions']]
+            parts.append(f'actions: [{", ".join(action_widgets)}]')
+
+        # Bottom (for TabBar, etc.)
+        if 'bottom' in properties:
+            if isinstance(properties['bottom'], dict):
+                bottom_widget = self.generate_widget(properties['bottom'], context)
+                parts.append(f'bottom: {bottom_widget}')
+
+        # Toolbar height
+        if 'toolbarHeight' in properties:
+            parts.append(f'toolbarHeight: {properties["toolbarHeight"]}')
+
+        # Automatically imply leading
+        if 'automaticallyImplyLeading' in properties:
+            parts.append(f'automaticallyImplyLeading: {str(properties["automaticallyImplyLeading"]).lower()}')
+
+        # Foreground color
+        if 'foregroundColor' in properties:
+            color = self.property_mapper.map_color(properties['foregroundColor'])
+            parts.append(f'foregroundColor: {color}')
+
+        return self._format_widget('AppBar', parts)
     def _generate_text(self, widget_data: Dict, properties: Dict, context: Dict) -> str:
         """Generate Text widget with translation support"""
         # Get text content

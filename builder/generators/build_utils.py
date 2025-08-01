@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import re
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class FlutterBuildUtils:
     """Utilities for Flutter project building and management"""
@@ -116,53 +120,52 @@ class FlutterBuildUtils:
         return True, None
 
     @staticmethod
-    def create_flutter_project(
-            project_name: str,
-            package_name: str,
-            output_dir: Path,
-            description: Optional[str] = None
-    ) -> Tuple[bool, Optional[str]]:
+    def create_flutter_project(self, project_path: str, name: str, org: str, description: str = None) -> Tuple[bool, str]:
         """
-        Create a new Flutter project using flutter create
+        Create a new Flutter project using flutter create.
+
+        Args:
+            project_path: Path where the project should be created
+            name: Project name
+            org: Organization identifier (e.g., com.example)
+            description: Project description
 
         Returns:
             Tuple of (success, error_message)
         """
-        try:
-            # Extract org from package name
-            parts = package_name.split('.')
-            org = '.'.join(parts[:-1])
-            name = parts[-1]
+        logger.info(f"Creating Flutter project: {name} at {project_path}")
 
+        try:
             # Build flutter create command
             cmd = [
-                'flutter', 'create',
+                self.flutter_path, 'create',
                 '--project-name', name,
                 '--org', org,
+                '--platforms', 'android',  # Only Android for now
+                '.'  # Create in current directory
             ]
 
             if description:
                 cmd.extend(['--description', description])
 
-            # Add output directory
-            cmd.append(str(output_dir))
-
             # Run flutter create
-            result = subprocess.run(
+            result = self.command_runner.run_command(
                 cmd,
-                capture_output=True,
-                text=True,
-                timeout=60
+                cwd=project_path,
+                timeout=120  # 2 minutes timeout
             )
 
             if result.returncode == 0:
+                logger.info("Flutter project created successfully")
                 return True, None
             else:
+                logger.error(f"Failed to create Flutter project: {result.stderr}")
                 return False, result.stderr
 
         except subprocess.TimeoutExpired:
             return False, "Flutter create timed out"
         except Exception as e:
+            logger.error(f"Exception creating Flutter project: {str(e)}")
             return False, str(e)
 
     @staticmethod

@@ -294,7 +294,170 @@ class {screen_name}Screen extends StatelessWidget {{
   }}
 }}
 '''
+    def _collect_imports(self, ui_structure: Dict[str, Any]) -> List[str]:
+        """Collect necessary imports based on UI structure"""
+        imports = set()
 
+        # Always include material.dart for basic Flutter widgets
+        imports.add("import 'package:flutter/material.dart';")
+
+        # Check for specific widget types that need additional imports
+        def check_widget(widget_data: Dict[str, Any]):
+            if not isinstance(widget_data, dict):
+                return
+
+            widget_type = widget_data.get('type', '').lower()
+
+            # Add imports based on widget type
+            if widget_type in ['image'] and widget_data.get('properties', {}).get('source', '').startswith('http'):
+                imports.add("import 'package:http/http.dart' as http;")
+
+            if widget_type in ['futurebuilder', 'streambuilder']:
+                imports.add("import 'dart:async';")
+
+            if widget_type == 'webview':
+                imports.add("import 'package:webview_flutter/webview_flutter.dart';")
+
+            # Check for cupertino widgets
+            if widget_type.startswith('cupertino'):
+                imports.add("import 'package:flutter/cupertino.dart';")
+
+            # Check for animations
+            if widget_type in ['hero', 'animatedcontainer', 'animatedopacity']:
+                imports.add("import 'package:flutter/animation.dart';")
+
+            # Recursively check children
+            if 'children' in widget_data:
+                for child in widget_data.get('children', []):
+                    check_widget(child)
+
+            if 'child' in widget_data:
+                check_widget(widget_data['child'])
+
+            if 'body' in widget_data:
+                check_widget(widget_data['body'])
+
+            # Check properties for nested widgets
+            properties = widget_data.get('properties', {})
+            for key, value in properties.items():
+                if isinstance(value, dict) and 'type' in value:
+                    check_widget(value)
+
+        # Start checking from root
+        check_widget(ui_structure)
+
+        # Convert set to sorted list for consistent ordering
+        return sorted(list(imports))
+
+    def _generate_localization_files(self) -> Dict[str, str]:
+        """Generate localization files for each supported language"""
+        files = {}
+
+        for lang_code, translations in self.translations.items():
+            # Generate ARB file for each language
+            arb_content = {
+                '@@locale': lang_code,
+            }
+
+            # Add translations
+            for key, value in translations.items():
+                arb_content[key] = value
+
+            # Convert to JSON
+            import json
+            files[f'lib/l10n/app_{lang_code}.arb'] = json.dumps(arb_content, indent=2, ensure_ascii=False)
+
+        # Generate template ARB file
+        template_arb = {
+            '@@locale': 'en',
+            '@appTitle': {
+                'description': 'The title of the application'
+            }
+        }
+        files['lib/l10n/app_en.arb'] = json.dumps(template_arb, indent=2)
+
+        return files
+
+    def _generate_l10n_yaml(self) -> str:
+        """Generate l10n.yaml configuration file"""
+        return '''arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+'''
+
+    def _generate_project_files(self) -> Dict[str, str]:
+        """Generate additional project files"""
+        files = {}
+
+        # Theme file
+        files['lib/theme/app_theme.dart'] = '''import 'package:flutter/material.dart';
+
+class AppTheme {
+  static ThemeData lightTheme = ThemeData(
+    primarySwatch: Colors.blue,
+    visualDensity: VisualDensity.adaptivePlatformDensity,
+    appBarTheme: const AppBarTheme(
+      elevation: 0,
+      centerTitle: true,
+    ),
+  );
+  
+  static ThemeData darkTheme = ThemeData(
+    brightness: Brightness.dark,
+    primarySwatch: Colors.blue,
+    visualDensity: VisualDensity.adaptivePlatformDensity,
+    appBarTheme: const AppBarTheme(
+      elevation: 0,
+      centerTitle: true,
+    ),
+  );
+}
+'''
+
+        # Constants file
+        files['lib/constants/app_constants.dart'] = '''class AppConstants {
+  static const String appName = '${self.project.name}';
+  static const String packageName = '${self.project.package_name}';
+}
+'''
+
+        return files
+
+    def _generate_pubspec_yaml(self) -> str:
+        """Generate pubspec.yaml file"""
+        # Get package name parts
+        package_parts = self.project.package_name.split('.')
+        package_name = package_parts[-1] if package_parts else 'app'
+
+        return f'''name: {package_name}
+description: {self.project.description or 'A Flutter application'}
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=2.19.0 <4.0.0'  # Updated to support Flutter 3.x
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  generate: true
+  
+  # To add assets to your application, add an assets section:
+  # assets:
+  #   - images/a_dot_burr.jpeg
+  #   - images/a_dot_ham.jpeg
+'''
     # Also update the generate_screen_code method:
 
 

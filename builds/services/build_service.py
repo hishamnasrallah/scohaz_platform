@@ -59,61 +59,105 @@ class BuildService:
             if not self.flutter_builder.check_flutter_sdk():
                 raise RuntimeError("Flutter SDK not found or not properly configured")
 
-            # Generate Flutter code
-            logger.info("Generating Flutter code...")
-            self._log_build_progress(build, "Generating Flutter code", level='info')
-
-            # Import here to avoid circular imports
-            from builder.generators.flutter_generator import FlutterGenerator
-
-            generator = FlutterGenerator(build.project)
-            generated_files = generator.generate_project()
-
             # Create temporary build directory
             build_dir = self._create_build_directory(build)
 
             try:
-                # Write generated files
-                logger.info(f"Writing files to {build_dir}")
-                self._log_build_progress(build, f"Writing project files to {build_dir}", level='INFO')
+                # First, create a proper Flutter project structure using flutter create
+                logger.info("Creating Flutter project structure...")
+                self._log_build_progress(build, "Creating Flutter project structure", level='info')
+
+                # Extract package name parts
+                package_parts = build.project.package_name.split('.')
+                org = '.'.join(package_parts[:-1])
+                name = package_parts[-1]
+
+                # Run flutter create to get proper project structure
+                create_result = self.flutter_builder.create_flutter_project(
+                    build_dir,
+                    name=name,
+                    org=org,
+                    description=build.project.description or "Flutter app"
+                )
+
+                if not create_result[0]:
+                    raise RuntimeError(f"Failed to create Flutter project: {create_result[1]}")
+
+                # Now generate our custom Flutter code
+                logger.info("Generating Flutter code...")
+                self._log_build_progress(build, "Generating Flutter code", level='info')
+
+                try:
+                    # Import here to avoid circular imports
+                    from builder.generators.flutter_generator import FlutterGenerator
+
+                    generator = FlutterGenerator(build.project)
+                    generated_files = generator.generate_project()
+                except Exception as gen_error:
+                    logger.error(f"Code generation failed: {str(gen_error)}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    raise RuntimeError(f"Code generation failed: {str(gen_error)}")
+
+                # Write generated files (this will overwrite the template files)
+                logger.info(f"Writing custom files to {build_dir}")
+                self._log_build_progress(build, f"Writing custom project files", level='info')
 
                 self.file_manager.write_project_files(build_dir, generated_files)
-                # Ensure directory structure
-                self._ensure_flutter_project_structure(build_dir)
 
-                # Create local.properties for Android
-                local_properties = f'''sdk.dir={self.config.android_sdk_path}
-                flutter.sdk={self.config.flutter_sdk_path}
-                flutter.buildMode={build.build_type}
-                flutter.versionName={build.version_number}
-                flutter.versionCode={build.build_number}
-                '''
-                with open(os.path.join(build_dir, 'android', 'local.properties'), 'w') as f:
-                    f.write(local_properties)
+                # Update local.properties with correct paths
+                local_properties_content = f'''sdk.dir={self.config.android_sdk_path}
+flutter.sdk={self.config.flutter_sdk_path}
+flutter.buildMode={build.build_type}
+flutter.versionName={build.version_number}
+flutter.versionCode={build.build_number}
+'''
+                local_properties_path = os.path.join(build_dir, 'android', 'local.properties')
+                with open(local_properties_path, 'w') as f:
+                    f.write(local_properties_content)
+
                 # Build APK
                 logger.info("Building APK...")
-                self._log_build_progress(build, "Running Flutter build", level='INFO')
+                self._log_build_progress(build, "Running Flutter build", level='info')
 
-                success, output, apk_path = self.flutter_builder.build_apk(build_dir)
+                try:
+                    success, output, apk_path = self.flutter_builder.build_apk(
+                        build_dir,
+                        build_mode=build.build_type
+                    )
 
-                if success:
-                    # Store APK file
-                    logger.info(f"Build successful, APK at: {apk_path}")
-                    self._log_build_progress(build, f"Build successful: {apk_path}", level='INFO')
+                    # Store the build output regardless of success/failure
+                    build.build_log = output
 
-                    self._store_apk(build, apk_path)
+                    if success:
+                        # Store APK file
+                        logger.info(f"Build successful, APK at: {apk_path}")
+                        self._log_build_progress(build, f"Build successful: {apk_path}", level='info')
 
-                    # Update build status
-                    build.status = 'success'
-                    build.completed_at = timezone.now()
-                    build.build_output = output
-                    build.save()
+                        self._store_apk(build, apk_path)
 
-                    self._log_build_progress(build, "Build completed successfully", level='SUCCESS')
-                else:
-                    # Build failed
-                    logger.error(f"Build failed: {output}")
-                    self._handle_build_failure(build, output)
+                        # Update build status
+                        build.status = 'success'
+                        build.completed_at = timezone.now()
+                        build.save()
+
+                        self._log_build_progress(build, "Build completed successfully", level='info')
+                    else:
+                        # Build failed
+                        logger.error(f"Build failed: {output}")
+                        self._handle_build_failure(build, output)
+
+                except Exception as build_error:
+                    logger.error(f"Build process error: {str(build_error)}")
+                    import traceback
+                    logger.error(f"Build traceback: {traceback.format_exc()}")
+                    raise RuntimeError(f"Build process failed: {str(build_error)}")
+
+            except Exception as e:
+                logger.error(f"Error during build process: {str(e)}")
+                import traceback
+                logger.error(f"Full traceback: {traceback.format_exc()}")
+                raise
 
             finally:
                 # Clean up temporary directory
@@ -124,9 +168,10 @@ class BuildService:
 
         except Exception as e:
             logger.exception(f"Build {build.id} failed with exception")
-            self._handle_build_exception(build, e)
+            import traceback
+            error_details = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            self._handle_build_exception(build, e, error_details)
             return build
-
     def cancel_build(self, build: Build) -> bool:
         """
         Cancel an ongoing build.
@@ -242,17 +287,24 @@ class BuildService:
             level='ERROR'
         )
 
-    def _handle_build_exception(self, build: Build, exception: Exception) -> None:
+    def _handle_build_exception(self, build: Build, exception: Exception, details: str = None) -> None:
         """Handle build exception."""
         build.status = 'failed'
         build.completed_at = timezone.now()
         build.error_message = str(exception)
+
+        # Store detailed error in build_log
+        if details:
+            build.build_log = f"Error: {str(exception)}\n\n{details}"
+        else:
+            build.build_log = f"Error: {str(exception)}"
+
         build.save()
 
         self._log_build_progress(
             build,
             f"Build failed with exception: {exception}",
-            level='ERROR'
+            level='error'
         )
 
     def _extract_error_message(self, output: str) -> str:
