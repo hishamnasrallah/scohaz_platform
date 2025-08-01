@@ -54,6 +54,7 @@ class FlutterBuilder:
                 '--project-name', name,
                 '--org', org,
                 '--platforms', 'android',  # Only Android for now
+                '--android-language', 'java',  # Use Java instead of Kotlin to avoid Kotlin compilation issues
                 '.'  # Create in current directory
             ]
 
@@ -186,7 +187,7 @@ class FlutterBuilder:
                 if os.path.exists(gradle_wrapper):
                     logger.info("Running Gradle assembleDebug directly for better error reporting...")
                     gradle_result = self.command_runner.run_command(
-                        [gradle_wrapper, 'assembleDebug', '--stacktrace'],
+                        [gradle_wrapper, 'assembleDebug', '--stacktrace', '--debug'],
                         cwd=os.path.join(project_path, 'android'),
                         timeout=300,
                         env=self.config.get_environment()
@@ -194,9 +195,12 @@ class FlutterBuilder:
 
                     if gradle_result.returncode != 0:
                         logger.error(f"Gradle assembleDebug failed:\n{gradle_result.stdout}\n{gradle_result.stderr}")
+                        # Try to extract Kotlin-specific errors
+                        if "compileDebugKotlin" in gradle_result.stdout:
+                            logger.error("Kotlin compilation error detected")
                         # Continue with Flutter build anyway to get Flutter's error handling
 
-                # Run Flutter build without the invalid --stacktrace flag
+                # Run Flutter build with extra verbosity
                 build_result = self.command_runner.run_command(
                     [self.flutter_path, 'build', 'apk', '--debug', '--verbose'],
                     cwd=project_path,
