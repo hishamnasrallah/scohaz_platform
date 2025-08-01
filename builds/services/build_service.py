@@ -61,7 +61,7 @@ class BuildService:
                 raise RuntimeError("Flutter SDK not found or not properly configured")
 
             # Create temporary build directory
-            build_dir = self._create_build_directory(build)
+            build_dir = self._create_build_directory(build)  # <-- build_dir is defined here
 
             try:
                 # First, create a proper Flutter project structure using flutter create
@@ -107,11 +107,6 @@ class BuildService:
                 # Only write Dart/Flutter specific files
                 flutter_files_only = {}
                 for file_path, content in generated_files.items():
-                    # Only include:
-                    # - Dart source files (lib/)
-                    # - Flutter configuration (pubspec.yaml, l10n.yaml)
-                    # - Asset files
-                    # Skip all platform-specific files (android/, ios/, web/, etc.)
                     if (file_path.startswith('lib/') or
                             file_path == 'pubspec.yaml' or
                             file_path == 'l10n.yaml' or
@@ -145,25 +140,22 @@ class BuildService:
 
                     logger.info(f"Updated pubspec.yaml with version: {version_line}")
 
-                # Ensure Android project structure is complete
-                android_dir = os.path.join(build_dir, 'android')
-                if not os.path.exists(android_dir) or not os.path.exists(os.path.join(android_dir, 'settings.gradle')):
-                    logger.warning("Android project structure incomplete, regenerating...")
-                    # Run flutter create again to ensure Android files are complete
-                    create_result = self.flutter_builder.create_flutter_project(
-                        build_dir,
-                        name=name,
-                        org=org,
-                        description=build.project.description or "Flutter app"
-                    )
-                    if not create_result[0]:
-                        raise RuntimeError(f"Failed to create complete Android project: {create_result[1]}")
-
-                # Fix Android gradle files for compatibility
-                self._fix_android_gradle_versions(build_dir)
+                # ===== ADD THE ANDROID FIX HERE =====
+                # Ensure Android build files are properly configured
+                self._ensure_android_build_files(build_dir)  # <-- Now build_dir is in scope
 
                 # Ensure Android SDK is properly configured
                 self._ensure_android_sdk_config(build_dir, build)
+
+                # Clean any previous build artifacts
+                logger.info("Cleaning previous builds...")
+                self.flutter_builder._run_flutter_clean(build_dir)
+
+                # Get dependencies
+                logger.info("Getting Flutter dependencies...")
+                result = self.flutter_builder._run_pub_get(build_dir)
+                if not result:
+                    raise RuntimeError("Failed to get Flutter dependencies")
 
                 # Build APK
                 logger.info("Building APK...")
@@ -241,6 +233,7 @@ class BuildService:
             error_details = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
             self._handle_build_exception(build, e, error_details)
             return build
+
     def cancel_build(self, build: Build) -> bool:
         """
         Cancel an ongoing build.
@@ -555,31 +548,59 @@ class BuildService:
             with open(build_gradle_path, 'r') as f:
                 content = f.read()
 
-            # Update Kotlin version
-            if 'ext.kotlin_version' in content:
+            # Ensure buildscript block has kotlin_version defined
+            if 'buildscript {' in content and 'ext.kotlin_version' not in content:
+                # Add kotlin version at the beginning of buildscript block
+                content = content.replace(
+                    'buildscript {',
+                    "buildscript {\n    ext.kotlin_version = '1.7.10'"
+                )
+            else:
+                # Update existing kotlin version
                 content = re.sub(
                     r"ext\.kotlin_version\s*=\s*['\"][\d.]+['\"]",
                     "ext.kotlin_version = '1.7.10'",
                     content
                 )
-            else:
-                # Add kotlin version if not present
-                content = content.replace(
-                    'buildscript {',
-                    "buildscript {\n    ext.kotlin_version = '1.7.10'"
+
+            # Ensure repositories are defined in buildscript
+            if 'buildscript {' in content and 'repositories {' not in content.split('buildscript {')[1].split('}')[0]:
+                content = re.sub(
+                    r'buildscript\s*{\s*\n(\s*ext\.kotlin_version[^\n]*\n)?',
+                    lambda m: m.group(0) + '    repositories {\n        google()\n        mavenCentral()\n    }\n',
+                    content
                 )
 
-            # Update Android Gradle Plugin version
-            content = re.sub(
-                r"classpath\s+['\"]com\.android\.tools\.build:gradle:[\d.]+['\"]",
-                "classpath 'com.android.tools.build:gradle:7.3.0'",
-                content
-            )
+            # Ensure dependencies block exists in buildscript
+            buildscript_content = content.split('buildscript {')[1].split('}')[0] if 'buildscript {' in content else ''
+            if 'dependencies {' not in buildscript_content:
+                # Add dependencies block before closing buildscript
+                content = re.sub(
+                    r'(buildscript\s*{[^}]+)(})',
+                    r'\1    dependencies {\n        classpath "com.android.tools.build:gradle:7.3.0"\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"\n    }\n\2',
+                    content,
+                    count=1
+                )
+            else:
+                # Update Android Gradle Plugin version
+                content = re.sub(
+                    r"classpath\s+['\"]com\.android\.tools\.build:gradle:[\d.]+['\"]",
+                    "classpath 'com.android.tools.build:gradle:7.3.0'",
+                    content
+                )
+
+                # Ensure kotlin gradle plugin is included
+                if 'kotlin-gradle-plugin' not in content:
+                    content = re.sub(
+                        r"(dependencies\s*{[^}]*)(classpath\s+['\"]com\.android\.tools\.build:gradle[^'\"]+['\"])",
+                        r'\1\2\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"',
+                        content
+                    )
 
             with open(build_gradle_path, 'w') as f:
                 f.write(content)
 
-            logger.info("Updated android/build.gradle versions")
+            logger.info("Updated android/build.gradle with Kotlin plugin configuration")
 
         # Fix android/app/build.gradle
         app_build_gradle_path = os.path.join(project_dir, 'android', 'app', 'build.gradle')
@@ -707,3 +728,118 @@ android.enableJetifier=true
         except Exception as e:
             logger.error(f"Failed to fix Gradle issues: {e}")
             return False
+    def _ensure_android_build_files(self, project_dir: str):
+        """Ensure Android build files are properly configured"""
+        logger.info("Ensuring Android build files are properly configured")
+
+        # 1. Create/fix android/build.gradle
+        build_gradle_path = os.path.join(project_dir, 'android', 'build.gradle')
+
+        # Create a properly configured build.gradle
+        build_gradle_content = '''buildscript {
+    ext.kotlin_version = '1.7.10'
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath 'com.android.tools.build:gradle:7.3.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = '../build'
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+subprojects {
+    project.evaluationDependsOn(':app')
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
+'''
+
+        with open(build_gradle_path, 'w') as f:
+            f.write(build_gradle_content)
+        logger.info("Created android/build.gradle with Kotlin plugin")
+
+        # 2. Fix android/app/build.gradle
+        app_build_gradle_path = os.path.join(project_dir, 'android', 'app', 'build.gradle')
+
+        if os.path.exists(app_build_gradle_path):
+            with open(app_build_gradle_path, 'r') as f:
+                content = f.read()
+
+            # Fix SDK versions
+            content = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 33', content)
+            content = re.sub(r'targetSdkVersion\s+flutter\.targetSdkVersion', 'targetSdkVersion 33', content)
+            content = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 21', content)
+
+            # Ensure kotlin plugin is applied
+            if 'apply plugin: \'kotlin-android\'' not in content:
+                # Add after com.android.application
+                content = content.replace(
+                    "apply plugin: 'com.android.application'",
+                    "apply plugin: 'com.android.application'\napply plugin: 'kotlin-android'"
+                )
+
+            with open(app_build_gradle_path, 'w') as f:
+                f.write(content)
+            logger.info("Fixed android/app/build.gradle")
+
+        # 3. Create/fix gradle.properties
+        gradle_properties_path = os.path.join(project_dir, 'android', 'gradle.properties')
+        gradle_properties_content = '''org.gradle.jvmargs=-Xmx1536M
+android.useAndroidX=true
+android.enableJetifier=true
+'''
+
+        with open(gradle_properties_path, 'w') as f:
+            f.write(gradle_properties_content)
+        logger.info("Created gradle.properties")
+
+        # 4. Fix gradle wrapper
+        gradle_wrapper_path = os.path.join(project_dir, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties')
+        if os.path.exists(gradle_wrapper_path):
+            with open(gradle_wrapper_path, 'r') as f:
+                content = f.read()
+
+            # Update to Gradle 7.5
+            content = re.sub(
+                r'distributionUrl=.*',
+                'distributionUrl=https\\://services.gradle.org/distributions/gradle-7.5-all.zip',
+                content
+            )
+
+            with open(gradle_wrapper_path, 'w') as f:
+                f.write(content)
+            logger.info("Updated gradle wrapper to 7.5")
+
+        # 5. Create settings.gradle if missing
+        settings_gradle_path = os.path.join(project_dir, 'android', 'settings.gradle')
+        if not os.path.exists(settings_gradle_path):
+            settings_content = '''include ':app'
+
+def localPropertiesFile = new File(rootProject.projectDir, "local.properties")
+def properties = new Properties()
+
+assert localPropertiesFile.exists()
+localPropertiesFile.withReader("UTF-8") { reader -> properties.load(reader) }
+
+def flutterSdkPath = properties.getProperty("flutter.sdk")
+assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+apply from: "$flutterSdkPath/packages/flutter_tools/gradle/app_plugin_loader.gradle"
+'''
+            with open(settings_gradle_path, 'w') as f:
+                f.write(settings_content)
+            logger.info("Created settings.gradle")
