@@ -191,14 +191,34 @@ flutter.versionCode={build.build_number}
 
                         self._log_build_progress(build, "Build completed successfully", level='info')
                     else:
-                        # Build failed
-                        logger.error(f"Build failed: {output}")
+                        # Build failed - extract more details
+                        logger.error(f"Build failed with output: {output}")
+
+                        # Try to extract the actual Gradle error
+                        error_details = self._extract_gradle_error(output)
+                        if error_details:
+                            self._log_build_progress(build, f"Gradle error: {error_details}", level='error')
+
+                        # Check for common issues
+                        if "Could not resolve all files" in output:
+                            self._log_build_progress(build, "Dependencies resolution failed. Check internet connection.", level='error')
+                        elif "compileSdkVersion" in output:
+                            self._log_build_progress(build, "SDK version mismatch. Check Android SDK installation.", level='error')
+                        elif "AAPT2" in output or "aapt2" in output:
+                            self._log_build_progress(build, "Android build tools issue. Try updating Android SDK build-tools.", level='error')
+
                         self._handle_build_failure(build, output)
 
                 except Exception as build_error:
                     logger.error(f"Build process error: {str(build_error)}")
                     import traceback
-                    logger.error(f"Build traceback: {traceback.format_exc()}")
+                    full_traceback = traceback.format_exc()
+                    logger.error(f"Build traceback: {full_traceback}")
+
+                    # Store detailed error in build log
+                    build.build_log = f"Build exception: {str(build_error)}\n\nTraceback:\n{full_traceback}"
+                    build.save()
+
                     raise RuntimeError(f"Build process failed: {str(build_error)}")
 
             except Exception as e:
@@ -378,6 +398,45 @@ flutter.versionCode={build.build_number}
                 return line.strip()
 
         return "Build failed with unknown error"
+
+    def _extract_gradle_error(self, output: str) -> Optional[str]:
+        """Extract specific Gradle error from build output."""
+        lines = output.split('\n')
+        error_section = []
+        in_error = False
+
+        for line in lines:
+            # Look for Gradle error markers
+            if "FAILURE: Build failed with an exception." in line:
+                in_error = True
+                continue
+
+            if in_error:
+                if "BUILD FAILED" in line:
+                    break
+                if line.strip() and not line.startswith('['):
+                    error_section.append(line.strip())
+
+        if error_section:
+            # Look for "What went wrong:" section
+            what_went_wrong = []
+            capture = False
+            for line in error_section:
+                if "What went wrong:" in line:
+                    capture = True
+                    continue
+                if capture and line.startswith('*'):
+                    break
+                if capture:
+                    what_went_wrong.append(line)
+
+            if what_went_wrong:
+                return ' '.join(what_went_wrong).strip()
+
+            return ' '.join(error_section[:3])  # First 3 lines of error
+
+        return None
+
     def _ensure_flutter_project_structure(self, build_dir: str):
         """Ensure Flutter project has all required directories"""
         directories = [

@@ -121,10 +121,45 @@ class FlutterBuilder:
         logger.info(f"Building APK for project at {project_path}")
 
         try:
+            # First, ensure Flutter project is properly configured
+            logger.info("Verifying Flutter project configuration...")
+
+            # Check if pubspec.yaml exists
+            pubspec_path = os.path.join(project_path, 'pubspec.yaml')
+            if not os.path.exists(pubspec_path):
+                return False, "pubspec.yaml not found in project", None
+
+            # Check Android directory
+            android_dir = os.path.join(project_path, 'android')
+            if not os.path.exists(android_dir):
+                logger.error("Android directory not found, creating Flutter project structure...")
+                # Run flutter create to generate Android files
+                create_result = self.command_runner.run_command(
+                    [self.flutter_path, 'create', '.', '--platforms', 'android'],
+                    cwd=project_path,
+                    timeout=120
+                )
+                if create_result.returncode != 0:
+                    return False, f"Failed to create Android project structure: {create_result.stderr}", None
+
             # Fix any Gradle issues first
             logger.info("Checking and fixing Gradle configuration...")
             if not self._fix_gradle_issues(project_path):
                 logger.warning("Some Gradle issues could not be fixed")
+
+            # Check Android licenses status (don't try to accept automatically as it requires interaction)
+            logger.info("Checking Android licenses status...")
+            doctor_result = self.command_runner.run_command(
+                [self.flutter_path, 'doctor', '-v'],
+                timeout=30,
+                env=self.config.get_environment()
+            )
+
+            if doctor_result.returncode != 0 or "Android license status unknown" in doctor_result.stdout:
+                logger.warning(
+                    "Android licenses may not be accepted. If build fails, "
+                    "run 'flutter doctor --android-licenses' manually to accept them."
+                )
 
             # First, get dependencies
             logger.info("Running flutter pub get...")
@@ -136,9 +171,51 @@ class FlutterBuilder:
             logger.info("Cleaning previous builds...")
             self._run_flutter_clean(project_path)
 
-            # Build APK
-            logger.info(f"Building APK in {build_mode} mode...")
-            build_result = self._run_build_apk(project_path, build_mode)
+            # Check if local.properties exists and has SDK paths
+            local_properties_path = os.path.join(project_path, 'android', 'local.properties')
+            if not os.path.exists(local_properties_path):
+                logger.warning("local.properties not found, creating it...")
+                sdk_dir = self.config.android_sdk_path or os.environ.get('ANDROID_SDK_ROOT', '')
+                flutter_sdk = self.config.flutter_sdk_path or os.environ.get('FLUTTER_ROOT', '')
+
+                if sdk_dir:
+                    with open(local_properties_path, 'w') as f:
+                        f.write(f'sdk.dir={sdk_dir}\n')
+                        f.write(f'flutter.sdk={flutter_sdk}\n')
+                else:
+                    logger.error("Android SDK path not found in environment")
+                    return False, "Android SDK not configured. Set ANDROID_SDK_ROOT environment variable.", None
+
+            # For debug builds, use simpler approach
+            if build_mode == 'debug':
+                logger.info("Building debug APK with simplified settings...")
+
+                # First, let's try to run gradle directly to see the actual error
+                gradle_wrapper = os.path.join(project_path, 'android', 'gradlew.bat' if os.name == 'nt' else 'gradlew')
+                if os.path.exists(gradle_wrapper):
+                    logger.info("Running Gradle assembleDebug directly for better error reporting...")
+                    gradle_result = self.command_runner.run_command(
+                        [gradle_wrapper, 'assembleDebug', '--stacktrace'],
+                        cwd=os.path.join(project_path, 'android'),
+                        timeout=300,
+                        env=self.config.get_environment()
+                    )
+
+                    if gradle_result.returncode != 0:
+                        logger.error(f"Gradle assembleDebug failed:\n{gradle_result.stdout}\n{gradle_result.stderr}")
+                        # Continue with Flutter build anyway to get Flutter's error handling
+
+                # Run Flutter build without the invalid --stacktrace flag
+                build_result = self.command_runner.run_command(
+                    [self.flutter_path, 'build', 'apk', '--debug', '--verbose'],
+                    cwd=project_path,
+                    timeout=600,  # 10 minutes
+                    env=self.config.get_environment()
+                )
+            else:
+                # Build APK
+                logger.info(f"Building APK in {build_mode} mode...")
+                build_result = self._run_build_apk(project_path, build_mode)
 
             if build_result.returncode == 0:
                 # Find APK file
@@ -153,30 +230,43 @@ class FlutterBuilder:
                 # Extract meaningful error from output
                 error_output = f"{build_result.stdout}\n{build_result.stderr}"
 
-                # Look for common Gradle errors
-                if "FAILURE: Build failed with an exception" in error_output:
-                    # Extract the actual error message
+                # Look for specific Gradle errors
+                if "BUILD FAILED" in error_output:
+                    # Extract more context around the failure
                     lines = error_output.split('\n')
-                    error_start = False
-                    error_lines = []
-                    for line in lines:
-                        if "FAILURE: Build failed" in line:
-                            error_start = True
-                        if error_start:
-                            error_lines.append(line)
+                    error_context = []
+
+                    # Find lines around "BUILD FAILED"
+                    for i, line in enumerate(lines):
                         if "BUILD FAILED" in line:
+                            # Get 10 lines before and after
+                            start = max(0, i - 10)
+                            end = min(len(lines), i + 5)
+                            error_context = lines[start:end]
                             break
-                    error_output = '\n'.join(error_lines[-20:])  # Last 20 lines of error
+
+                    if error_context:
+                        error_output = '\n'.join(error_context)
+
+                # Check for common issues
+                if "SDK location not found" in error_output:
+                    error_output += "\n\nAndroid SDK not properly configured. Please check ANDROID_SDK_ROOT environment variable."
+                elif "license agreements" in error_output.lower():
+                    error_output += "\n\nAndroid licenses not accepted. Run 'flutter doctor --android-licenses' to accept."
+                elif "compileSdkVersion" in error_output:
+                    error_output += "\n\nGradle configuration issue. Check Android SDK version compatibility."
 
                 logger.error(f"Build failed with output:\n{error_output}")
                 return False, error_output, None
 
         except subprocess.TimeoutExpired:
             logger.error("Build timed out")
-            return False, "Build process timed out", None
+            return False, "Build process timed out after 10 minutes", None
         except Exception as e:
             logger.exception("Build failed with exception")
-            return False, f"Build failed: {str(e)}", None
+            import traceback
+            detailed_error = f"Build failed: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+            return False, detailed_error, None
 
     def _get_flutter_path(self) -> str:
         """Get Flutter executable path."""
@@ -231,14 +321,12 @@ class FlutterBuilder:
             if os.name != 'nt':
                 os.chmod(gradlew_path, 0o755)
 
-            # Accept Android licenses
-            logger.info("Checking Android licenses...")
-            license_result = self.command_runner.run_command(
-                [self.flutter_path, 'doctor', '--android-licenses', '-v'],
-                timeout=30
-            )
+                # Don't try to accept licenses automatically - just warn
+            logger.info("Note: Android licenses must be accepted manually if not already done")
+            logger.info("Run 'flutter doctor --android-licenses' if you encounter license issues")
 
             return True
+
         except Exception as e:
             logger.error(f"Failed to fix Gradle issues: {e}")
             return False
@@ -262,15 +350,28 @@ class FlutterBuilder:
         """Run flutter build apk command."""
         # First, let's try to get more detailed error info by running gradle directly
         logger.info("Running gradle wrapper to check for issues...")
-        gradlew_cmd = 'gradlew.bat' if os.name == 'nt' else './gradlew'
-        gradle_check = self.command_runner.run_command(
-            [gradlew_cmd, 'tasks'],
-            cwd=os.path.join(project_path, 'android'),
-            timeout=60
-        )
 
-        if gradle_check.returncode != 0:
-            logger.warning(f"Gradle check failed: {gradle_check.stderr}")
+        # Construct full path to gradle wrapper
+        android_dir = os.path.join(project_path, 'android')
+        gradlew_name = 'gradlew.bat' if os.name == 'nt' else 'gradlew'
+        gradlew_path = os.path.join(android_dir, gradlew_name)
+
+        # Check if gradle wrapper exists
+        if os.path.exists(gradlew_path):
+            # Make sure it's executable on Unix-like systems
+            if os.name != 'nt':
+                os.chmod(gradlew_path, 0o755)
+
+            gradle_check = self.command_runner.run_command(
+                [gradlew_path, 'tasks'],
+                cwd=android_dir,
+                timeout=60
+            )
+
+            if gradle_check.returncode != 0:
+                logger.warning(f"Gradle check failed: {gradle_check.stderr}")
+        else:
+            logger.warning(f"Gradle wrapper not found at {gradlew_path}")
 
         cmd = [self.flutter_path, 'build', 'apk']
 

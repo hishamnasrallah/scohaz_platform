@@ -120,6 +120,12 @@ class BuildConfig:
             env['ANDROID_SDK_ROOT'] = self.android_sdk_path
             env['ANDROID_HOME'] = self.android_sdk_path
 
+            # Add Android tools to PATH
+            platform_tools = os.path.join(self.android_sdk_path, 'platform-tools')
+            tools = os.path.join(self.android_sdk_path, 'tools')
+            if 'PATH' in env:
+                env['PATH'] = f"{platform_tools}{os.pathsep}{tools}{os.pathsep}{env['PATH']}"
+
         if self.java_home:
             env['JAVA_HOME'] = self.java_home
 
@@ -129,6 +135,10 @@ class BuildConfig:
                 env['PATH'] = f"{java_bin}{os.pathsep}{env['PATH']}"
             else:
                 env['PATH'] = java_bin
+
+        # Add some default Android build settings
+        env['ANDROID_SDK_ROOT'] = env.get('ANDROID_SDK_ROOT', '')
+        env['GRADLE_OPTS'] = '-Xmx1536M -Dkotlin.daemon.jvm.options="-Xmx1536M"'
 
         return env
 

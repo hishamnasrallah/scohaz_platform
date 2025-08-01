@@ -141,7 +141,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 AUTH_USER_MODEL = 'authentication.CustomUser'
 
-SITE_ID = int(os.environ.get("SITE_ID", None)) if os.environ.get("SITE_ID") else None
+SITE_ID = int(os.environ.get("SITE_ID", 1)) if os.environ.get("SITE_ID") else 1
 
 
 REST_FRAMEWORK = {
