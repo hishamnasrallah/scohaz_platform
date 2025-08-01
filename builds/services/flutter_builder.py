@@ -101,7 +101,12 @@ class FlutterBuilder:
         # Check settings first
         flutter_path = getattr(settings, 'FLUTTER_SDK_PATH', None)
         if flutter_path:
-            flutter_exe = os.path.join(flutter_path, 'bin', 'flutter')
+            # On Windows, use flutter.bat
+            if os.name == 'nt':  # Windows
+                flutter_exe = os.path.join(flutter_path, 'bin', 'flutter.bat')
+            else:  # Unix-like systems
+                flutter_exe = os.path.join(flutter_path, 'bin', 'flutter')
+
             if os.path.exists(flutter_exe):
                 return flutter_exe
 

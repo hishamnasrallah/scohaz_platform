@@ -17,7 +17,7 @@ from builds.services.flutter_builder import FlutterBuilder
 from builds.services.build_monitor import BuildMonitor
 from builds.utils.file_manager import FileManager
 from builds.config import BuildConfig
-from builder.generators.flutter_generator import FlutterGenerator
+# Don't import at module level to avoid circular imports
 
 logger = logging.getLogger(__name__)
 
@@ -34,16 +34,14 @@ class BuildService:
     def start_build(self, build: Build) -> Build:
         """
         Start the build process for a Flutter project.
-
-        Args:
-            build: Build model instance
-
-        Returns:
-            Updated Build instance
         """
         logger.info(f"Starting build {build.id} for project {build.project.name}")
 
         try:
+            # Check if project has screens
+            if not build.project.screens.exists():
+                raise RuntimeError("Project has no screens. Please add at least one screen before building.")
+
             # Update build status
             build.status = 'building'
             build.started_at = timezone.now()
@@ -52,7 +50,8 @@ class BuildService:
             # Create build log
             build_log = BuildLog.objects.create(
                 build=build,
-                level='INFO',
+                level='info',
+                stage='build_process',
                 message='Build process started'
             )
 
@@ -62,7 +61,10 @@ class BuildService:
 
             # Generate Flutter code
             logger.info("Generating Flutter code...")
-            self._log_build_progress(build, "Generating Flutter code", level='INFO')
+            self._log_build_progress(build, "Generating Flutter code", level='info')
+
+            # Import here to avoid circular imports
+            from builder.generators.flutter_generator import FlutterGenerator
 
             generator = FlutterGenerator(build.project)
             generated_files = generator.generate_project()
@@ -76,7 +78,18 @@ class BuildService:
                 self._log_build_progress(build, f"Writing project files to {build_dir}", level='INFO')
 
                 self.file_manager.write_project_files(build_dir, generated_files)
+                # Ensure directory structure
+                self._ensure_flutter_project_structure(build_dir)
 
+                # Create local.properties for Android
+                local_properties = f'''sdk.dir={self.config.android_sdk_path}
+                flutter.sdk={self.config.flutter_sdk_path}
+                flutter.buildMode={build.build_type}
+                flutter.versionName={build.version_number}
+                flutter.versionCode={build.build_number}
+                '''
+                with open(os.path.join(build_dir, 'android', 'local.properties'), 'w') as f:
+                    f.write(local_properties)
                 # Build APK
                 logger.info("Building APK...")
                 self._log_build_progress(build, "Running Flutter build", level='INFO')
@@ -265,3 +278,19 @@ class BuildService:
                 return line.strip()
 
         return "Build failed with unknown error"
+    def _ensure_flutter_project_structure(self, build_dir: str):
+        """Ensure Flutter project has all required directories"""
+        directories = [
+            'lib',
+            'lib/screens',
+            'lib/theme',
+            'lib/l10n',
+            'android/app/src/main',
+            'ios/Runner',
+            'assets/images',
+            'test'
+        ]
+
+        for directory in directories:
+            dir_path = os.path.join(build_dir, directory)
+            os.makedirs(dir_path, exist_ok=True)

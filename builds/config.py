@@ -77,10 +77,16 @@ class BuildConfig:
             if directory:
                 os.makedirs(directory, exist_ok=True)
 
+
     def get_flutter_executable(self):
         """Get full path to Flutter executable."""
         if self.flutter_sdk_path:
-            flutter_bin = os.path.join(self.flutter_sdk_path, 'bin', 'flutter')
+            # On Windows, use flutter.bat
+            if os.name == 'nt':  # Windows
+                flutter_bin = os.path.join(self.flutter_sdk_path, 'bin', 'flutter.bat')
+            else:  # Unix-like systems
+                flutter_bin = os.path.join(self.flutter_sdk_path, 'bin', 'flutter')
+
             if os.path.exists(flutter_bin):
                 return flutter_bin
 

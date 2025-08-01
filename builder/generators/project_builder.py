@@ -14,7 +14,7 @@ from utils.multilangual_helpers import read_translation
 
 from .widget_generator import WidgetGenerator
 from .property_mapper import PropertyMapper
-from .flutter_generator import FlutterGenerator
+# Don't import FlutterGenerator here to avoid circular import
 
 
 class FlutterProjectBuilder:
@@ -24,7 +24,7 @@ class FlutterProjectBuilder:
         self.project = project
         self.widget_generator = WidgetGenerator()
         self.property_mapper = PropertyMapper()
-        self.flutter_generator = FlutterGenerator(project)
+        # Don't create FlutterGenerator here
         self.output_dir = None
         self.build_errors = []
         self.build_warnings = []
@@ -37,6 +37,9 @@ class FlutterProjectBuilder:
             Tuple of (success: bool, output_path: str, errors: List[str])
         """
         try:
+            # Import FlutterGenerator here when needed
+            from .flutter_generator import FlutterGenerator
+
             # Set output directory
             if output_path:
                 self.output_dir = Path(output_path)
@@ -48,7 +51,10 @@ class FlutterProjectBuilder:
 
             # Generate all project files
             print(f"Generating Flutter project for: {self.project.name}")
-            files = self.flutter_generator.generate_project()
+
+            # Create generator instance only when needed
+            flutter_generator = FlutterGenerator(self.project)
+            files = flutter_generator.generate_project()
 
             # Write files to disk
             for file_path, content in files.items():

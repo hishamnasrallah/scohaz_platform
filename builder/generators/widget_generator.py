@@ -69,12 +69,25 @@ class WidgetGenerator:
 
         # AppBar
         if 'appBar' in properties:
-            app_bar_code = self._generate_app_bar_from_properties(properties['appBar'])
+            # Check if appBar is a dict (properties) or a widget definition
+            if isinstance(properties['appBar'], dict):
+                # If it has a 'type' key, it's a widget definition
+                if 'type' in properties['appBar']:
+                    app_bar_code = self.generate_widget(properties['appBar'], context)
+                else:
+                    # Otherwise, it's properties for an AppBar
+                    app_bar_code = self._generate_app_bar_from_properties(properties['appBar'])
+            else:
+                app_bar_code = 'null'
             parts.append(f'appBar: {app_bar_code}')
 
         # Body
         if 'body' in widget_data:
             body_code = self.generate_widget(widget_data['body'], context)
+            parts.append(f'body: {body_code}')
+        elif 'body' in properties:
+            # Handle body in properties as well
+            body_code = self.generate_widget(properties['body'], context)
             parts.append(f'body: {body_code}')
 
         # Drawer
@@ -114,7 +127,9 @@ class WidgetGenerator:
                     title_widget = self.generate_widget(app_bar_data['title'])
                     parts.append(f'title: {title_widget}')
             else:
-                parts.append(f'title: Text(\'{app_bar_data["title"]}\')')
+                # Simple string title
+                title_text = self._escape_string(app_bar_data['title'])
+                parts.append(f'title: Text({title_text})')
 
         # Background color
         if 'backgroundColor' in app_bar_data:
@@ -268,13 +283,14 @@ class WidgetGenerator:
 
         return self._format_widget('Stack', parts)
 
+    # In widget_generator.py, update the _generate_text method:
+
     def _generate_text(self, widget_data: Dict, properties: Dict, context: Dict) -> str:
         """Generate Text widget with translation support"""
         # Get text content
         if properties.get('useTranslation'):
             key = properties.get('translationKey', 'undefined_key')
             self.used_translation_keys.add(key)
-            self.imports.add('package:flutter_gen/gen_l10n/app_localizations.dart')
             text_content = f'AppLocalizations.of(context)!.{key}'
         else:
             content = properties.get('content', properties.get('text', ''))
