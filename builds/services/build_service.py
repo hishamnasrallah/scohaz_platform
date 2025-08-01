@@ -737,14 +737,14 @@ android.enableJetifier=true
 
         # Create a properly configured build.gradle
         build_gradle_content = '''buildscript {
-    ext.kotlin_version = '1.7.10'
+    ext.kotlin_version = '1.8.0'
     repositories {
         google()
         mavenCentral()
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:7.3.0'
+        classpath 'com.android.tools.build:gradle:8.1.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
@@ -814,10 +814,10 @@ android.enableJetifier=true
             with open(gradle_wrapper_path, 'r') as f:
                 content = f.read()
 
-            # Update to Gradle 7.5
+            # Update to Gradle 8.2
             content = re.sub(
                 r'distributionUrl=.*',
-                'distributionUrl=https\\://services.gradle.org/distributions/gradle-7.5-all.zip',
+                'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.2-all.zip',
                 content
             )
 
