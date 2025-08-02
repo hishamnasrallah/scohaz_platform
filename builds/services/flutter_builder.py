@@ -48,13 +48,13 @@ class FlutterBuilder:
                 else:
                     flutter_path = os.path.join(settings.FLUTTER_SDK_PATH, 'bin', 'flutter')
 
-            # Build flutter create command
+            # Build flutter create command with Java to avoid Kotlin issues
             cmd = [
                 flutter_path, 'create',
                 '--project-name', name,
                 '--org', org,
                 '--platforms', 'android',  # Only Android for now
-                '--android-language', 'java',  # Use Java instead of Kotlin to avoid Kotlin compilation issues
+                '--android-language', 'java',  # Use Java instead of Kotlin to avoid compilation issues
                 '.'  # Create in current directory
             ]
 
@@ -72,7 +72,51 @@ class FlutterBuilder:
 
             if result.returncode == 0:
                 logger.info("Flutter project created successfully")
+
+                # Fix Kotlin version compatibility issues
+                root_build_gradle = os.path.join(project_path, 'android', 'build.gradle')
+                root_build_gradle_kts = os.path.join(project_path, 'android', 'build.gradle.kts')
+
+                # Check which file exists
+                if os.path.exists(root_build_gradle_kts):
+                    logger.info("Fixing Kotlin version in build.gradle.kts...")
+                    with open(root_build_gradle_kts, 'r') as f:
+                        content = f.read()
+
+                    # Update Kotlin version to a compatible one
+                    import re
+                    # Look for Kotlin plugin version
+                    content = re.sub(
+                        r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[\d.]+"',
+                        'id("org.jetbrains.kotlin.android") version "1.7.10"',
+                        content
+                    )
+
+                    with open(root_build_gradle_kts, 'w') as f:
+                        f.write(content)
+
+                    logger.info("Updated Kotlin version to 1.7.10")
+
+                elif os.path.exists(root_build_gradle):
+                    logger.info("Fixing Kotlin version in build.gradle...")
+                    with open(root_build_gradle, 'r') as f:
+                        content = f.read()
+
+                    # Update Kotlin version
+                    import re
+                    content = re.sub(
+                        r"ext\.kotlin_version\s*=\s*['\"][\d.]+['\"]",
+                        "ext.kotlin_version = '1.7.10'",
+                        content
+                    )
+
+                    with open(root_build_gradle, 'w') as f:
+                        f.write(content)
+
+                    logger.info("Updated Kotlin version to 1.7.10")
+
                 return True, None
+
             else:
                 logger.error(f"Failed to create Flutter project: {result.stderr}")
                 return False, result.stderr

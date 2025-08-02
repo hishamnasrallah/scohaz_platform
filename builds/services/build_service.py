@@ -662,12 +662,13 @@ class BuildService:
         flutter_sdk = (self.config.flutter_sdk_path or
                        os.environ.get('FLUTTER_ROOT', ''))
 
-        # Write local.properties
+        # Write local.properties (without ndk.dir as it's deprecated)
         local_properties_content = []
         if android_sdk:
             # Use forward slashes even on Windows
             android_sdk = android_sdk.replace('\\', '/')
             local_properties_content.append(f'sdk.dir={android_sdk}')
+
         if flutter_sdk:
             # Use forward slashes even on Windows
             flutter_sdk = flutter_sdk.replace('\\', '/')
@@ -683,6 +684,29 @@ class BuildService:
             f.write('\n'.join(local_properties_content))
 
         logger.info(f"Created local.properties with Android SDK: {android_sdk}")
+
+        # Set NDK version in app/build.gradle if needed
+        app_build_gradle_path = os.path.join(project_dir, 'android', 'app', 'build.gradle')
+        if os.path.exists(app_build_gradle_path):
+            with open(app_build_gradle_path, 'r') as f:
+                content = f.read()
+
+            # Check if ndkVersion is already set
+            if 'ndkVersion' not in content:
+                # Add ndkVersion to android block
+                import re
+                # Find the android block and add ndkVersion
+                content = re.sub(
+                    r'(android\s*\{)',
+                    r'\1\n    ndkVersion "26.3.11579264"',
+                    content,
+                    count=1
+                )
+
+                with open(app_build_gradle_path, 'w') as f:
+                    f.write(content)
+
+                logger.info("Added ndkVersion to app/build.gradle")
 
         # Also create gradle.properties with basic settings
         gradle_properties_path = os.path.join(project_dir, 'android', 'gradle.properties')
