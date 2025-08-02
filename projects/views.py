@@ -1,238 +1,93 @@
+# File: projects/views.py
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.shortcuts import get_object_or_404
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.filters import SearchFilter, OrderingFilter
-
-from .models import FlutterProject, Screen, ComponentTemplate
-from .serializers import (
-    FlutterProjectSerializer, FlutterProjectListSerializer,
-    ScreenSerializer, ComponentTemplateSerializer,
-    SetVersionSerializer, AddLanguageSerializer
-)
-from .filters import FlutterProjectFilter
-from .permissions import IsProjectOwner
-from version.models import Version, LocalVersion
+from .models import FlutterProject, ComponentTemplate, Screen
+from .serializers import FlutterProjectSerializer, ComponentTemplateSerializer, ScreenSerializer
 
 
 class FlutterProjectViewSet(viewsets.ModelViewSet):
-    """ViewSet for FlutterProject CRUD operations"""
-    permission_classes = [IsAuthenticated, IsProjectOwner]
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_class = FlutterProjectFilter
-    search_fields = ['name', 'package_name', 'description']
-    ordering_fields = ['created_at', 'updated_at', 'name']
-    ordering = ['-created_at']
+    serializer_class = FlutterProjectSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Filter projects by current user"""
-        return FlutterProject.objects.filter(user=self.request.user) \
-            .select_related('app_version', 'user') \
-            .prefetch_related('supported_languages', 'screen_set', 'build_set')
-
-    def get_serializer_class(self):
-        """Use different serializers for list and detail views"""
-        if self.action == 'list':
-            return FlutterProjectListSerializer
-        return FlutterProjectSerializer
+        return FlutterProject.objects.filter(user=self.request.user)
 
     def perform_create(self, serializer):
-        """Set the user when creating a project"""
         serializer.save(user=self.request.user)
 
-    @action(detail=True, methods=['post'], serializer_class=SetVersionSerializer)
-    def set_version(self, request, pk=None):
-        """Create version entry for generated Flutter app"""
+    @action(detail=True, methods=['post'])
+    def duplicate(self, request, pk=None):
+        """Duplicate a project"""
         project = self.get_object()
-        serializer = self.get_serializer(data=request.data)
-
-        if serializer.is_valid():
-            data = serializer.validated_data
-
-            # Create or update version
-            version, created = Version.objects.update_or_create(
-                defaults={
-                    'version_number': data['version_number'],
-                    'operating_system': data['operating_system'],
-                    '_environment': '1',  # Production
-                    'active_ind': True
-                }
-            )
-
-            project.app_version = version
-            project.save()
-
-            return Response({
-                'message': f'Version {version.version_number} {"created" if created else "updated"}',
-                'version': {
-                    'id': version.id,
-                    'version_number': version.version_number,
-                    'operating_system': version.operating_system
-                }
-            })
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(detail=True, methods=['post'], serializer_class=AddLanguageSerializer)
-    def add_language(self, request, pk=None):
-        """Add language support using LocalVersion"""
-        project = self.get_object()
-        serializer = self.get_serializer(data=request.data)
-
-        if serializer.is_valid():
-            lang_code = serializer.validated_data['language']
-
-            local_version = LocalVersion.objects.filter(
-                lang=lang_code,
-                active_ind=True
-            ).first()
-
-            if local_version:
-                if project.supported_languages.filter(id=local_version.id).exists():
-                    return Response(
-                        {'error': f'Language {lang_code} already added'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                project.supported_languages.add(local_version)
-
-                return Response({
-                    'message': f'Language {lang_code} added successfully',
-                    'language': {
-                        'id': local_version.id,
-                        'lang': local_version.lang
-                    }
-                })
-
-            return Response(
-                {'error': 'Language not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(detail=True, methods=['delete'])
-    def remove_language(self, request, pk=None):
-        """Remove language support"""
-        project = self.get_object()
-        lang_code = request.data.get('language')
-
-        if not lang_code:
-            return Response(
-                {'error': 'Language code required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        local_version = project.supported_languages.filter(lang=lang_code).first()
-
-        if local_version:
-            project.supported_languages.remove(local_version)
-            return Response({
-                'message': f'Language {lang_code} removed successfully'
-            })
-
-        return Response(
-            {'error': f'Language {lang_code} not found in project'},
-            status=status.HTTP_404_NOT_FOUND
+        new_project = FlutterProject.objects.create(
+            name=f"{project.name} (Copy)",
+            description=project.description,
+            package_name=f"{project.package_name}.copy",
+            user=request.user,
+            app_version=project.app_version,
+            default_language=project.default_language,
+            primary_color=project.primary_color,
+            secondary_color=project.secondary_color
         )
+        new_project.supported_languages.set(project.supported_languages.all())
 
-    @action(detail=True, methods=['get'])
-    def available_languages(self, request, pk=None):
-        """Get languages available to add to the project"""
-        project = self.get_object()
-
-        # Get active languages not already in project
-        existing_langs = project.supported_languages.values_list('lang', flat=True)
-        available = LocalVersion.objects.filter(
-            active_ind=True
-        ).exclude(lang__in=existing_langs)
-
-        languages = [
-            {'lang': lv.lang, 'id': lv.id}
-            for lv in available
-        ]
-
-        return Response({
-            'available_languages': languages,
-            'supported_languages': list(existing_langs)
-        })
-
-    @action(detail=True, methods=['get', 'post'])
-    def screens(self, request, pk=None):
-        """Get or create screens for a project"""
-        project = self.get_object()
-
-        if request.method == 'GET':
-            screens = project.screens.all()
-            serializer = ScreenSerializer(screens, many=True)
-            return Response(serializer.data)
-
-        elif request.method == 'POST':
-            serializer = ScreenSerializer(data=request.data)
-            if serializer.is_valid():
-                # Check if making this the home screen
-                if serializer.validated_data.get('is_home', False):
-                    # Unset any existing home screen
-                    project.screens.update(is_home=False)
-
-                serializer.save(project=project)
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-class ScreenViewSet(viewsets.ModelViewSet):
-    """ViewSet for Screen CRUD operations"""
-    serializer_class = ScreenSerializer
-    permission_classes = [IsAuthenticated, IsProjectOwner]
-
-    def get_queryset(self):
-        """Filter screens by user's projects"""
-        return Screen.objects.filter(
-            project__user=self.request.user
-        ).select_related('project')
-
-    def perform_update(self, serializer):
-        """Handle home screen updates"""
-        if serializer.validated_data.get('is_home', False):
-            # Unset any existing home screen for this project
-            Screen.objects.filter(
-                project=serializer.instance.project
-            ).exclude(id=serializer.instance.id).update(is_home=False)
-
-        serializer.save()
+        serializer = self.get_serializer(new_project)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class ComponentTemplateViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet for ComponentTemplate read operations"""
+    queryset = ComponentTemplate.objects.filter(is_active=True)
     serializer_class = ComponentTemplateSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['category', 'is_active']
-    search_fields = ['name', 'flutter_widget']
-    ordering_fields = ['name', 'category', 'created_at']
-    ordering = ['category', 'name']
+
+    @action(detail=False)
+    def by_category(self, request):
+        """Get components grouped by category"""
+        components = self.get_queryset()
+        result = {}
+        for component in components:
+            if component.category not in result:
+                result[component.category] = []
+            result[component.category].append(
+                self.get_serializer(component).data
+            )
+        return Response(result)
+
+
+class ScreenViewSet(viewsets.ModelViewSet):
+    serializer_class = ScreenSerializer
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Get active component templates"""
-        queryset = ComponentTemplate.objects.filter(is_active=True)
+        project_id = self.request.query_params.get('project')
+        queryset = Screen.objects.filter(project__user=self.request.user)
 
-        # Optional category filter
-        category = self.request.query_params.get('category', None)
-        if category:
-            queryset = queryset.filter(category=category)
+        if project_id:
+            queryset = queryset.filter(project_id=project_id)
 
         return queryset
 
-    @action(detail=False, methods=['get'])
-    def categories(self, request):
-        """Get available component categories"""
-        categories = ComponentTemplate.objects.filter(
-            is_active=True
-        ).values_list('category', flat=True).distinct()
+    @action(detail=True, methods=['post'])
+    def set_as_home(self, request, pk=None):
+        """Set this screen as home screen"""
+        screen = self.get_object()
+        screen.is_home = True
+        screen.save()
+        return Response({'status': 'Screen set as home'})
 
-        return Response({
-            'categories': list(categories)
-        })
+    @action(detail=True, methods=['post'])
+    def duplicate(self, request, pk=None):
+        """Duplicate a screen"""
+        screen = self.get_object()
+        new_screen = Screen.objects.create(
+            project=screen.project,
+            name=f"{screen.name} (Copy)",
+            route=f"{screen.route}-copy",
+            is_home=False,
+            ui_structure=screen.ui_structure
+        )
+        serializer = self.get_serializer(new_screen)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

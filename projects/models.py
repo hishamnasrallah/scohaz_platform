@@ -1,129 +1,126 @@
+# File: projects/models.py
+
 from django.db import models
-from django.conf import settings
+from django.core.validators import RegexValidator
+from django.core.exceptions import ValidationError
 from authentication.models import CustomUser
-from version.models import Version, LocalVersion
+from version.models import LocalVersion, Version
+import re
 
 
 class FlutterProject(models.Model):
-    """Main project model for Flutter Visual Builder"""
-    name = models.CharField(
-        max_length=100,
-        help_text="Project name shown in the builder"
-    )
+    """Represents a Flutter project created by a user"""
+
+    # Basic Information
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
     package_name = models.CharField(
         max_length=255,
-        help_text="Android package name (e.g., com.example.myapp)",
-        unique=True
-    )
-    description = models.TextField(
-        blank=True,
-        help_text="Project description"
-    )
-    user = models.ForeignKey(
-        CustomUser,
-        on_delete=models.CASCADE,
-        related_name='flutter_projects'
+        unique=True,
+        validators=[
+            RegexValidator(
+                regex=r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$',
+                message='Package name must be in format: com.example.app'
+            )
+        ],
+        help_text='e.g., com.yourcompany.appname'
     )
 
-    # Link to version for the generated app
-    app_version = models.ForeignKey(
-        Version,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='flutter_projects',
-        help_text="Version control for the generated Flutter app"
-    )
+    # Relationships
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='flutter_projects')
+    app_version = models.ForeignKey(Version, on_delete=models.SET_NULL, null=True, blank=True)
+    supported_languages = models.ManyToManyField(LocalVersion, blank=True)
+    default_language = models.CharField(max_length=10, default='en')
 
-    # Languages supported by this app
-    supported_languages = models.ManyToManyField(
-        LocalVersion,
-        related_name='flutter_projects',
-        help_text="Languages available in the generated app"
-    )
+    # App Configuration
+    app_icon = models.ImageField(upload_to='project_icons/', blank=True, null=True)
+    primary_color = models.CharField(max_length=7, default='#2196F3')  # Hex color
+    secondary_color = models.CharField(max_length=7, default='#03DAC6')
 
-    # Default language
-    default_language = models.CharField(
-        max_length=10,
-        choices=settings.LANGUAGES if hasattr(settings, 'LANGUAGES') else [('en', 'English')],
-        default='en',
-        help_text="Default language for the app"
-    )
-
-    # Project configuration
-    app_icon = models.ImageField(
-        upload_to='project_icons/',
-        null=True,
-        blank=True,
-        help_text="App icon for the generated Flutter app"
-    )
-    primary_color = models.CharField(
-        max_length=7,
-        default='#2196F3',
-        help_text="Primary theme color (hex format)"
-    )
-
-    # Timestamps
+    # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['user', '-created_at']),
-        ]
 
     def __str__(self):
         return f"{self.name} ({self.package_name})"
 
+    def clean(self):
+        # Ensure package name is lowercase
+        if self.package_name:
+            self.package_name = self.package_name.lower()
+
+        # Validate package name format
+        if self.package_name and not re.match(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$', self.package_name):
+            raise ValidationError('Invalid package name format')
+
+
+class ComponentTemplate(models.Model):
+    """Flutter widget templates available in the visual builder"""
+
+    CATEGORY_CHOICES = [
+        ('layout', 'Layout'),
+        ('input', 'Input'),
+        ('display', 'Display'),
+        ('navigation', 'Navigation'),
+        ('feedback', 'Feedback'),
+    ]
+
+    name = models.CharField(max_length=100)
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    flutter_widget = models.CharField(max_length=100)  # e.g., 'Container', 'Text'
+    icon = models.CharField(max_length=50, blank=True)  # Icon name for UI
+    description = models.TextField()
+
+    # Default properties as JSON
+    default_properties = models.JSONField(default=dict)
+
+    # Widget constraints
+    can_have_children = models.BooleanField(default=False)
+    max_children = models.IntegerField(null=True, blank=True)
+
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['category', 'name']
+
+    def __str__(self):
+        return f"{self.name} ({self.flutter_widget})"
+
 
 class Screen(models.Model):
-    """Individual screens within a Flutter project"""
-    project = models.ForeignKey(
-        FlutterProject,
-        on_delete=models.CASCADE,
-        related_name='screens'
-    )
-    name = models.CharField(
-        max_length=100,
-        help_text="Screen name (e.g., HomeScreen, LoginScreen)"
-    )
-    route = models.CharField(
-        max_length=255,
-        help_text="Flutter route path (e.g., /home, /login)"
-    )
-    is_home = models.BooleanField(
-        default=False,
-        help_text="Set as the default home screen"
-    )
+    """Represents a screen in a Flutter project"""
 
-    # UI structure storage
-    ui_structure = models.JSONField(
-        default=dict,
-        help_text="JSON representation of the screen's widget tree"
-    )
+    project = models.ForeignKey(FlutterProject, on_delete=models.CASCADE, related_name='screens')
+    name = models.CharField(max_length=100)
+    route = models.CharField(max_length=100)  # e.g., '/home', '/profile'
+    is_home = models.BooleanField(default=False)
 
-    # Screen settings
-    has_app_bar = models.BooleanField(
-        default=True,
-        help_text="Whether this screen includes an app bar"
-    )
-    app_bar_title = models.CharField(
-        max_length=100,
-        blank=True,
-        help_text="Title shown in the app bar"
-    )
+    # UI Structure stored as JSON
+    ui_structure = models.JSONField(default=dict, help_text="""
+    Example structure:
+    {
+        "type": "container",
+        "properties": {"color": "#FFFFFF"},
+        "children": [
+            {
+                "type": "text",
+                "properties": {"text": "Hello", "fontSize": 20}
+            }
+        ]
+    }
+    """)
 
-    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['project', 'name']
-        unique_together = [['project', 'route']]
-        indexes = [
-            models.Index(fields=['project', 'is_home']),
-        ]
+        unique_together = ['project', 'route']
+        ordering = ['created_at']
 
     def __str__(self):
         return f"{self.project.name} - {self.name}"
@@ -135,91 +132,24 @@ class Screen(models.Model):
                 project=self.project,
                 is_home=True
             ).exclude(pk=self.pk).update(is_home=False)
+
+        # Ensure at least one screen is home
+        if not self.is_home and not Screen.objects.filter(
+                project=self.project,
+                is_home=True
+        ).exclude(pk=self.pk).exists():
+            self.is_home = True
+
         super().save(*args, **kwargs)
 
+    def clean(self):
+        # Validate route format
+        if not self.route.startswith('/'):
+            self.route = f'/{self.route}'
 
-class ComponentTemplate(models.Model):
-    """Reusable component templates for the visual builder"""
-    CATEGORY_CHOICES = [
-        ('basic', 'Basic Components'),
-        ('layout', 'Layout Components'),
-        ('input', 'Input Components'),
-        ('navigation', 'Navigation Components'),
-        ('custom', 'Custom Components'),
-    ]
+        # Validate ui_structure
+        if not isinstance(self.ui_structure, dict):
+            raise ValidationError('UI structure must be a dictionary')
 
-    name = models.CharField(
-        max_length=100,
-        unique=True,
-        help_text="Component name shown in the builder palette"
-    )
-    category = models.CharField(
-        max_length=20,
-        choices=CATEGORY_CHOICES,
-        default='basic',
-        help_text="Component category for organization"
-    )
-    flutter_widget = models.CharField(
-        max_length=100,
-        help_text="Corresponding Flutter widget name (e.g., Container, Text)"
-    )
-
-    # Component configuration
-    icon = models.CharField(
-        max_length=50,
-        default='widgets',
-        help_text="Material icon name for the component"
-    )
-    description = models.TextField(
-        blank=True,
-        help_text="Description shown in the builder"
-    )
-
-    # Default properties for this component
-    default_properties = models.JSONField(
-        default=dict,
-        help_text="Default property values for new instances"
-    )
-
-    # Allowed properties that can be edited
-    editable_properties = models.JSONField(
-        default=list,
-        help_text="List of properties that can be edited in the builder"
-    )
-
-    # Whether this component can have children
-    can_have_children = models.BooleanField(
-        default=False,
-        help_text="Whether this component can contain other components"
-    )
-
-    # Component constraints
-    max_children = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Maximum number of children (null for unlimited)"
-    )
-    allowed_child_types = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="List of component types allowed as children"
-    )
-
-    # Active flag
-    is_active = models.BooleanField(
-        default=True,
-        help_text="Whether this component is available in the builder"
-    )
-
-    # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['category', 'name']
-        indexes = [
-            models.Index(fields=['category', 'is_active']),
-        ]
-
-    def __str__(self):
-        return f"{self.get_category_display()} - {self.name}"
+        if 'type' not in self.ui_structure:
+            raise ValidationError('UI structure must have a type')
