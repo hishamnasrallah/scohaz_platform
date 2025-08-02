@@ -11,7 +11,7 @@ class PropertyMapper:
     def map_value(value: Any, property_type: str = None) -> str:
         """Convert a value to Flutter code representation"""
         if value is None or value == '':
-            return 'null'
+            return None  # Return None instead of 'null' string
 
         if isinstance(value, bool):
             return 'true' if value else 'false'
@@ -24,6 +24,11 @@ class PropertyMapper:
                 return PropertyMapper.map_color(value)
             elif property_type == 'alignment':
                 return PropertyMapper.map_alignment(value)
+            elif property_type == 'axis':
+                return PropertyMapper.map_axis(value)
+            elif property_type == 'enum':
+                # For enum values, return without quotes
+                return value
             else:
                 # Escape special characters in string
                 escaped = value.replace("\\", "\\\\")  # Escape backslashes first
@@ -61,18 +66,28 @@ class PropertyMapper:
     @staticmethod
     def map_edge_insets(insets: Dict) -> str:
         """Convert padding/margin to EdgeInsets"""
+        if not insets:
+            return "EdgeInsets.zero"
+
         if 'all' in insets:
             value = insets['all']
+            # Handle null or zero values
+            if value is None or value == 0:
+                return "EdgeInsets.zero"
             # Ensure it's a double
             if isinstance(value, int):
                 value = f"{value}.0"
             return f"EdgeInsets.all({value})"
         elif all(k in insets for k in ['top', 'right', 'bottom', 'left']):
             # Ensure all values are doubles
-            left = insets['left']
-            top = insets['top']
-            right = insets['right']
-            bottom = insets['bottom']
+            left = insets.get('left', 0)
+            top = insets.get('top', 0)
+            right = insets.get('right', 0)
+            bottom = insets.get('bottom', 0)
+
+            # Handle null values
+            if all(v in (None, 0) for v in [left, top, right, bottom]):
+                return "EdgeInsets.zero"
 
             if isinstance(left, int):
                 left = f"{left}.0"
@@ -172,3 +187,12 @@ class PropertyMapper:
             'scaleDown': 'BoxFit.scaleDown',
         }
         return fit_map.get(fit, 'BoxFit.contain')
+
+    @staticmethod
+    def map_axis(axis: str) -> str:
+        """Convert to Axis enum"""
+        if axis == 'horizontal':
+            return 'Axis.horizontal'
+        elif axis == 'vertical':
+            return 'Axis.vertical'
+        return 'Axis.vertical'  # default

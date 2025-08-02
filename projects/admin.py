@@ -10,7 +10,7 @@ from django.contrib import messages
 
 @admin.register(FlutterProject)
 class FlutterProjectAdmin(admin.ModelAdmin):
-    list_display = ['name', 'package_name', 'user', 'created_at', 'is_active', 'build_apk_button']
+    list_display = ['name', 'package_name', 'user', 'created_at', 'is_active', 'build_apk_button', 'download_zip_button']
     list_filter = ['is_active', 'created_at', 'updated_at']
     search_fields = ['name', 'package_name', 'description']
     readonly_fields = ['created_at', 'updated_at']
@@ -38,6 +38,16 @@ class FlutterProjectAdmin(admin.ModelAdmin):
         )
     build_apk_button.short_description = 'Actions'
     build_apk_button.allow_tags = True
+
+    def download_zip_button(self, obj):
+        """Add a Download ZIP button in the list view"""
+        return format_html(
+            '<a class="button" href="{}" style="background-color: #28a745; color: white; margin-left: 5px;">Download ZIP</a>',
+            reverse('admin:download_project_zip', args=[obj.pk])
+        )
+    download_zip_button.short_description = 'Download'
+    download_zip_button.allow_tags = True
+
 
     def build_apk_action(self, request, queryset):
         """Build APK for selected projects"""
@@ -80,6 +90,7 @@ class FlutterProjectAdmin(admin.ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path('<int:project_id>/build/', self.admin_site.admin_view(self.build_apk_view), name='build_apk'),
+            path('<int:project_id>/download-zip/', self.admin_site.admin_view(self.download_zip_view), name='download_project_zip'),
         ]
         return custom_urls + urls
 
@@ -121,6 +132,94 @@ class FlutterProjectAdmin(admin.ModelAdmin):
 
         # Redirect back to the change list
         return redirect('admin:projects_flutterproject_changelist')
+
+    def download_zip_view(self, request, project_id):
+        """Handle Download ZIP button click"""
+        import zipfile
+        import io
+        from django.http import HttpResponse
+        from builder.generators.flutter_generator import FlutterGenerator
+
+        project = FlutterProject.objects.get(pk=project_id)
+
+        # Generate code
+        generator = FlutterGenerator(project)
+        files = generator.generate_project()
+
+        # Create ZIP file in memory
+        zip_buffer = io.BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # Add each generated file to ZIP
+            for filepath, content in files.items():
+                zip_file.writestr(filepath, content)
+
+            # Add additional Flutter project files
+            zip_file.writestr('.gitignore', self._get_gitignore_content())
+            zip_file.writestr('README.md', self._get_readme_content(project))
+
+        # Prepare response
+        zip_buffer.seek(0)
+        response = HttpResponse(
+            zip_buffer.getvalue(),
+            content_type='application/zip'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{project.package_name}.zip"'
+
+        messages.success(request, f'Downloaded {project.name} project files')
+
+        return response
+
+    def _get_gitignore_content(self):
+        """Get standard Flutter .gitignore content"""
+        return """# Miscellaneous
+    *.class
+    *.log
+    *.pyc
+    *.swp
+    .DS_Store
+    .atom/
+    .buildlog/
+    .history
+    .svn/
+    migrate_working_dir/
+    
+    # IntelliJ related
+    *.iml
+    *.ipr
+    *.iws
+    .idea/
+    
+    # Flutter/Dart/Pub related
+    **/doc/api/
+    **/ios/Flutter/.last_build_id
+    .dart_tool/
+    .flutter-plugins
+    .flutter-plugins-dependencies
+    .packages
+    .pub-cache/
+    .pub/
+    /build/
+    
+    # Web related
+    lib/generated_plugin_registrant.dart
+    
+    # Symbolication related
+    app.*.symbols
+    
+    # Obfuscation related
+    app.*.map.json
+    
+    # Android Studio will place build artifacts here
+    /android/app/debug
+    /android/app/profile
+    /android/app/release"""
+
+    def _get_readme_content(self, project):
+        """Get README content for the project"""
+        return f"""# {project.name}
+    
+    {project.description or 'A Flutter project created with Visual Builder'}"""
 
 
 @admin.register(ComponentTemplate)

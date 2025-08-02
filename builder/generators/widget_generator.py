@@ -187,9 +187,10 @@ class WidgetGenerator:
                 props.append(f"color: {color}")
 
         # Padding
-        if 'padding' in properties:
+        if 'padding' in properties and properties['padding'] is not None:
             padding = self.property_mapper.map_edge_insets(properties['padding'])
-            props.append(f"padding: {padding}")
+            if padding != "EdgeInsets.zero":
+                props.append(f"padding: {padding}")
 
         # Margin
         if 'margin' in properties:
@@ -385,9 +386,22 @@ class WidgetGenerator:
         prop_strings = []
         for ui_prop, flutter_prop in mapping.properties_mapping.items():
             if ui_prop in properties:
-                value = self.property_mapper.map_value(properties[ui_prop])
-                prop_string = flutter_prop.replace('{{value}}', str(value))
-                prop_strings.append(prop_string)
+                # Check if this is a color property
+                if 'color' in ui_prop.lower() or ui_prop in ['backgroundColor', 'foregroundColor', 'shadowColor']:
+                    value = self.property_mapper.map_color(properties[ui_prop])
+                elif ui_prop == 'scrollDirection' and 'Axis.' not in flutter_prop:
+                    # Only map axis if the mapping doesn't already include Axis.
+                    value = self.property_mapper.map_axis(properties[ui_prop])
+                elif 'Axis.{{value}}' in flutter_prop or 'Icons.{{value}}' in flutter_prop:
+                    # For mappings that already include the enum prefix, just use the raw value
+                    value = properties[ui_prop]
+                else:
+                    value = self.property_mapper.map_value(properties[ui_prop])
+
+                # Skip null values - don't include them in the generated code
+                if value is not None:
+                    prop_string = flutter_prop.replace('{{value}}', str(value))
+                    prop_strings.append(prop_string)
 
         # Add children if any
         if children and mapping.can_have_children:
@@ -411,3 +425,106 @@ class WidgetGenerator:
         """Fallback for unknown widget types"""
         spaces = '  ' * indent
         return f"{spaces}Container(\n{spaces}  child: Center(\n{spaces}    child: Text('Unknown widget: {widget_type}'),\n{spaces}  ),\n{spaces})"
+
+    # Add this method to the WidgetGenerator class if it doesn't exist
+    def _generate_center(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate Center widget"""
+        spaces = '  ' * indent
+
+        # Center only accepts a single child
+        if children and len(children) > 0:
+            child_code = self.generate_widget(children[0], indent + 1)
+            return f"{spaces}Center(\n{spaces}  child:\n{child_code},\n{spaces})"
+        else:
+            return f"{spaces}Center()"
+
+    def _generate_padding(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate Padding widget"""
+        spaces = '  ' * indent
+        props = []
+
+        # Handle padding property
+        if 'padding' in properties:
+            padding = self.property_mapper.map_edge_insets(properties.get('padding', {}))
+            props.append(f"padding: {padding}")
+        else:
+            props.append("padding: EdgeInsets.zero")
+
+        # Child
+        if children and len(children) > 0:
+            child_code = self.generate_widget(children[0], indent + 1)
+            props.append(f"child:\n{child_code}")
+
+        props_str = f",\n{spaces}  ".join(props)
+        return f"{spaces}Padding(\n{spaces}  {props_str},\n{spaces})"
+
+    def _generate_grid(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate GridView widget"""
+        spaces = '  ' * indent
+        props = []
+
+        # Default crossAxisCount if not specified
+        cross_axis_count = properties.get('crossAxisCount', 2)
+        props.append(f"crossAxisCount: {cross_axis_count}")
+
+        # Optional spacing
+        if 'mainAxisSpacing' in properties:
+            props.append(f"mainAxisSpacing: {properties['mainAxisSpacing']}.0")
+
+        if 'crossAxisSpacing' in properties:
+            props.append(f"crossAxisSpacing: {properties['crossAxisSpacing']}.0")
+
+        # Padding
+        if 'padding' in properties and properties['padding'] is not None:
+            padding = self.property_mapper.map_edge_insets(properties['padding'])
+            if padding != "EdgeInsets.zero":
+                props.append(f"padding: {padding}")
+
+        # Shrink wrap for nested scrollables
+        props.append("shrinkWrap: true")
+        props.append("physics: NeverScrollableScrollPhysics()")
+
+        # Children
+        if children and len(children) > 0:
+            children_code = []
+            for child in children:
+                children_code.append(self.generate_widget(child, indent + 2))
+            children_str = ',\n'.join(children_code)
+            props.append(f"children: [\n{children_str},\n{spaces}  ]")
+        else:
+            props.append("children: <Widget>[]")
+
+        props_str = f",\n{spaces}  ".join(props)
+        return f"{spaces}GridView.count(\n{spaces}  {props_str},\n{spaces})"
+
+    def _generate_scrollable(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate SingleChildScrollView widget"""
+        spaces = '  ' * indent
+        props = []
+
+        # Scroll direction
+        if 'scrollDirection' in properties:
+            axis = self.property_mapper.map_axis(properties['scrollDirection'])
+            props.append(f"scrollDirection: {axis}")
+
+        # Child
+        if children and len(children) > 0:
+            child_code = self.generate_widget(children[0], indent + 1)
+            props.append(f"child:\n{child_code}")
+
+        if props:
+            props_str = f",\n{spaces}  ".join(props)
+            return f"{spaces}SingleChildScrollView(\n{spaces}  {props_str},\n{spaces})"
+        else:
+            return f"{spaces}SingleChildScrollView()"
+
+    def _generate_spacer(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate Spacer widget"""
+        spaces = '  ' * indent
+
+        # Check if flex is specified
+        if 'flex' in properties and properties['flex'] is not None:
+            flex = properties['flex']
+            return f"{spaces}Spacer(flex: {flex})"
+        else:
+            return f"{spaces}Spacer()"

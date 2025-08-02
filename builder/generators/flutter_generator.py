@@ -358,6 +358,7 @@ output-localization-file: app_localizations.dart
         """Convert to snake_case"""
         import re
         # First, handle spaces and special characters
+        text = text.replace('&', '_and_')
         text = text.replace(' ', '_').replace('-', '_')
         # Then handle camelCase
         s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', text)
@@ -368,8 +369,11 @@ output-localization-file: app_localizations.dart
 
     def _to_pascal_case(self, text: str) -> str:
         """Convert to PascalCase"""
-        # Handle various separators
-        words = text.replace('-', ' ').replace('_', ' ').split()
+        # Handle various separators and special characters
+        # Replace special characters with spaces
+        text = text.replace('&', 'And')
+        text = text.replace('-', ' ').replace('_', ' ')
+        words = text.split()
         return ''.join(word.capitalize() for word in words)
 
     def _to_camel_case(self, text: str) -> str:
