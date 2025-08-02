@@ -126,13 +126,28 @@ class FlutterBuilder:
         """
         logger.info(f"Building APK for project at {project_path}")
 
+        # CRITICAL: Ensure we're in the project root, not android subdirectory
+        if project_path.endswith('android'):
+            logger.error(f"ERROR: build_apk called with android subdirectory: {project_path}")
+            project_path = os.path.dirname(project_path)
+            logger.info(f"Corrected to project root: {project_path}")
+
+        # Verify we're in the correct directory
+        if not os.path.exists(os.path.join(project_path, 'pubspec.yaml')):
+            logger.error(f"ERROR: pubspec.yaml not found in {project_path}")
+            logger.error(f"Directory contents: {os.listdir(project_path) if os.path.exists(project_path) else 'Directory does not exist'}")
+            return False, "Working directory is not a Flutter project root", None
+
         try:
             # First, ensure Flutter project is properly configured
-            logger.info("Verifying Flutter project configuration...")
+            logger.info(f"Verifying Flutter project configuration in: {project_path}")
+            logger.info(f"Current working directory: {os.getcwd()}")
 
             # Check if pubspec.yaml exists
             pubspec_path = os.path.join(project_path, 'pubspec.yaml')
             if not os.path.exists(pubspec_path):
+                logger.error(f"pubspec.yaml not found at: {pubspec_path}")
+                logger.error(f"Directory contents: {os.listdir(project_path) if os.path.exists(project_path) else 'Directory does not exist'}")
                 return False, "pubspec.yaml not found in project", None
 
             # Check Android directory
@@ -207,7 +222,8 @@ class FlutterBuilder:
 
                 # Run Flutter build with extra verbosity
                 build_result = self.command_runner.run_command(
-                    [self.flutter_path, 'build', 'apk', '--debug', '--verbose'],
+                    # [self.flutter_path, 'build', 'apk', '--debug', '--verbose'],
+                    [self.flutter_path, 'build', 'apk'],
                     cwd=project_path,
                     timeout=600,  # 10 minutes
                     env=self.config.get_environment()
@@ -298,21 +314,50 @@ class FlutterBuilder:
     def _run_pub_get(self, project_path: str) -> bool:
         """Run flutter pub get to fetch dependencies."""
         logger.info(f"Running flutter pub get in {project_path}")
+        logger.debug(f"Current working directory: {os.getcwd()}")
+        logger.debug(f"Project path exists: {os.path.exists(project_path)}")
+        logger.debug(f"Project path contents: {os.listdir(project_path) if os.path.exists(project_path) else 'Directory does not exist'}")
+
+        # Add flutter clean before pub get to ensure fresh state
+        logger.info("Running flutter clean to ensure fresh state...")
+        clean_command = [self.flutter_path, 'clean']
+        logger.debug(f"Clean command: {' '.join(clean_command)}")
+        logger.debug(f"Clean cwd: {project_path}")
+
+        clean_result = self.command_runner.run_command(
+            clean_command,
+            cwd=project_path,
+            timeout=60
+        )
+
+        if clean_result.returncode != 0:
+            logger.warning(f"flutter clean failed (non-critical): {clean_result.stderr}")
+            logger.warning(f"flutter clean stdout: {clean_result.stdout}")
+        else:
+            logger.info("flutter clean completed successfully")
+
+        # Run flutter pub get
+        pub_get_command = [self.flutter_path, 'pub', 'get']
+        logger.debug(f"Pub get command: {' '.join(pub_get_command)}")
+        logger.debug(f"Pub get cwd: {project_path}")
 
         result = self.command_runner.run_command(
-            [self.flutter_path, 'pub', 'get'],
+            pub_get_command,
             cwd=project_path,
             timeout=120  # 2 minutes timeout
         )
 
-        # Log output even on success for debugging
+        # Always log full output for debugging
+        logger.info(f"flutter pub get return code: {result.returncode}")
         if result.stdout:
-            logger.info(f"flutter pub get output: {result.stdout}")
+            logger.info(f"flutter pub get stdout:\n{result.stdout}")
         if result.stderr:
-            logger.warning(f"flutter pub get stderr: {result.stderr}")
+            logger.error(f"flutter pub get stderr:\n{result.stderr}")
 
         if result.returncode != 0:
-            logger.error(f"Failed to fetch dependencies: {result.stderr}")
+            logger.error(f"Failed to fetch dependencies with return code: {result.returncode}")
+            logger.error(f"Full command was: {' '.join(pub_get_command)}")
+            logger.error(f"Working directory was: {project_path}")
             return False
 
         logger.info("Dependencies fetched successfully")
@@ -320,7 +365,19 @@ class FlutterBuilder:
         # Check if l10n.yaml exists and run flutter gen-l10n
         l10n_yaml_path = os.path.join(project_path, 'l10n.yaml')
         if os.path.exists(l10n_yaml_path):
+            # Debug: log l10n.yaml contents
+            with open(l10n_yaml_path, 'r') as f:
+                l10n_content = f.read()
+                logger.debug(f"l10n.yaml contents:\n{l10n_content}")
+
             logger.info("Running flutter gen-l10n to generate localization files")
+            logger.info(f"Working directory for gen-l10n: {project_path}")
+
+            # Ensure we're in the right directory
+            if not os.path.exists(os.path.join(project_path, 'pubspec.yaml')):
+                logger.error(f"ERROR: No pubspec.yaml in {project_path}, cannot run gen-l10n")
+                return False
+
             gen_result = self.command_runner.run_command(
                 [self.flutter_path, 'gen-l10n'],
                 cwd=project_path,
@@ -338,13 +395,46 @@ class FlutterBuilder:
 
             logger.info("Localization files generated successfully")
 
-        # Verify package_config.json was created
-        package_config_path = os.path.join(project_path, '.dart_tool', 'package_config.json')
-        if not os.path.exists(package_config_path):
-            logger.error(f"package_config.json not found at {package_config_path} after pub get")
-            return False
+            # Verify app_localizations.dart was actually generated
+            # Check both possible locations
+            app_localizations_paths = [
+                os.path.join(project_path, '.dart_tool', 'flutter_gen', 'gen_l10n', 'app_localizations.dart'),
+                os.path.join(project_path, 'lib', 'l10n', 'app_localizations.dart')
+            ]
 
-        return True
+            app_localizations_found = False
+            for path in app_localizations_paths:
+                if os.path.exists(path):
+                    logger.info(f"Found app_localizations.dart at: {path}")
+                    app_localizations_found = True
+                    break
+
+            if not app_localizations_found:
+                logger.error("app_localizations.dart not found after gen-l10n")
+                logger.error("Checked paths:")
+                for path in app_localizations_paths:
+                    logger.error(f"  - {path}")
+
+                # Additional debugging: list .dart_tool contents
+                dart_tool_path = os.path.join(project_path, '.dart_tool')
+                if os.path.exists(dart_tool_path):
+                    logger.error(f"Contents of .dart_tool: {os.listdir(dart_tool_path)}")
+                    flutter_gen_path = os.path.join(dart_tool_path, 'flutter_gen')
+                    if os.path.exists(flutter_gen_path):
+                        logger.error(f"Contents of .dart_tool/flutter_gen: {os.listdir(flutter_gen_path)}")
+                        gen_l10n_path = os.path.join(flutter_gen_path, 'gen_l10n')
+                        if os.path.exists(gen_l10n_path):
+                            logger.error(f"Contents of .dart_tool/flutter_gen/gen_l10n: {os.listdir(gen_l10n_path)}")
+
+                return False
+
+            # Verify package_config.json was created
+            package_config_path = os.path.join(project_path, '.dart_tool', 'package_config.json')
+            if not os.path.exists(package_config_path):
+                logger.error(f"package_config.json not found at {package_config_path} after pub get")
+                return False
+
+            return True
 
     def _fix_gradle_issues(self, project_path: str) -> bool:
         """Ensure gradle wrapper is executable"""
@@ -377,6 +467,21 @@ class FlutterBuilder:
 
     def _run_build_apk(self, project_path: str, build_mode: str) -> subprocess.CompletedProcess:
         """Run flutter build apk command."""
+        # CRITICAL: Log and verify working directory
+        logger.info(f"_run_build_apk called with project_path: {project_path}")
+        logger.info(f"Current working directory: {os.getcwd()}")
+
+        # Ensure we have pubspec.yaml in the project path
+        pubspec_path = os.path.join(project_path, 'pubspec.yaml')
+        if not os.path.exists(pubspec_path):
+            logger.error(f"CRITICAL: pubspec.yaml not found at {pubspec_path}")
+            logger.error("This indicates flutter build apk is being run from wrong directory!")
+            # Try to find pubspec.yaml in parent directory
+            parent_pubspec = os.path.join(os.path.dirname(project_path), 'pubspec.yaml')
+            if os.path.exists(parent_pubspec):
+                logger.warning(f"Found pubspec.yaml in parent directory, correcting path")
+                project_path = os.path.dirname(project_path)
+
         # First, let's try to get more detailed error info by running gradle directly
         logger.info("Running gradle wrapper to check for issues...")
 

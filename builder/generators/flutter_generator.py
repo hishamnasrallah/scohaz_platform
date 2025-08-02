@@ -222,14 +222,14 @@ class MyApp extends StatelessWidget {{
         # Get UI structure from the screen model
         ui_structure = screen.ui_structure
         if not ui_structure or not isinstance(ui_structure, dict):
-            # Create a more complete default structure
+            # Create a more complete default structure with null-safe values
             ui_structure = {
                 'type': 'scaffold',
                 'properties': {
                     'appBar': {
                         'title': screen.name,
                         'backgroundColor': '#2196F3',
-                        'elevation': 4,
+                        'elevation': 4.0,  # Ensure float for elevation
                         'centerTitle': True
                     },
                     'backgroundColor': '#FFFFFF'
@@ -247,14 +247,14 @@ class MyApp extends StatelessWidget {{
                                 'type': 'icon',
                                 'properties': {
                                     'icon': 'home',
-                                    'size': 64,
+                                    'size': 64.0,  # Ensure float for size
                                     'color': '#2196F3'
                                 }
                             },
                             {
                                 'type': 'sizedbox',
                                 'properties': {
-                                    'height': 20
+                                    'height': 20.0  # Ensure float for height
                                 }
                             },
                             {
@@ -262,7 +262,7 @@ class MyApp extends StatelessWidget {{
                                 'properties': {
                                     'content': f'Welcome to {screen.name}',
                                     'style': {
-                                        'fontSize': 24.0,
+                                        'fontSize': 24.0,  # Ensure float for fontSize
                                         'fontWeight': 'bold'
                                     }
                                 }
@@ -380,9 +380,12 @@ class {screen_name}Screen extends StatelessWidget {{
 
     def _generate_l10n_yaml(self) -> str:
         """Generate l10n.yaml configuration file"""
+        # Ensure output goes to the standard flutter_gen location
         return '''arb-dir: lib/l10n
 template-arb-file: app_en.arb
 output-localization-file: app_localizations.dart
+synthetic-package: true
+output-dir: .dart_tool/flutter_gen
 '''
 
     def _generate_project_files(self) -> Dict[str, str]:
@@ -452,6 +455,9 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   generate: true
+  
+  # Ensure localization is configured
+  # This tells Flutter where to generate localization files
   
   # To add assets to your application, add an assets section:
   # assets:

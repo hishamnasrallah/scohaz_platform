@@ -147,6 +147,14 @@ class BuildService:
 
                 # Clean any previous build artifacts
                 logger.info("Cleaning previous builds...")
+                logger.info(f"Project root directory: {build_dir}")
+
+                # Verify we have the correct project structure
+                if not os.path.exists(os.path.join(build_dir, 'pubspec.yaml')):
+                    logger.error(f"ERROR: pubspec.yaml not found in {build_dir}")
+                    raise RuntimeError("Invalid project directory structure")
+
+                # Ensure flutter clean runs from the project root
                 self.flutter_builder._run_flutter_clean(build_dir)
 
                 # Get dependencies
@@ -157,11 +165,44 @@ class BuildService:
 
                 # Build APK
                 logger.info("Building APK...")
+                logger.debug(f"Working directory for build_apk: {build_dir}")
+                logger.debug(f"Verifying project structure before build:")
+
+                # Log directory contents for debugging
+                if os.path.exists(build_dir):
+                    logger.debug(f"Contents of {build_dir}:")
+                    for item in os.listdir(build_dir):
+                        logger.debug(f"  - {item}")
+
+                    # Check critical files/directories
+                    critical_paths = [
+                        'pubspec.yaml',
+                        'lib',
+                        'android',
+                        '.dart_tool',
+                        'l10n.yaml'
+                    ]
+
+                    for path in critical_paths:
+                        full_path = os.path.join(build_dir, path)
+                        if os.path.exists(full_path):
+                            logger.debug(f"  ✓ {path} exists")
+                        else:
+                            logger.warning(f"  ✗ {path} is missing")
+
+                    # Check if .dart_tool/flutter_gen exists
+                    flutter_gen_path = os.path.join(build_dir, '.dart_tool', 'flutter_gen')
+                    if os.path.exists(flutter_gen_path):
+                        logger.debug(f"flutter_gen exists, contents: {os.listdir(flutter_gen_path)}")
+                        gen_l10n_path = os.path.join(flutter_gen_path, 'gen_l10n')
+                        if os.path.exists(gen_l10n_path):
+                            logger.debug(f"gen_l10n exists, contents: {os.listdir(gen_l10n_path)}")
+
                 self._log_build_progress(build, "Running Flutter build", level='info')
 
                 try:
                     success, output, apk_path = self.flutter_builder.build_apk(
-                        build_dir,
+                        build_dir,  # Ensure this is the project root directory
                         build_mode=build.build_type
                     )
 
@@ -206,8 +247,14 @@ class BuildService:
                     full_traceback = traceback.format_exc()
                     logger.error(f"Build traceback: {full_traceback}")
 
+                    # Log the working directories for debugging
+                    logger.error(f"Build directory: {build_dir}")
+                    logger.error(f"Current working directory: {os.getcwd()}")
+                    if os.path.exists(build_dir):
+                        logger.error(f"Build directory contents: {os.listdir(build_dir)}")
+
                     # Store detailed error in build log
-                    build.build_log = f"Build exception: {str(build_error)}\n\nTraceback:\n{full_traceback}"
+                    build.build_log = f"Build exception: {str(build_error)}\n\nBuild dir: {build_dir}\n\nTraceback:\n{full_traceback}"
                     build.save()
 
                     raise RuntimeError(f"Build process failed: {str(build_error)}")

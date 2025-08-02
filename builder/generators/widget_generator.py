@@ -17,6 +17,10 @@ class WidgetGenerator:
         if not widget_data or 'type' not in widget_data:
             return 'Container()'
 
+        # Ensure context is never None
+        if context is None:
+            context = {}
+
         widget_type = widget_data['type'].lower()
         properties = widget_data.get('properties', {})
 
@@ -81,14 +85,24 @@ class WidgetGenerator:
                 app_bar_code = 'null'
             parts.append(f'appBar: {app_bar_code}')
 
-        # Body
+        # Body (required for Scaffold)
+        body_found = False
         if 'body' in widget_data:
             body_code = self.generate_widget(widget_data['body'], context)
             parts.append(f'body: {body_code}')
+            body_found = True
         elif 'body' in properties:
             # Handle body in properties as well
             body_code = self.generate_widget(properties['body'], context)
             parts.append(f'body: {body_code}')
+            body_found = True
+
+        # Scaffold requires a body, provide default if missing
+        if not body_found:
+            parts.append('body: Container()')
+        else:
+            # Always provide a body for Scaffold
+            parts.append('body: Container()')
 
         # Drawer
         if 'drawer' in properties:
@@ -202,6 +216,7 @@ class WidgetGenerator:
         child = self._get_child_widget(widget_data, context)
         if child:
             parts.append(f'child: {child}')
+        # Note: Container doesn't require a child, so no else clause needed
 
         return self._format_widget('Container', parts)
 
@@ -353,18 +368,18 @@ class WidgetGenerator:
 
         return self._format_widget('AppBar', parts)
     def _generate_text(self, widget_data: Dict, properties: Dict, context: Dict) -> str:
-        """Generate Text widget with translation support"""
-        # Get text content with null safety
+        """Generate Text widget with translation support and null safety"""
         if properties.get('useTranslation'):
             key = properties.get('translationKey', 'undefined_key')
             self.used_translation_keys.add(key)
             text_content = f'AppLocalizations.of(context)!.{key}'
         else:
             content = properties.get('content', properties.get('text', ''))
-            # Ensure content is never null
+            # CRITICAL FIX: Handle None properly - don't convert to string 'None'
             if content is None:
                 content = ''
-            text_content = self._escape_string(str(content))
+            # Don't use str() on None as it creates the string 'None'
+            text_content = self._escape_string(content if isinstance(content, str) else '')
 
         parts = []
 
@@ -468,13 +483,22 @@ class WidgetGenerator:
         else:
             parts.append('onPressed: null')
 
+        # Style - using modern Flutter syntax
+        style_parts = []
+        if 'foregroundColor' in properties:
+            color = self.property_mapper.map_color(properties['foregroundColor'])
+            style_parts.append(f'foregroundColor: {color}')
+        if 'padding' in properties:
+            padding = self.property_mapper.map_edge_insets(properties['padding'])
+            style_parts.append(f'padding: {padding}')
+        if style_parts:
+            parts.append(f'style: TextButton.styleFrom({", ".join(style_parts)})')
+
         # Child
         child_text = properties.get('text', properties.get('label', 'Button'))
         child = f'Text(\'{child_text}\')'
-
         if 'child' in widget_data:
             child = self.generate_widget(widget_data['child'], context)
-
         parts.append(f'child: {child}')
 
         return self._format_widget('TextButton', parts)
@@ -517,14 +541,18 @@ class WidgetGenerator:
         else:
             parts.append('onPressed: null')
 
-        # Icon size
+        # Icon properties
         if 'iconSize' in properties:
             parts.append(f'iconSize: {properties["iconSize"]}')
-
-        # Color
         if 'color' in properties:
             color = self.property_mapper.map_color(properties['color'])
             parts.append(f'color: {color}')
+        if 'splashColor' in properties:
+            color = self.property_mapper.map_color(properties['splashColor'])
+            parts.append(f'splashColor: {color}')
+        if 'highlightColor' in properties:
+            color = self.property_mapper.map_color(properties['highlightColor'])
+            parts.append(f'highlightColor: {color}')
 
         return self._format_widget('IconButton', parts)
 
@@ -1160,12 +1188,15 @@ class WidgetGenerator:
     def _get_child_widget(self, widget_data: Dict, context: Dict) -> Optional[str]:
         """Get single child widget from widget data"""
         if 'child' in widget_data:
-            return self.generate_widget(widget_data['child'], context)
+            child_widget = self.generate_widget(widget_data['child'], context)
+            # Ensure we return a valid widget, not None
+            return child_widget if child_widget and child_widget != 'None' else None
 
         if 'children' in widget_data:
             children = widget_data['children']
             if len(children) == 1:
-                return self.generate_widget(children[0], context)
+                child_widget = self.generate_widget(children[0], context)
+                return child_widget if child_widget and child_widget != 'None' else None
             elif len(children) > 1:
                 # Wrap multiple children in Column
                 return self.generate_widget({
@@ -1173,24 +1204,34 @@ class WidgetGenerator:
                     'children': children
                 }, context)
 
-        return None
+        return None  # This is OK as return type is Optional[str]
 
     def _format_widget(self, widget_name: str, properties: List[str]) -> str:
         """Format widget with properties"""
-        if not properties:
+        # Filter out any None or 'None' strings
+        valid_properties = [p for p in properties if p and p != 'None']
+
+        if not valid_properties:
             return f'{widget_name}()'
 
-        if len(properties) == 1:
-            return f'{widget_name}({properties[0]})'
+        if len(valid_properties) == 1:
+            return f'{widget_name}({valid_properties[0]})'
 
         # Multi-line format for better readability
-        props_str = ',\n      '.join(properties)
+        props_str = ',\n      '.join(valid_properties)
         return f'''{widget_name}(
-      {props_str},
-    )'''
+          {props_str},
+        )'''
 
     def _escape_string(self, text: str) -> str:
         """Escape string for Dart code"""
+        # Handle None values explicitly
+        if text is None:
+            return "''"
+
+        # Convert to string if not already
+        text = str(text)
+
         if not text:
             return "''"
 

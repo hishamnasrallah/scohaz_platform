@@ -2,7 +2,9 @@
 
 from typing import Dict, Any, Union, List
 import re
+import logging
 
+logger = logging.getLogger(__name__)
 
 class PropertyMapper:
     """Maps UI component properties to Flutter widget properties"""
@@ -10,26 +12,56 @@ class PropertyMapper:
     @staticmethod
     def map_color(color: str) -> str:
         """Convert color values to Flutter Color format"""
-        if not color:
+        # CRITICAL FIX: Handle all forms of None/null
+        if color is None:
             return 'null'
 
-        # Handle null string
-        if color.lower() == 'null' or color.lower() == 'none':
+        # Convert to string for processing
+        color_str = str(color).strip()
+
+        # Check for None/null strings (case-insensitive)
+        if color_str.lower() in ['none', 'null', '']:
             return 'null'
+
+        # Check if it's already a Flutter color reference
+        if color_str.startswith('Colors.') or color_str.startswith('Color('):
+            return color_str
+
+        color_lower = color_str.lower()
 
         # Handle hex colors
-        if color.startswith('#'):
-            hex_color = color[1:].upper()
-            # Ensure 6 digit hex
+        if color_str.startswith('#'):
+            hex_color = color_str[1:].upper()
+            # Ensure 6 or 8 digit hex
             if len(hex_color) == 3:
                 hex_color = ''.join([c*2 for c in hex_color])
-            return f'Color(0xFF{hex_color})'
+            if len(hex_color) == 6:
+                hex_color = 'FF' + hex_color
+            elif len(hex_color) == 8:
+                # Move alpha to front for Flutter
+                hex_color = hex_color[6:8] + hex_color[0:6]
+
+            try:
+                # Validate hex
+                int(hex_color, 16)
+                return f"Color(0x{hex_color})"
+            except ValueError:
+                logger.warning(f"Invalid hex color: {color_str}, defaulting to black")
+                return 'Colors.black'
 
         # Handle RGB/RGBA
-        rgb_match = re.match(r'rgb\((\d+),\s*(\d+),\s*(\d+)\)', color)
+        rgb_match = re.match(r'rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)', color_str)
         if rgb_match:
-            r, g, b = rgb_match.groups()
-            return f'Color.fromRGBO({r}, {g}, {b}, 1.0)'
+            r, g, b = int(rgb_match.group(1)), int(rgb_match.group(2)), int(rgb_match.group(3))
+            a = float(rgb_match.group(4)) if rgb_match.group(4) else 1.0
+
+            # Clamp values
+            r = max(0, min(255, r))
+            g = max(0, min(255, g))
+            b = max(0, min(255, b))
+            a = max(0.0, min(1.0, a))
+
+            return f"Color.fromRGBO({r}, {g}, {b}, {a})"
 
         # Handle named colors
         color_map = {
@@ -48,9 +80,20 @@ class PropertyMapper:
             'grey': 'Colors.grey',
             'gray': 'Colors.grey',
             'transparent': 'Colors.transparent',
+            'amber': 'Colors.amber',
+            'cyan': 'Colors.cyan',
+            'indigo': 'Colors.indigo',
+            'lime': 'Colors.lime',
+            'teal': 'Colors.teal',
+            'brown': 'Colors.brown',
+            'bluegrey': 'Colors.blueGrey',
+            'deeporange': 'Colors.deepOrange',
+            'deeppurple': 'Colors.deepPurple',
+            'lightblue': 'Colors.lightBlue',
+            'lightgreen': 'Colors.lightGreen',
         }
 
-        return color_map.get(color.lower(), 'Colors.black')
+        return color_map.get(color_lower, 'Colors.black')
 
     @staticmethod
     def map_alignment(alignment: str) -> str:
@@ -75,18 +118,31 @@ class PropertyMapper:
     @staticmethod
     def map_edge_insets(padding: Union[int, float, Dict, str]) -> str:
         """Convert padding values to EdgeInsets"""
+        # Handle None and 'None' string
+        if padding is None:
+            return 'null'
+
+        # Convert to string to check for 'None'
+        if isinstance(padding, str):
+            padding_str = padding.strip().lower()
+            if padding_str in ['none', 'null', '']:
+                return 'null'
+
         if isinstance(padding, (int, float)):
             return f'EdgeInsets.all({padding})'
 
         if isinstance(padding, str):
             # Handle string format like "16" or "16,16,16,16"
             parts = padding.replace(' ', '').split(',')
-            if len(parts) == 1:
-                return f'EdgeInsets.all({parts[0]})'
-            elif len(parts) == 2:
-                return f'EdgeInsets.symmetric(vertical: {parts[0]}, horizontal: {parts[1]})'
-            elif len(parts) == 4:
-                return f'EdgeInsets.fromLTRB({parts[3]}, {parts[0]}, {parts[1]}, {parts[2]})'
+            try:
+                if len(parts) == 1:
+                    return f'EdgeInsets.all({parts[0]})'
+                elif len(parts) == 2:
+                    return f'EdgeInsets.symmetric(vertical: {parts[0]}, horizontal: {parts[1]})'
+                elif len(parts) == 4:
+                    return f'EdgeInsets.fromLTRB({parts[3]}, {parts[0]}, {parts[1]}, {parts[2]})'
+            except:
+                return 'EdgeInsets.zero'
 
         if isinstance(padding, dict):
             if all(key in padding for key in ['left', 'top', 'right', 'bottom']):
@@ -108,9 +164,13 @@ class PropertyMapper:
 
         style_properties = []
 
-        # Font size
+        # Font size - ensure it's a proper double
         if 'fontSize' in style:
-            style_properties.append(f'fontSize: {style["fontSize"]}')
+            font_size = style["fontSize"]
+            # Ensure fontSize is a double in Dart
+            if isinstance(font_size, int):
+                font_size = f"{font_size}.0"
+            style_properties.append(f'fontSize: {font_size}')
 
         # Font weight
         if 'fontWeight' in style:
