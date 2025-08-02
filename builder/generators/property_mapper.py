@@ -25,8 +25,13 @@ class PropertyMapper:
             elif property_type == 'alignment':
                 return PropertyMapper.map_alignment(value)
             else:
-                # Escape quotes in string
-                escaped = value.replace("'", "\\'")
+                # Escape special characters in string
+                escaped = value.replace("\\", "\\\\")  # Escape backslashes first
+                escaped = escaped.replace("'", "\\'")   # Escape single quotes
+                escaped = escaped.replace("$", "\\$")   # Escape dollar signs
+                escaped = escaped.replace("\n", "\\n")  # Escape newlines
+                escaped = escaped.replace("\r", "\\r")  # Escape carriage returns
+                escaped = escaped.replace("\t", "\\t")  # Escape tabs
                 return f"'{escaped}'"
 
         if isinstance(value, dict):
@@ -47,6 +52,9 @@ class PropertyMapper:
         # Ensure 6 or 8 characters (with alpha)
         if len(hex_color) == 6:
             hex_color = 'FF' + hex_color  # Add full opacity
+        elif len(hex_color) == 3:
+            # Convert 3-char hex to 6-char (e.g., #FFF to #FFFFFF)
+            hex_color = 'FF' + ''.join([c*2 for c in hex_color])
 
         return f'Color(0x{hex_color})'
 
@@ -54,9 +62,28 @@ class PropertyMapper:
     def map_edge_insets(insets: Dict) -> str:
         """Convert padding/margin to EdgeInsets"""
         if 'all' in insets:
-            return f"EdgeInsets.all({insets['all']})"
+            value = insets['all']
+            # Ensure it's a double
+            if isinstance(value, int):
+                value = f"{value}.0"
+            return f"EdgeInsets.all({value})"
         elif all(k in insets for k in ['top', 'right', 'bottom', 'left']):
-            return f"EdgeInsets.fromLTRB({insets['left']}, {insets['top']}, {insets['right']}, {insets['bottom']})"
+            # Ensure all values are doubles
+            left = insets['left']
+            top = insets['top']
+            right = insets['right']
+            bottom = insets['bottom']
+
+            if isinstance(left, int):
+                left = f"{left}.0"
+            if isinstance(top, int):
+                top = f"{top}.0"
+            if isinstance(right, int):
+                right = f"{right}.0"
+            if isinstance(bottom, int):
+                bottom = f"{bottom}.0"
+
+            return f"EdgeInsets.fromLTRB({left}, {top}, {right}, {bottom})"
         else:
             return "EdgeInsets.zero"
 
@@ -100,3 +127,48 @@ class PropertyMapper:
             'baseline': 'CrossAxisAlignment.baseline',
         }
         return alignment_map.get(alignment, 'CrossAxisAlignment.center')
+
+    @staticmethod
+    def map_text_align(alignment: str) -> str:
+        """Convert to TextAlign"""
+        alignment_map = {
+            'left': 'TextAlign.left',
+            'right': 'TextAlign.right',
+            'center': 'TextAlign.center',
+            'justify': 'TextAlign.justify',
+            'start': 'TextAlign.start',
+            'end': 'TextAlign.end',
+        }
+        return alignment_map.get(alignment, 'TextAlign.left')
+
+    @staticmethod
+    def map_font_weight(weight: str) -> str:
+        """Convert to FontWeight"""
+        weight_map = {
+            'normal': 'FontWeight.normal',
+            'bold': 'FontWeight.bold',
+            'w100': 'FontWeight.w100',
+            'w200': 'FontWeight.w200',
+            'w300': 'FontWeight.w300',
+            'w400': 'FontWeight.w400',
+            'w500': 'FontWeight.w500',
+            'w600': 'FontWeight.w600',
+            'w700': 'FontWeight.w700',
+            'w800': 'FontWeight.w800',
+            'w900': 'FontWeight.w900',
+        }
+        return weight_map.get(weight, 'FontWeight.normal')
+
+    @staticmethod
+    def map_box_fit(fit: str) -> str:
+        """Convert to BoxFit"""
+        fit_map = {
+            'fill': 'BoxFit.fill',
+            'contain': 'BoxFit.contain',
+            'cover': 'BoxFit.cover',
+            'fitWidth': 'BoxFit.fitWidth',
+            'fitHeight': 'BoxFit.fitHeight',
+            'none': 'BoxFit.none',
+            'scaleDown': 'BoxFit.scaleDown',
+        }
+        return fit_map.get(fit, 'BoxFit.contain')

@@ -11,6 +11,7 @@ from builder.generators.flutter_generator import FlutterGenerator
 from builder.serializers import WidgetMappingSerializer
 import zipfile
 import io
+import os
 from django.http import HttpResponse
 
 
@@ -97,8 +98,7 @@ class CodeGeneratorViewSet(viewsets.ViewSet):
 
     def _get_gitignore_content(self):
         """Get standard Flutter .gitignore content"""
-        return """
-# Miscellaneous
+        return """# Miscellaneous
 *.class
 *.log
 *.pyc
@@ -139,13 +139,11 @@ app.*.map.json
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
-/android/app/release
-"""
+/android/app/release"""
 
     def _get_readme_content(self, project):
         """Get README content for the project"""
-        return f"""
-# {project.name}
+        return f"""# {project.name}
 
 {project.description}
 
@@ -191,5 +189,4 @@ The APK will be generated at `build/app/outputs/flutter-apk/app-release.apk`
 - Default Language: {project.default_language}
 - Supported Languages: {', '.join([lang.lang for lang in project.supported_languages.all()])}
 
-Generated with Flutter Visual Builder
-"""
+Generated with Flutter Visual Builder"""

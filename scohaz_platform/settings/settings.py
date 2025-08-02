@@ -419,3 +419,28 @@ USE_MOCK_BUILD = False
 
 # Debug: Print PATH
 print(f"PATH configured: {flutter_bin} is in PATH")
+
+# Create APK directory
+APK_ROOT = os.path.join(MEDIA_ROOT, 'apks')
+os.makedirs(APK_ROOT, exist_ok=True)
+
+# Optional: Configure build limits per user
+MAX_CONCURRENT_BUILDS_PER_USER = 1
+MAX_BUILDS_PER_DAY_PER_USER = 10
+
+# Optional: Configure build retention
+BUILD_RETENTION_DAYS = 30  # Delete builds older than 30 days
+
+# # Optional: Celery Beat Schedule for periodic tasks
+# from celery.schedules import crontab
+#
+# CELERY_BEAT_SCHEDULE = {
+#     'cleanup-old-builds': {
+#         'task': 'builds.tasks.cleanup_old_builds',
+#         'schedule': crontab(hour=2, minute=0),  # Run at 2 AM daily
+#     },
+#     'check-build-health': {
+#         'task': 'builds.tasks.check_build_health',
+#         'schedule': crontab(minute='*/30'),  # Run every 30 minutes
+#     },
+# }

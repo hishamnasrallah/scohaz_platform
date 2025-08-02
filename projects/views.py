@@ -3,14 +3,14 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from .models import FlutterProject, ComponentTemplate, Screen
 from .serializers import FlutterProjectSerializer, ComponentTemplateSerializer, ScreenSerializer
 
 
 class FlutterProjectViewSet(viewsets.ModelViewSet):
     serializer_class = FlutterProjectSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def get_queryset(self):
         return FlutterProject.objects.filter(user=self.request.user)

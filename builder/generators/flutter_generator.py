@@ -35,8 +35,8 @@ class FlutterGenerator:
         # Generate pubspec.yaml
         self._generate_pubspec()
 
-        # Generate localization files
-        if self.project.supported_languages.exists():
+        # Generate localization files ONLY if languages are configured
+        if self.project.supported_languages.exists() and self.project.supported_languages.count() > 0:
             self._generate_localization()
 
         return self.generated_files
@@ -45,6 +45,13 @@ class FlutterGenerator:
         """Generate main.dart file"""
         screens = Screen.objects.filter(project=self.project)
         home_screen = screens.filter(is_home=True).first()
+
+        # If no home screen, use the first screen
+        if not home_screen and screens.exists():
+            home_screen = screens.first()
+
+        # Check if we have localizations
+        has_localizations = self.project.supported_languages.exists() and self.project.supported_languages.count() > 0
 
         imports = [
             "import 'package:flutter/material.dart';",
@@ -55,8 +62,8 @@ class FlutterGenerator:
         for screen in screens:
             imports.append(f"import 'screens/{self._to_snake_case(screen.name)}.dart';")
 
-        # Add localization imports if needed
-        if self.project.supported_languages.exists():
+        # Add localization imports ONLY if needed
+        if has_localizations:
             imports.extend([
                 "import 'package:flutter_localizations/flutter_localizations.dart';",
                 "import 'package:flutter_gen/gen_l10n/app_localizations.dart';",
@@ -66,7 +73,17 @@ class FlutterGenerator:
         routes = []
         for screen in screens:
             screen_class = self._to_pascal_case(screen.name)
-            routes.append(f"      '{screen.route}': (context) => {screen_class}(),")
+            routes.append(f"        '{screen.route}': (context) => {screen_class}(),")
+
+        # Build MaterialApp with conditional localization
+        localization_props = ""
+        if has_localizations:
+            localization_props = """      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+"""
+
+        # Determine initial route
+        initial_route = home_screen.route if home_screen else '/'
 
         main_content = f"""
 {chr(10).join(imports)}
@@ -84,11 +101,18 @@ class MyApp extends StatelessWidget {{
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
       debugShowCheckedModeBanner: false,
-      {'localizationsDelegates: AppLocalizations.localizationsDelegates,' if self.project.supported_languages.exists() else ''}
-      {'supportedLocales: AppLocalizations.supportedLocales,' if self.project.supported_languages.exists() else ''}
-      initialRoute: '{home_screen.route if home_screen else "/"}',
+{localization_props}      initialRoute: '{initial_route}',
       routes: {{
-{chr(10).join(routes)}
+{chr(10).join(routes) if routes else "        '/': (context) => Container(),"}
+      }},
+      onUnknownRoute: (settings) {{
+        return MaterialPageRoute(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: Text('Route ${{settings.name}} not found'),
+            ),
+          ),
+        );
       }},
     );
   }}
@@ -99,19 +123,25 @@ class MyApp extends StatelessWidget {{
     def _generate_screens(self):
         """Generate screen files"""
         screens = Screen.objects.filter(project=self.project)
+        has_localizations = self.project.supported_languages.exists() and self.project.supported_languages.count() > 0
 
         for screen in screens:
             self.widget_generator = WidgetGenerator()  # Reset imports for each screen
 
             # Generate body widget
-            body_code = self.widget_generator.generate_widget(screen.ui_structure, indent=3)
+            if screen.ui_structure and isinstance(screen.ui_structure, dict) and 'type' in screen.ui_structure:
+                body_code = self.widget_generator.generate_widget(screen.ui_structure, indent=3)
+            else:
+                # Fallback for invalid structure
+                body_code = "        Center(\n          child: Text('Invalid screen structure'),\n        )"
 
             # Get imports
             imports = list(self.widget_generator.imports)
             if "import 'package:flutter/material.dart';" not in imports:
                 imports.insert(0, "import 'package:flutter/material.dart';")
 
-            if self.project.supported_languages.exists():
+            # Only add localization import if actually needed
+            if has_localizations:
                 imports.append("import 'package:flutter_gen/gen_l10n/app_localizations.dart';")
 
             screen_class = self._to_pascal_case(screen.name)
@@ -120,11 +150,17 @@ class MyApp extends StatelessWidget {{
 {chr(10).join(imports)}
 
 class {screen_class} extends StatelessWidget {{
+  const {screen_class}({{Key? key}}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {{
     return Scaffold(
-      body: 
-{body_code},
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: {body_code},
+        ),
+      ),
     );
   }}
 }}
@@ -138,40 +174,86 @@ class {screen_class} extends StatelessWidget {{
         primary_color = self.project.primary_color
         secondary_color = self.project.secondary_color
 
+        # Ensure colors are in correct format
+        if not primary_color.startswith('#'):
+            primary_color = '#2196F3'  # Default blue
+        if not secondary_color.startswith('#'):
+            secondary_color = '#03DAC6'  # Default teal
+
         theme_content = f"""
 import 'package:flutter/material.dart';
 
 class AppTheme {{
   static ThemeData get lightTheme {{
+    final primaryColor = Color(0x{primary_color.replace('#', 'FF')});
+    final secondaryColor = Color(0x{secondary_color.replace('#', 'FF')});
+    
     return ThemeData(
       primarySwatch: MaterialColor(
-        0x{primary_color.replace('#', 'FF')},
-        <int, Color>{{}},
+        primaryColor.value,
+        <int, Color>{{
+          50: primaryColor.withOpacity(0.1),
+          100: primaryColor.withOpacity(0.2),
+          200: primaryColor.withOpacity(0.3),
+          300: primaryColor.withOpacity(0.4),
+          400: primaryColor.withOpacity(0.5),
+          500: primaryColor.withOpacity(0.6),
+          600: primaryColor.withOpacity(0.7),
+          700: primaryColor.withOpacity(0.8),
+          800: primaryColor.withOpacity(0.9),
+          900: primaryColor.withOpacity(1.0),
+        }},
       ),
-      primaryColor: Color(0x{primary_color.replace('#', 'FF')}),
+      primaryColor: primaryColor,
       colorScheme: ColorScheme.light(
-        primary: Color(0x{primary_color.replace('#', 'FF')}),
-        secondary: Color(0x{secondary_color.replace('#', 'FF')}),
+        primary: primaryColor,
+        secondary: secondaryColor,
       ),
+      scaffoldBackgroundColor: Colors.grey[50],
       appBarTheme: AppBarTheme(
-        backgroundColor: Color(0x{primary_color.replace('#', 'FF')}),
+        backgroundColor: primaryColor,
         foregroundColor: Colors.white,
+        elevation: 0,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: Color(0x{primary_color.replace('#', 'FF')}),
+          backgroundColor: primaryColor,
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
         ),
       ),
     );
   }}
   
   static ThemeData get darkTheme {{
+    final primaryColor = Color(0x{primary_color.replace('#', 'FF')});
+    final secondaryColor = Color(0x{secondary_color.replace('#', 'FF')});
+    
     return ThemeData(
       brightness: Brightness.dark,
-      primaryColor: Color(0x{primary_color.replace('#', 'FF')}),
+      primaryColor: primaryColor,
       colorScheme: ColorScheme.dark(
-        primary: Color(0x{primary_color.replace('#', 'FF')}),
-        secondary: Color(0x{secondary_color.replace('#', 'FF')}),
+        primary: primaryColor,
+        secondary: secondaryColor,
+      ),
+      scaffoldBackgroundColor: Colors.grey[900],
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.grey[900],
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryColor,
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
       ),
     );
   }}
@@ -181,14 +263,13 @@ class AppTheme {{
 
     def _generate_constants(self):
         """Generate constants file"""
-        constants_content = """
-class AppConstants {
-  static const String appName = '%s';
-  static const String packageName = '%s';
-  static const String defaultLanguage = '%s';
-}
-""" % (self.project.name, self.project.package_name, self.project.default_language)
-
+        constants_content = f"""
+class AppConstants {{
+  static const String appName = '{self.project.name}';
+  static const String packageName = '{self.project.package_name}';
+  static const String defaultLanguage = '{self.project.default_language}';
+}}
+"""
         self.generated_files['lib/constants/app_constants.dart'] = constants_content.strip()
 
     def _generate_pubspec(self):
@@ -198,18 +279,25 @@ class AppConstants {
             'cupertino_icons': '^1.0.2',
         }
 
-        if self.project.supported_languages.exists():
+        # Only add localization dependencies if languages are configured
+        has_localizations = self.project.supported_languages.exists() and self.project.supported_languages.count() > 0
+        if has_localizations:
             dependencies['flutter_localizations'] = {'sdk': 'flutter'}
-            dependencies['intl'] = '^0.18.0'
+            dependencies['intl'] = 'any'  # Let Flutter resolve the version
+
+        # Clean package name for pubspec
+        app_name = self.project.package_name.split('.')[-1]
+        # Ensure it's a valid Dart package name
+        app_name = app_name.lower().replace('-', '_').replace(' ', '_')
 
         pubspec_content = f"""
-name: {self.project.package_name.split('.')[-1]}
+name: {app_name}
 description: {self.project.description or 'A new Flutter project.'}
 publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ">=2.19.0 <3.0.0"
+  sdk: ">=2.19.0 <4.0.0"
 
 dependencies:
 {self._format_yaml_dict(dependencies, indent=2)}
@@ -220,13 +308,16 @@ dev_dependencies:
   flutter_lints: ^2.0.0
 
 flutter:
-  uses-material-design: true
-  generate: true
+  uses-material-design: true{chr(10) + '  generate: true' if has_localizations else ''}
 """
         self.generated_files['pubspec.yaml'] = pubspec_content.strip()
 
     def _generate_localization(self):
         """Generate localization files"""
+        # Double-check we actually have languages
+        if not self.project.supported_languages.exists() or self.project.supported_languages.count() == 0:
+            return
+
         # Generate l10n.yaml
         l10n_content = """
 arb-dir: lib/l10n
@@ -266,17 +357,25 @@ output-localization-file: app_localizations.dart
     def _to_snake_case(self, text: str) -> str:
         """Convert to snake_case"""
         import re
+        # First, handle spaces and special characters
+        text = text.replace(' ', '_').replace('-', '_')
+        # Then handle camelCase
         s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', text)
-        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower().replace(' ', '_')
+        result = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+        # Remove duplicate underscores
+        result = re.sub('_+', '_', result)
+        return result
 
     def _to_pascal_case(self, text: str) -> str:
         """Convert to PascalCase"""
-        return ''.join(word.capitalize() for word in text.split())
+        # Handle various separators
+        words = text.replace('-', ' ').replace('_', ' ').split()
+        return ''.join(word.capitalize() for word in words)
 
     def _to_camel_case(self, text: str) -> str:
         """Convert to camelCase"""
         words = text.split('_')
-        return words[0] + ''.join(word.capitalize() for word in words[1:])
+        return words[0].lower() + ''.join(word.capitalize() for word in words[1:])
 
     def _format_yaml_dict(self, d: Dict, indent: int = 0) -> str:
         """Format dictionary as YAML"""

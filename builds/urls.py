@@ -2,9 +2,10 @@
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from .views import BuildViewSet
 
 router = DefaultRouter()
-# Router registrations will be added in Phase 4
+router.register(r'', BuildViewSet, basename='build')
 
 urlpatterns = [
     path('', include(router.urls)),
