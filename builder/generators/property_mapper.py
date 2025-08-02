@@ -13,6 +13,10 @@ class PropertyMapper:
         if not color:
             return 'null'
 
+        # Handle null string
+        if color.lower() == 'null' or color.lower() == 'none':
+            return 'null'
+
         # Handle hex colors
         if color.startswith('#'):
             hex_color = color[1:].upper()
@@ -99,7 +103,7 @@ class PropertyMapper:
     @staticmethod
     def map_text_style(style: Dict[str, Any]) -> str:
         """Convert text style properties to TextStyle"""
-        if not style:
+        if not style or not isinstance(style, dict):
             return 'null'
 
         style_properties = []

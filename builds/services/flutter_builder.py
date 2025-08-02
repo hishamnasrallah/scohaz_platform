@@ -73,47 +73,8 @@ class FlutterBuilder:
             if result.returncode == 0:
                 logger.info("Flutter project created successfully")
 
-                # Fix Kotlin version compatibility issues
-                root_build_gradle = os.path.join(project_path, 'android', 'build.gradle')
-                root_build_gradle_kts = os.path.join(project_path, 'android', 'build.gradle.kts')
-
-                # Check which file exists
-                if os.path.exists(root_build_gradle_kts):
-                    logger.info("Fixing Kotlin version in build.gradle.kts...")
-                    with open(root_build_gradle_kts, 'r') as f:
-                        content = f.read()
-
-                    # Update Kotlin version to a compatible one
-                    import re
-                    # Look for Kotlin plugin version
-                    content = re.sub(
-                        r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[\d.]+"',
-                        'id("org.jetbrains.kotlin.android") version "1.7.10"',
-                        content
-                    )
-
-                    with open(root_build_gradle_kts, 'w') as f:
-                        f.write(content)
-
-                    logger.info("Updated Kotlin version to 1.7.10")
-
-                elif os.path.exists(root_build_gradle):
-                    logger.info("Fixing Kotlin version in build.gradle...")
-                    with open(root_build_gradle, 'r') as f:
-                        content = f.read()
-
-                    # Update Kotlin version
-                    import re
-                    content = re.sub(
-                        r"ext\.kotlin_version\s*=\s*['\"][\d.]+['\"]",
-                        "ext.kotlin_version = '1.7.10'",
-                        content
-                    )
-
-                    with open(root_build_gradle, 'w') as f:
-                        f.write(content)
-
-                    logger.info("Updated Kotlin version to 1.7.10")
+                # Trust Flutter's default configuration
+                logger.info("Flutter project created with default configurations")
 
                 return True, None
 
@@ -336,18 +297,54 @@ class FlutterBuilder:
 
     def _run_pub_get(self, project_path: str) -> bool:
         """Run flutter pub get to fetch dependencies."""
+        logger.info(f"Running flutter pub get in {project_path}")
+
         result = self.command_runner.run_command(
             [self.flutter_path, 'pub', 'get'],
             cwd=project_path,
             timeout=120  # 2 minutes timeout
         )
 
-        if result.returncode == 0:
-            logger.info("Dependencies fetched successfully")
-            return True
-        else:
+        # Log output even on success for debugging
+        if result.stdout:
+            logger.info(f"flutter pub get output: {result.stdout}")
+        if result.stderr:
+            logger.warning(f"flutter pub get stderr: {result.stderr}")
+
+        if result.returncode != 0:
             logger.error(f"Failed to fetch dependencies: {result.stderr}")
             return False
+
+        logger.info("Dependencies fetched successfully")
+
+        # Check if l10n.yaml exists and run flutter gen-l10n
+        l10n_yaml_path = os.path.join(project_path, 'l10n.yaml')
+        if os.path.exists(l10n_yaml_path):
+            logger.info("Running flutter gen-l10n to generate localization files")
+            gen_result = self.command_runner.run_command(
+                [self.flutter_path, 'gen-l10n'],
+                cwd=project_path,
+                timeout=60
+            )
+
+            if gen_result.stdout:
+                logger.info(f"flutter gen-l10n output: {gen_result.stdout}")
+            if gen_result.stderr:
+                logger.warning(f"flutter gen-l10n stderr: {gen_result.stderr}")
+
+            if gen_result.returncode != 0:
+                logger.error(f"Failed to generate localization files: {gen_result.stderr}")
+                return False
+
+            logger.info("Localization files generated successfully")
+
+        # Verify package_config.json was created
+        package_config_path = os.path.join(project_path, '.dart_tool', 'package_config.json')
+        if not os.path.exists(package_config_path):
+            logger.error(f"package_config.json not found at {package_config_path} after pub get")
+            return False
+
+        return True
 
     def _fix_gradle_issues(self, project_path: str) -> bool:
         """Ensure gradle wrapper is executable"""

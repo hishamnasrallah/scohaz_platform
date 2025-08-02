@@ -140,11 +140,9 @@ class BuildService:
 
                     logger.info(f"Updated pubspec.yaml with version: {version_line}")
 
-                # ===== ADD THE ANDROID FIX HERE =====
-                # Ensure Android build files are properly configured
-                self._ensure_android_build_files(build_dir, build)  # <-- Now build_dir is in scope
-
-                # Ensure Android SDK is properly configured
+                # ===== ANDROID SDK CONFIGURATION =====
+                # Only ensure Android SDK paths are properly configured
+                # Let Flutter handle all version management
                 self._ensure_android_sdk_config(build_dir, build)
 
                 # Clean any previous build artifacts
@@ -465,194 +463,195 @@ class BuildService:
             logger.info("Project uses Groovy DSL (build.gradle)")
             self._fix_groovy_gradle_versions(project_dir)
 
-    def _fix_kotlin_dsl_gradle_versions(self, project_dir: str):
-        """Fix Gradle versions for Kotlin DSL projects"""
-        import re
+    # def _fix_kotlin_dsl_gradle_versions(self, project_dir: str):
+    #     """Fix Gradle versions for Kotlin DSL projects"""
+    #     import re
+    #
+    #     # Fix android/build.gradle.kts
+    #     build_gradle_kts_path = os.path.join(project_dir, 'android', 'build.gradle.kts')
+    #     if os.path.exists(build_gradle_kts_path):
+    #         logger.info(f"Fixing Android build.gradle.kts at: {build_gradle_kts_path}")
+    #
+    #         with open(build_gradle_kts_path, 'r') as f:
+    #             content = f.read()
+    #
+    #         # Update Kotlin version
+    #         content = re.sub(
+    #             r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[\d.]+"',
+    #             'id("org.jetbrains.kotlin.android") version "1.7.10"',
+    #             content
+    #         )
+    #
+    #         # If using buildscript block
+    #         content = re.sub(
+    #             r'kotlin_version\s*=\s*"[\d.]+"',
+    #             'kotlin_version = "1.7.10"',
+    #             content
+    #         )
+    #
+    #         # Update AGP version
+    #         content = re.sub(
+    #             r'id\("com\.android\.application"\)\s+version\s+"[\d.]+"',
+    #             'id("com.android.application") version "7.3.0"',
+    #             content
+    #         )
+    #
+    #         # For buildscript dependencies
+    #         content = re.sub(
+    #             r'classpath\("com\.android\.tools\.build:gradle:[\d.]+"\)',
+    #             'classpath("com.android.tools.build:gradle:7.3.0")',
+    #             content
+    #         )
+    #
+    #         with open(build_gradle_kts_path, 'w') as f:
+    #             f.write(content)
+    #
+    #         logger.info("Updated android/build.gradle.kts versions")
+    #
+    #     # Fix android/app/build.gradle.kts
+    #     app_build_gradle_kts_path = os.path.join(project_dir, 'android', 'app', 'build.gradle.kts')
+    #     if os.path.exists(app_build_gradle_kts_path):
+    #         logger.info("Fixing android/app/build.gradle.kts")
+    #
+    #         with open(app_build_gradle_kts_path, 'r') as f:
+    #             content = f.read()
+    #
+    #         # Replace Flutter SDK references with concrete values
+    #         content = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 33', content)
+    #         content = re.sub(r'targetSdk\s*=\s*flutter\.targetSdkVersion', 'targetSdk = 33', content)
+    #         content = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 21', content)
+    #
+    #         # Also check for integer assignments
+    #         content = re.sub(r'compileSdkVersion\s*\d+', 'compileSdk = 33', content)
+    #         content = re.sub(r'targetSdkVersion\s*\d+', 'targetSdk = 33', content)
+    #         content = re.sub(r'minSdkVersion\s*\d+', 'minSdk = 21', content)
+    #
+    #         with open(app_build_gradle_kts_path, 'w') as f:
+    #             f.write(content)
+    #
+    #         logger.info("Fixed android/app/build.gradle.kts SDK versions")
+    #
+    #     # Fix gradle-wrapper.properties (same for both DSLs)
+    #     self._fix_gradle_wrapper(project_dir)
 
-        # Fix android/build.gradle.kts
-        build_gradle_kts_path = os.path.join(project_dir, 'android', 'build.gradle.kts')
-        if os.path.exists(build_gradle_kts_path):
-            logger.info(f"Fixing Android build.gradle.kts at: {build_gradle_kts_path}")
+    # def _fix_groovy_gradle_versions(self, project_dir: str):
+    #     """Fix Gradle versions for Groovy DSL projects"""
+    #     import re
+    #
+    #     # Fix android/build.gradle
+    #     build_gradle_path = os.path.join(project_dir, 'android', 'build.gradle')
+    #     if os.path.exists(build_gradle_path):
+    #         logger.info(f"Fixing Android build.gradle at: {build_gradle_path}")
+    #
+    #         with open(build_gradle_path, 'r') as f:
+    #             content = f.read()
+    #
+    #         # Ensure buildscript block has kotlin_version defined
+    #         if 'buildscript {' in content and 'ext.kotlin_version' not in content:
+    #             # Add kotlin version at the beginning of buildscript block
+    #             content = content.replace(
+    #                 'buildscript {',
+    #                 "buildscript {\n    ext.kotlin_version = '1.7.10'"
+    #             )
+    #         else:
+    #             # Update existing kotlin version
+    #             content = re.sub(
+    #                 r"ext\.kotlin_version\s*=\s*['\"][\d.]+['\"]",
+    #                 "ext.kotlin_version = '1.7.10'",
+    #                 content
+    #             )
+    #
+    #         # Ensure repositories are defined in buildscript
+    #         if 'buildscript {' in content and 'repositories {' not in content.split('buildscript {')[1].split('}')[0]:
+    #             content = re.sub(
+    #                 r'buildscript\s*{\s*\n(\s*ext\.kotlin_version[^\n]*\n)?',
+    #                 lambda m: m.group(0) + '    repositories {\n        google()\n        mavenCentral()\n    }\n',
+    #                 content
+    #             )
+    #
+    #         # Ensure dependencies block exists in buildscript
+    #         buildscript_content = content.split('buildscript {')[1].split('}')[0] if 'buildscript {' in content else ''
+    #         if 'dependencies {' not in buildscript_content:
+    #             # Add dependencies block before closing buildscript
+    #             content = re.sub(
+    #                 r'(buildscript\s*{[^}]+)(})',
+    #                 r'\1    dependencies {\n        classpath "com.android.tools.build:gradle:7.3.0"\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"\n    }\n\2',
+    #                 content,
+    #                 count=1
+    #             )
+    #         else:
+    #             # Update Android Gradle Plugin version
+    #             content = re.sub(
+    #                 r"classpath\s+['\"]com\.android\.tools\.build:gradle:[\d.]+['\"]",
+    #                 "classpath 'com.android.tools.build:gradle:7.3.0'",
+    #                 content
+    #             )
+    #
+    #             # Ensure kotlin gradle plugin is included
+    #             if 'kotlin-gradle-plugin' not in content:
+    #                 content = re.sub(
+    #                     r"(dependencies\s*{[^}]*)(classpath\s+['\"]com\.android\.tools\.build:gradle[^'\"]+['\"])",
+    #                     r'\1\2\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"',
+    #                     content
+    #                 )
+    #
+    #         with open(build_gradle_path, 'w') as f:
+    #             f.write(content)
+    #
+    #         logger.info("Updated android/build.gradle with Kotlin plugin configuration")
+    #
+    #     # Fix android/app/build.gradle
+    #     app_build_gradle_path = os.path.join(project_dir, 'android', 'app', 'build.gradle')
+    #     if os.path.exists(app_build_gradle_path):
+    #         logger.info("Fixing android/app/build.gradle")
+    #
+    #         with open(app_build_gradle_path, 'r') as f:
+    #             content = f.read()
+    #
+    #         # Replace Flutter SDK references with concrete values
+    #         content = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 33', content)
+    #         content = re.sub(r'targetSdkVersion\s+flutter\.targetSdkVersion', 'targetSdkVersion 33', content)
+    #         content = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 21', content)
+    #
+    #         # Also update direct version numbers
+    #         content = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 33', content)
+    #         content = re.sub(r'targetSdkVersion\s+\d+', 'targetSdkVersion 33', content)
+    #         content = re.sub(r'minSdkVersion\s+\d+', 'minSdkVersion 21', content)
+    #
+    #         with open(app_build_gradle_path, 'w') as f:
+    #             f.write(content)
+    #
+    #         logger.info("Fixed android/app/build.gradle SDK versions")
+    #
+    #     # Fix gradle-wrapper.properties
+    #     self._fix_gradle_wrapper(project_dir)
 
-            with open(build_gradle_kts_path, 'r') as f:
-                content = f.read()
+    # def _fix_gradle_wrapper(self, project_dir: str):
+    #     """Fix gradle-wrapper.properties (common for both DSLs)"""
+    #     import re
+    #
+    #     gradle_wrapper_path = os.path.join(project_dir, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties')
+    #     if os.path.exists(gradle_wrapper_path):
+    #         logger.info("Fixing gradle-wrapper.properties")
+    #
+    #         with open(gradle_wrapper_path, 'r') as f:
+    #             content = f.read()
+    #
+    #         # Update to Gradle 7.5
+    #         content = re.sub(
+    #             r'distributionUrl=.*gradle-[\d.]+-.*\.zip',
+    #             'distributionUrl=https\\://services.gradle.org/distributions/gradle-7.5-all.zip',
+    #             content
+    #         )
+    #
+    #         with open(gradle_wrapper_path, 'w') as f:
+    #             f.write(content)
+    #
+    #         logger.info("Fixed Gradle wrapper version to 7.5")
 
-            # Update Kotlin version
-            content = re.sub(
-                r'id\("org\.jetbrains\.kotlin\.android"\)\s+version\s+"[\d.]+"',
-                'id("org.jetbrains.kotlin.android") version "1.7.10"',
-                content
-            )
-
-            # If using buildscript block
-            content = re.sub(
-                r'kotlin_version\s*=\s*"[\d.]+"',
-                'kotlin_version = "1.7.10"',
-                content
-            )
-
-            # Update AGP version
-            content = re.sub(
-                r'id\("com\.android\.application"\)\s+version\s+"[\d.]+"',
-                'id("com.android.application") version "7.3.0"',
-                content
-            )
-
-            # For buildscript dependencies
-            content = re.sub(
-                r'classpath\("com\.android\.tools\.build:gradle:[\d.]+"\)',
-                'classpath("com.android.tools.build:gradle:7.3.0")',
-                content
-            )
-
-            with open(build_gradle_kts_path, 'w') as f:
-                f.write(content)
-
-            logger.info("Updated android/build.gradle.kts versions")
-
-        # Fix android/app/build.gradle.kts
-        app_build_gradle_kts_path = os.path.join(project_dir, 'android', 'app', 'build.gradle.kts')
-        if os.path.exists(app_build_gradle_kts_path):
-            logger.info("Fixing android/app/build.gradle.kts")
-
-            with open(app_build_gradle_kts_path, 'r') as f:
-                content = f.read()
-
-            # Replace Flutter SDK references with concrete values
-            content = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 33', content)
-            content = re.sub(r'targetSdk\s*=\s*flutter\.targetSdkVersion', 'targetSdk = 33', content)
-            content = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 21', content)
-
-            # Also check for integer assignments
-            content = re.sub(r'compileSdkVersion\s*\d+', 'compileSdk = 33', content)
-            content = re.sub(r'targetSdkVersion\s*\d+', 'targetSdk = 33', content)
-            content = re.sub(r'minSdkVersion\s*\d+', 'minSdk = 21', content)
-
-            with open(app_build_gradle_kts_path, 'w') as f:
-                f.write(content)
-
-            logger.info("Fixed android/app/build.gradle.kts SDK versions")
-
-        # Fix gradle-wrapper.properties (same for both DSLs)
-        self._fix_gradle_wrapper(project_dir)
-
-    def _fix_groovy_gradle_versions(self, project_dir: str):
-        """Fix Gradle versions for Groovy DSL projects"""
-        import re
-
-        # Fix android/build.gradle
-        build_gradle_path = os.path.join(project_dir, 'android', 'build.gradle')
-        if os.path.exists(build_gradle_path):
-            logger.info(f"Fixing Android build.gradle at: {build_gradle_path}")
-
-            with open(build_gradle_path, 'r') as f:
-                content = f.read()
-
-            # Ensure buildscript block has kotlin_version defined
-            if 'buildscript {' in content and 'ext.kotlin_version' not in content:
-                # Add kotlin version at the beginning of buildscript block
-                content = content.replace(
-                    'buildscript {',
-                    "buildscript {\n    ext.kotlin_version = '1.7.10'"
-                )
-            else:
-                # Update existing kotlin version
-                content = re.sub(
-                    r"ext\.kotlin_version\s*=\s*['\"][\d.]+['\"]",
-                    "ext.kotlin_version = '1.7.10'",
-                    content
-                )
-
-            # Ensure repositories are defined in buildscript
-            if 'buildscript {' in content and 'repositories {' not in content.split('buildscript {')[1].split('}')[0]:
-                content = re.sub(
-                    r'buildscript\s*{\s*\n(\s*ext\.kotlin_version[^\n]*\n)?',
-                    lambda m: m.group(0) + '    repositories {\n        google()\n        mavenCentral()\n    }\n',
-                    content
-                )
-
-            # Ensure dependencies block exists in buildscript
-            buildscript_content = content.split('buildscript {')[1].split('}')[0] if 'buildscript {' in content else ''
-            if 'dependencies {' not in buildscript_content:
-                # Add dependencies block before closing buildscript
-                content = re.sub(
-                    r'(buildscript\s*{[^}]+)(})',
-                    r'\1    dependencies {\n        classpath "com.android.tools.build:gradle:7.3.0"\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"\n    }\n\2',
-                    content,
-                    count=1
-                )
-            else:
-                # Update Android Gradle Plugin version
-                content = re.sub(
-                    r"classpath\s+['\"]com\.android\.tools\.build:gradle:[\d.]+['\"]",
-                    "classpath 'com.android.tools.build:gradle:7.3.0'",
-                    content
-                )
-
-                # Ensure kotlin gradle plugin is included
-                if 'kotlin-gradle-plugin' not in content:
-                    content = re.sub(
-                        r"(dependencies\s*{[^}]*)(classpath\s+['\"]com\.android\.tools\.build:gradle[^'\"]+['\"])",
-                        r'\1\2\n        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"',
-                        content
-                    )
-
-            with open(build_gradle_path, 'w') as f:
-                f.write(content)
-
-            logger.info("Updated android/build.gradle with Kotlin plugin configuration")
-
-        # Fix android/app/build.gradle
-        app_build_gradle_path = os.path.join(project_dir, 'android', 'app', 'build.gradle')
-        if os.path.exists(app_build_gradle_path):
-            logger.info("Fixing android/app/build.gradle")
-
-            with open(app_build_gradle_path, 'r') as f:
-                content = f.read()
-
-            # Replace Flutter SDK references with concrete values
-            content = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 33', content)
-            content = re.sub(r'targetSdkVersion\s+flutter\.targetSdkVersion', 'targetSdkVersion 33', content)
-            content = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 21', content)
-
-            # Also update direct version numbers
-            content = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 33', content)
-            content = re.sub(r'targetSdkVersion\s+\d+', 'targetSdkVersion 33', content)
-            content = re.sub(r'minSdkVersion\s+\d+', 'minSdkVersion 21', content)
-
-            with open(app_build_gradle_path, 'w') as f:
-                f.write(content)
-
-            logger.info("Fixed android/app/build.gradle SDK versions")
-
-        # Fix gradle-wrapper.properties
-        self._fix_gradle_wrapper(project_dir)
-
-    def _fix_gradle_wrapper(self, project_dir: str):
-        """Fix gradle-wrapper.properties (common for both DSLs)"""
-        import re
-
-        gradle_wrapper_path = os.path.join(project_dir, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties')
-        if os.path.exists(gradle_wrapper_path):
-            logger.info("Fixing gradle-wrapper.properties")
-
-            with open(gradle_wrapper_path, 'r') as f:
-                content = f.read()
-
-            # Update to Gradle 7.5
-            content = re.sub(
-                r'distributionUrl=.*gradle-[\d.]+-.*\.zip',
-                'distributionUrl=https\\://services.gradle.org/distributions/gradle-7.5-all.zip',
-                content
-            )
-
-            with open(gradle_wrapper_path, 'w') as f:
-                f.write(content)
-
-            logger.info("Fixed Gradle wrapper version to 7.5")
     def _ensure_android_sdk_config(self, project_dir: str, build):
         """Ensure Android SDK is properly configured"""
-        # Create/update local.properties
+        # Create/update local.properties with SDK paths only
         local_properties_path = os.path.join(project_dir, 'android', 'local.properties')
 
         android_sdk = (self.config.android_sdk_path or
@@ -662,7 +661,7 @@ class BuildService:
         flutter_sdk = (self.config.flutter_sdk_path or
                        os.environ.get('FLUTTER_ROOT', ''))
 
-        # Write local.properties (without ndk.dir as it's deprecated)
+        # Write minimal local.properties - only SDK paths
         local_properties_content = []
         if android_sdk:
             # Use forward slashes even on Windows
@@ -674,132 +673,53 @@ class BuildService:
             flutter_sdk = flutter_sdk.replace('\\', '/')
             local_properties_content.append(f'flutter.sdk={flutter_sdk}')
 
-        # Add version information as simple integers
+        # Add version information for Flutter to use
         local_properties_content.append(f'flutter.buildMode={build.build_type}')
         local_properties_content.append(f'flutter.versionName={build.version_number}')
-        # Ensure versionCode is an integer
         local_properties_content.append(f'flutter.versionCode={build.build_number}')
 
-        with open(local_properties_path, 'w') as f:
-            f.write('\n'.join(local_properties_content))
+        if local_properties_content:
+            with open(local_properties_path, 'w') as f:
+                f.write('\n'.join(local_properties_content))
+            logger.info(f"Created local.properties with SDK paths")
 
-        logger.info(f"Created local.properties with Android SDK: {android_sdk}")
+        # Let Flutter handle all other Android configurations including gradle.properties
 
-        # Set NDK version in app/build.gradle if needed
-        app_build_gradle_path = os.path.join(project_dir, 'android', 'app', 'build.gradle')
-        if os.path.exists(app_build_gradle_path):
-            with open(app_build_gradle_path, 'r') as f:
-                content = f.read()
-
-            # Check if ndkVersion is already set
-            if 'ndkVersion' not in content:
-                # Add ndkVersion to android block
-                import re
-                # Find the android block and add ndkVersion
-                content = re.sub(
-                    r'(android\s*\{)',
-                    r'\1\n    ndkVersion "26.3.11579264"',
-                    content,
-                    count=1
-                )
-
-                with open(app_build_gradle_path, 'w') as f:
-                    f.write(content)
-
-                logger.info("Added ndkVersion to app/build.gradle")
-
-        # Also create gradle.properties with basic settings
-        gradle_properties_path = os.path.join(project_dir, 'android', 'gradle.properties')
-        if not os.path.exists(gradle_properties_path):
-            gradle_properties_content = '''org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=2G -XX:+HeapDumpOnOutOfMemoryError
-    android.useAndroidX=true
-    android.enableJetifier=true
-    kotlin.code.style=official
-    android.nonTransitiveRClass=true
-    android.nonFinalResIds=true
-    '''
-            with open(gradle_properties_path, 'w') as f:
-                f.write(gradle_properties_content)
-
-            logger.info("Created gradle.properties with memory settings")
-
-        # with open(local_properties_path, 'w') as f:
-        #     f.write(local_properties_content)
-        #
-        # logger.info(f"Created local.properties with Android SDK: {android_sdk}")
-
-        # Create gradle.properties if it doesn't exist
-        gradle_properties_path = os.path.join(project_dir, 'android', 'gradle.properties')
-        if not os.path.exists(gradle_properties_path):
-            gradle_properties_content = '''org.gradle.jvmargs=-Xmx1536M
-android.useAndroidX=true
-android.enableJetifier=true
-'''
-            with open(gradle_properties_path, 'w') as f:
-                f.write(gradle_properties_content)
-
-            logger.info("Created gradle.properties")
-
-    def _fix_gradle_issues(self, project_path: str) -> bool:
-        """Fix common Gradle issues before building."""
-        try:
-            # Check if gradle wrapper exists
-            gradlew_path = os.path.join(project_path, 'android', 'gradlew')
-            if not os.path.exists(gradlew_path):
-                logger.warning("Gradle wrapper not found, regenerating...")
-                # Run flutter create to regenerate Android files
-                result = self.command_runner.run_command(
-                    [self.flutter_path, 'create', '.', '--platforms', 'android'],
-                    cwd=project_path,
-                    timeout=60
-                )
-                if result.returncode != 0:
-                    logger.error(f"Failed to regenerate Android files: {result.stderr}")
-                    return False
-
-            # Make gradlew executable on Unix-like systems
-            if os.name != 'nt':
-                os.chmod(gradlew_path, 0o755)
-
-            # Accept Android licenses
-            logger.info("Checking Android licenses...")
-            license_result = self.command_runner.run_command(
-                [self.flutter_path, 'doctor', '--android-licenses', '-v'],
-                timeout=30
-            )
-
-            return True
-        except Exception as e:
-            logger.error(f"Failed to fix Gradle issues: {e}")
-            return False
+    # def _fix_gradle_issues(self, project_path: str) -> bool:
+    #     """Fix common Gradle issues before building."""
+    #     try:
+    #         # Check if gradle wrapper exists
+    #         gradlew_path = os.path.join(project_path, 'android', 'gradlew')
+    #         if not os.path.exists(gradlew_path):
+    #             logger.warning("Gradle wrapper not found, regenerating...")
+    #             # Run flutter create to regenerate Android files
+    #             result = self.command_runner.run_command(
+    #                 [self.flutter_path, 'create', '.', '--platforms', 'android'],
+    #                 cwd=project_path,
+    #                 timeout=60
+    #             )
+    #             if result.returncode != 0:
+    #                 logger.error(f"Failed to regenerate Android files: {result.stderr}")
+    #                 return False
+    #
+    #         # Make gradlew executable on Unix-like systems
+    #         if os.name != 'nt':
+    #             os.chmod(gradlew_path, 0o755)
+    #
+    #         # Accept Android licenses
+    #         logger.info("Checking Android licenses...")
+    #         license_result = self.command_runner.run_command(
+    #             [self.flutter_path, 'doctor', '--android-licenses', '-v'],
+    #             timeout=30
+    #         )
+    #
+    #         return True
+    #     except Exception as e:
+    #         logger.error(f"Failed to fix Gradle issues: {e}")
+    #         return False
 
     def _ensure_android_build_files(self, project_dir: str, build):
         """Ensure Android build files are properly configured"""
+        # This method is now deprecated - all Android configuration is handled by Flutter
         logger.info("Skipping Android build file modifications - using Flutter defaults")
-
-        # Only ensure local.properties exists with SDK paths
-        local_properties_path = os.path.join(project_dir, 'android', 'local.properties')
-
-        android_sdk = (self.config.android_sdk_path or
-                       os.environ.get('ANDROID_SDK_ROOT') or
-                       os.environ.get('ANDROID_HOME', ''))
-
-        flutter_sdk = (self.config.flutter_sdk_path or
-                       os.environ.get('FLUTTER_ROOT', ''))
-
-        # Only write local.properties if we have SDK paths
-        if android_sdk or flutter_sdk:
-            local_properties_content = []
-            if android_sdk:
-                local_properties_content.append(f'sdk.dir={android_sdk}')
-            if flutter_sdk:
-                local_properties_content.append(f'flutter.sdk={flutter_sdk}')
-
-            local_properties_content.append(f'flutter.buildMode={build.build_type}')
-            local_properties_content.append(f'flutter.versionName={build.version_number}')
-            local_properties_content.append(f'flutter.versionCode={build.build_number}')
-
-            with open(local_properties_path, 'w') as f:
-                f.write('\n'.join(local_properties_content))
-
-            logger.info(f"Created local.properties with SDK paths")
+        pass

@@ -354,14 +354,17 @@ class WidgetGenerator:
         return self._format_widget('AppBar', parts)
     def _generate_text(self, widget_data: Dict, properties: Dict, context: Dict) -> str:
         """Generate Text widget with translation support"""
-        # Get text content
+        # Get text content with null safety
         if properties.get('useTranslation'):
             key = properties.get('translationKey', 'undefined_key')
             self.used_translation_keys.add(key)
             text_content = f'AppLocalizations.of(context)!.{key}'
         else:
             content = properties.get('content', properties.get('text', ''))
-            text_content = self._escape_string(content)
+            # Ensure content is never null
+            if content is None:
+                content = ''
+            text_content = self._escape_string(str(content))
 
         parts = []
 
@@ -426,15 +429,19 @@ class WidgetGenerator:
         else:
             parts.append('onPressed: null')
 
-        # Style
+        # Style - using modern Flutter syntax without MaterialStateProperty
         style_parts = []
         if 'backgroundColor' in properties:
             color = self.property_mapper.map_color(properties['backgroundColor'])
-            style_parts.append(f'backgroundColor: MaterialStateProperty.all({color})')
+            style_parts.append(f'backgroundColor: {color}')
+
+        if 'foregroundColor' in properties:
+            color = self.property_mapper.map_color(properties['foregroundColor'])
+            style_parts.append(f'foregroundColor: {color}')
 
         if 'padding' in properties:
             padding = self.property_mapper.map_edge_insets(properties['padding'])
-            style_parts.append(f'padding: MaterialStateProperty.all({padding})')
+            style_parts.append(f'padding: {padding}')
 
         if style_parts:
             parts.append(f'style: ElevatedButton.styleFrom({", ".join(style_parts)})')

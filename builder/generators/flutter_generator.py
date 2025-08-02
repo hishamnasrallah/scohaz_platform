@@ -262,7 +262,7 @@ class MyApp extends StatelessWidget {{
                                 'properties': {
                                     'content': f'Welcome to {screen.name}',
                                     'style': {
-                                        'fontSize': 24,
+                                        'fontSize': 24.0,
                                         'fontWeight': 'bold'
                                     }
                                 }
@@ -286,7 +286,7 @@ import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 {chr(10).join(imports)}
 
 class {screen_name}Screen extends StatelessWidget {{
-  const {screen_name}Screen({{Key? key}}) : super(key: key);
+  const {screen_name}Screen({{super.key}});
 
   @override
   Widget build(BuildContext context) {{
