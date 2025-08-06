@@ -1,4 +1,4 @@
-# File: projects/urls.py
+# File: projects/urls.py - Updated with enhanced endpoints
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
@@ -12,3 +12,25 @@ router.register(r'screens', ScreenViewSet, basename='screen')
 urlpatterns = [
     path('', include(router.urls)),
 ]
+
+# The enhanced ComponentTemplateViewSet now provides these endpoints automatically:
+#
+# EXISTING ENDPOINTS:
+# GET  /api/projects/component-templates/                    - List all components
+# GET  /api/projects/component-templates/{id}/               - Get specific component
+# GET  /api/projects/component-templates/by_category/        - Components grouped by category
+#
+# NEW BUILDER-SPECIFIC ENDPOINTS:
+# GET  /api/projects/component-templates/components/         - Components optimized for builder
+# GET  /api/projects/component-templates/organized/          - Components grouped by widget_group
+# GET  /api/projects/component-templates/widget-groups/      - List of widget groups
+# GET  /api/projects/component-templates/categories/         - List of categories
+#
+# SCREEN ENDPOINTS:
+# GET  /api/projects/screens/                                - List screens
+# POST /api/projects/screens/                                - Create screen
+# GET  /api/projects/screens/{id}/                           - Get screen
+# PUT  /api/projects/screens/{id}/                           - Update screen
+# PUT  /api/projects/screens/{id}/update_ui_structure/       - Update only UI structure
+# POST /api/projects/screens/{id}/set_as_home/              - Set as home screen
+# POST /api/projects/screens/{id}/duplicate/                - Duplicate screen

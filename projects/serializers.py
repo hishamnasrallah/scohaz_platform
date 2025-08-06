@@ -1,4 +1,4 @@
-# File: projects/serializers.py
+# File: projects/serializers.py - Add these enhanced serializers
 
 from rest_framework import serializers
 from .models import FlutterProject, ComponentTemplate, Screen
@@ -7,6 +7,57 @@ from version.apis.serializers import LocalVersionSerializer
 from version.models import LocalVersion
 
 
+class ComponentTemplateBuilderSerializer(serializers.ModelSerializer):
+    """Optimized serializer for Angular builder toolbox"""
+
+    # Extract common properties from default_properties
+    display_order = serializers.SerializerMethodField()
+    widget_group = serializers.SerializerMethodField()
+    show_in_builder = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ComponentTemplate
+        fields = [
+            'id', 'name', 'category', 'flutter_widget', 'icon',
+            'description', 'default_properties', 'can_have_children',
+            'max_children', 'display_order', 'widget_group', 'show_in_builder'
+        ]
+
+    def get_display_order(self, obj):
+        """Extract display_order from default_properties"""
+        return obj.default_properties.get('display_order', 999)
+
+    def get_widget_group(self, obj):
+        """Extract widget_group from default_properties"""
+        return obj.default_properties.get('widget_group', 'Other')
+
+    def get_show_in_builder(self, obj):
+        """Extract show_in_builder from default_properties"""
+        return obj.default_properties.get('show_in_builder', True)
+
+
+class OrganizedComponentsSerializer(serializers.Serializer):
+    """Serializer for organized components response"""
+
+    def to_representation(self, components_dict):
+        """
+        Convert organized components dictionary to API response format
+        Expected format:
+        {
+            "Basic Layout": [component_objects...],
+            "Input Controls": [component_objects...],
+            ...
+        }
+        """
+        result = {}
+        for group_name, components in components_dict.items():
+            result[group_name] = ComponentTemplateBuilderSerializer(
+                components, many=True, context=self.context
+            ).data
+        return result
+
+
+# Keep existing serializers unchanged
 class FlutterProjectSerializer(serializers.ModelSerializer):
     user = serializers.PrimaryKeyRelatedField(read_only=True)
     supported_languages = LocalVersionSerializer(many=True, read_only=True)
