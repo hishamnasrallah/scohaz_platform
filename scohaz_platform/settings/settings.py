@@ -388,3 +388,66 @@ EXCLUDED_PATHS = {
 #         'reporting_templates.can_generate_pdf',
 #     ],
 # }
+
+# Flutter SDK Path - it exists here!
+FLUTTER_SDK_PATH = r'C:\flutter'
+
+# Verify Flutter exists
+flutter_exe = os.path.join(FLUTTER_SDK_PATH, 'bin', 'flutter.bat')
+if os.path.exists(flutter_exe):
+    print(f"✓ Flutter found at {flutter_exe}")
+else:
+    print(f"✗ Flutter NOT found at {flutter_exe}")
+
+# Android SDK Path
+ANDROID_SDK_PATH = r'C:\android-sdk'
+ANDROID_CMDLINE_TOOLS = os.path.join(ANDROID_SDK_PATH, 'cmdline-tools', 'latest')
+
+# Java path (update to your Java 17 path)
+JAVA_HOME = r'C:\Program Files\Eclipse Adoptium\jdk-21.0.8.9-hotspot'
+
+# Set environment variables
+os.environ['FLUTTER_ROOT'] = FLUTTER_SDK_PATH
+os.environ['ANDROID_HOME'] = ANDROID_SDK_PATH
+os.environ['ANDROID_SDK_ROOT'] = ANDROID_SDK_PATH
+os.environ['JAVA_HOME'] = JAVA_HOME
+
+# Build complete PATH
+flutter_bin = os.path.join(FLUTTER_SDK_PATH, 'bin')
+android_bin = os.path.join(ANDROID_CMDLINE_TOOLS, 'bin')
+java_bin = os.path.join(JAVA_HOME, 'bin')
+
+# Add to PATH (put Flutter first)
+os.environ['PATH'] = f"{flutter_bin};{android_bin};{java_bin};{os.environ.get('PATH', '')}"
+
+# Build settings
+BUILD_TIMEOUT = 600
+USE_MOCK_BUILD = False
+
+# Debug: Print PATH
+print(f"PATH configured: {flutter_bin} is in PATH")
+
+# Create APK directory
+APK_ROOT = os.path.join(MEDIA_ROOT, 'apks')
+os.makedirs(APK_ROOT, exist_ok=True)
+
+# Optional: Configure build limits per user
+MAX_CONCURRENT_BUILDS_PER_USER = 1
+MAX_BUILDS_PER_DAY_PER_USER = 10
+
+# Optional: Configure build retention
+BUILD_RETENTION_DAYS = 30  # Delete builds older than 30 days
+
+# # Optional: Celery Beat Schedule for periodic tasks
+# from celery.schedules import crontab
+#
+# CELERY_BEAT_SCHEDULE = {
+#     'cleanup-old-builds': {
+#         'task': 'builds.tasks.cleanup_old_builds',
+#         'schedule': crontab(hour=2, minute=0),  # Run at 2 AM daily
+#     },
+#     'check-build-health': {
+#         'task': 'builds.tasks.check_build_health',
+#         'schedule': crontab(minute='*/30'),  # Run every 30 minutes
+#     },
+# }
