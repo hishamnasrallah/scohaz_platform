@@ -421,7 +421,7 @@ java_bin = os.path.join(JAVA_HOME, 'bin')
 os.environ['PATH'] = f"{flutter_bin};{android_bin};{java_bin};{os.environ.get('PATH', '')}"
 
 # Build settings
-BUILD_TIMEOUT = 600
+BUILD_TIMEOUT = 6000
 USE_MOCK_BUILD = False
 
 # Debug: Print PATH
