@@ -16,6 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include, re_path
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 from rest_framework.documentation import include_docs_urls
 from django.conf.urls.static import static
 from rest_framework.decorators import api_view, permission_classes
@@ -53,7 +54,13 @@ urlpatterns = [
     path('lookups/', include("lookup.urls")),
     path('case/', include("case.urls")),
     path("", include("django_prometheus.urls")),
-    path('api-docs/', include_docs_urls(title='API Documentation')),
+
+    # path('api-docs/', include_docs_urls(title='API Documentation')),
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+
+
     path('dynamic/', include('dynamicflow.urls'), name='dynamicflow'),
     path('version/', include('version.urls'), name='version'),
     path('integration/', include('integration.urls'), name='integartion'),

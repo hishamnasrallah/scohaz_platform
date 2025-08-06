@@ -53,7 +53,8 @@ INSTALLED_APPS += [
 ]
 
 CUSTOM_APPS = [
-    'ab_app',
+    'demo_app',
+    # 'ab_app',
 
 ]
 INSTALLED_APPS += CUSTOM_APPS + [
@@ -96,15 +97,19 @@ INSTALLED_APPS += CUSTOM_APPS + [
 # }
 
 APPS_CURRENT_USER_MIDDLEWARE = [
-    'ab_app.middleware.CurrentUserMiddleware',
+    'demo_app.middleware.CurrentUserMiddleware',
+    # 'ab_app.middleware.CurrentUserMiddleware',
     'reporting.middleware.CurrentUserMiddleware',
     #// TODO: add other modules
 ]
 
 APP_MIDDLEWARE_MAPPING = {
-    'ab_app': [
-        'ab_app.middleware.DynamicModelMiddleware',
+    'demo_app': [
+        'demo_app.middleware.DynamicModelMiddleware',
     ],
+    # 'ab_app': [
+    #     'ab_app.middleware.DynamicModelMiddleware',
+    # ],
 
     'reporting': [
         'reporting.middleware.DynamicModelMiddleware',
@@ -138,7 +143,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 AUTH_USER_MODEL = 'authentication.CustomUser'
 
-SITE_ID = int(os.environ.get("SITE_ID", None)) if os.environ.get("SITE_ID") else None
+SITE_ID = int(os.environ.get("SITE_ID", 1)) if os.environ.get("SITE_ID") else 1
 
 
 REST_FRAMEWORK = {
@@ -157,7 +162,9 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 100,
-    'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema'
+    # 'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema'
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+
 }
 
 
