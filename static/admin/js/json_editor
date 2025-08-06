@@ -1,0 +1,401 @@
+// JSON Editor functionality for Django Admin
+
+(function() {
+    'use strict';
+
+    // JSON Editor Functions
+    window.formatJSON = function(fieldName) {
+        const textarea = document.querySelector(`textarea[name="${fieldName}"]`);
+        const statusEl = document.getElementById(`${fieldName}_status`);
+        const errorEl = document.getElementById(`${fieldName}_error`);
+
+        try {
+            const json = JSON.parse(textarea.value);
+            textarea.value = JSON.stringify(json, null, 2);
+
+            showStatus(statusEl, 'Formatted', 'valid');
+            hideError(errorEl);
+        } catch (e) {
+            showStatus(statusEl, 'Invalid JSON', 'invalid');
+            showError(errorEl, e.message);
+        }
+    };
+
+    window.validateJSON = function(fieldName) {
+        const textarea = document.querySelector(`textarea[name="${fieldName}"]`);
+        const statusEl = document.getElementById(`${fieldName}_status`);
+        const errorEl = document.getElementById(`${fieldName}_error`);
+
+        try {
+            JSON.parse(textarea.value);
+            showStatus(statusEl, 'Valid JSON', 'valid');
+            hideError(errorEl);
+
+            // Validate against schema if specified
+            const schema = textarea.dataset.schema;
+            if (schema) {
+                validateSchema(textarea.value, schema, statusEl, errorEl);
+            }
+        } catch (e) {
+            showStatus(statusEl, 'Invalid JSON', 'invalid');
+            showError(errorEl, e.message);
+        }
+    };
+
+    window.toggleFullscreen = function(fieldName) {
+        const container = document.querySelector(`textarea[name="${fieldName}"]`).closest('.json-editor-container');
+        container.classList.toggle('json-editor-fullscreen');
+
+        const btn = container.querySelector('.json-fullscreen-btn');
+        btn.textContent = container.classList.contains('json-editor-fullscreen') ? 'Exit Fullscreen' : 'Fullscreen';
+    };
+
+    // YAML Editor Functions
+    window.validateYAML = function(fieldName) {
+        const textarea = document.querySelector(`textarea[name="${fieldName}"]`);
+        const statusEl = document.getElementById(`${fieldName}_status`);
+        const errorEl = document.getElementById(`${fieldName}_error`);
+
+        // Basic YAML validation (check for common errors)
+        const value = textarea.value;
+        const lines = value.split('\n');
+        let errors = [];
+
+        lines.forEach((line, index) => {
+            // Check for tabs (YAML doesn't allow tabs)
+            if (line.includes('\t')) {
+                errors.push(`Line ${index + 1}: Tabs are not allowed in YAML`);
+            }
+
+            // Check for improper indentation
+            if (line.match(/^\s*-\s*$/)) {
+                errors.push(`Line ${index + 1}: Empty list item`);
+            }
+        });
+
+        if (errors.length > 0) {
+            showStatus(statusEl, 'Invalid YAML', 'invalid');
+            showError(errorEl, errors.join('<br>'));
+        } else {
+            showStatus(statusEl, 'Valid YAML', 'valid');
+            hideError(errorEl);
+        }
+    };
+
+    // Code Editor Functions
+    window.copyCode = function(fieldName) {
+        const textarea = document.querySelector(`textarea[name="${fieldName}"]`);
+        textarea.select();
+        document.execCommand('copy');
+
+        // Show feedback
+        const btn = event.target;
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => {
+            btn.textContent = originalText;
+        }, 2000);
+    };
+
+    // Helper Functions
+    function showStatus(statusEl, message, type) {
+        if (statusEl) {
+            statusEl.textContent = message;
+            statusEl.className = `json-status ${type}`;
+        }
+    }
+
+    function hideError(errorEl) {
+        if (errorEl) {
+            errorEl.textContent = '';
+            errorEl.classList.remove('show');
+        }
+    }
+
+    function showError(errorEl, message) {
+        if (errorEl) {
+            errorEl.innerHTML = message;
+            errorEl.classList.add('show');
+        }
+    }
+
+    // Schema Validation
+    function validateSchema(jsonStr, schemaType, statusEl, errorEl) {
+        const data = JSON.parse(jsonStr);
+        let errors = [];
+
+        switch (schemaType) {
+            case 'screen':
+                errors = validateScreenSchema(data);
+                break;
+            case 'widget_mapping':
+                errors = validateWidgetMappingSchema(data);
+                break;
+            case 'properties':
+                errors = validatePropertiesSchema(data);
+                break;
+            case 'assets':
+                errors = validateAssetsSchema(data);
+                break;
+            case 'fonts':
+                errors = validateFontsSchema(data);
+                break;
+        }
+
+        if (errors.length > 0) {
+            showStatus(statusEl, 'Schema validation failed', 'invalid');
+            showError(errorEl, errors.join('<br>'));
+        } else {
+            showStatus(statusEl, 'Valid schema', 'valid');
+        }
+    }
+
+    function validateScreenSchema(data) {
+        const errors = [];
+
+        if (!data.type) {
+            errors.push('Root component must have a "type" field');
+        }
+
+        if (data.type === 'scaffold' && !data.body) {
+            errors.push('Scaffold must have a "body" field');
+        }
+
+        return errors;
+    }
+
+    function validateWidgetMappingSchema(data) {
+        const errors = [];
+
+        Object.entries(data).forEach(([key, value]) => {
+            if (typeof value === 'object' && !value.name) {
+                errors.push(`Mapping for "${key}" must include a "name" field`);
+            }
+        });
+
+        return errors;
+    }
+
+    function validatePropertiesSchema(data) {
+        const errors = [];
+
+        if (typeof data !== 'object') {
+            errors.push('Properties must be an object');
+        }
+
+        return errors;
+    }
+
+    function validateAssetsSchema(data) {
+        const errors = [];
+
+        if (!data.paths || !Array.isArray(data.paths)) {
+            errors.push('Assets must have a "paths" array');
+        }
+
+        return errors;
+    }
+
+    function validateFontsSchema(data) {
+        const errors = [];
+
+        if (!data.fonts || !Array.isArray(data.fonts)) {
+            errors.push('Fonts must have a "fonts" array');
+        } else {
+            data.fonts.forEach((font, index) => {
+                if (!font.family) {
+                    errors.push(`Font at index ${index} must have a "family" field`);
+                }
+            });
+        }
+
+        return errors;
+    }
+
+    // Auto-validation on blur
+    document.addEventListener('DOMContentLoaded', function() {
+        // JSON editors
+        document.querySelectorAll('textarea.json-editor').forEach(textarea => {
+            textarea.addEventListener('blur', function() {
+                const fieldName = this.name;
+                validateJSON(fieldName);
+            });
+
+            // Enable tab key in textarea
+            textarea.addEventListener('keydown', function(e) {
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    const start = this.selectionStart;
+                    const end = this.selectionEnd;
+                    this.value = this.value.substring(0, start) + '  ' + this.value.substring(end);
+                    this.selectionStart = this.selectionEnd = start + 2;
+                }
+            });
+        });
+
+        // YAML editors
+        document.querySelectorAll('textarea.yaml-editor').forEach(textarea => {
+            textarea.addEventListener('blur', function() {
+                const fieldName = this.name;
+                validateYAML(fieldName);
+            });
+        });
+
+        // Code syntax highlighting
+        if (typeof Prism !== 'undefined') {
+            document.querySelectorAll('code[class*="language-"]').forEach(block => {
+                Prism.highlightElement(block);
+            });
+        }
+    });
+
+    // Build Monitor (for build status page)
+    window.BuildMonitor = {
+        interval: null,
+
+        start: function() {
+            // Check for running builds every 5 seconds
+            this.interval = setInterval(() => {
+                this.checkBuildStatus();
+            }, 5000);
+        },
+
+        stop: function() {
+            if (this.interval) {
+                clearInterval(this.interval);
+                this.interval = null;
+            }
+        },
+
+        checkBuildStatus: function() {
+            const buildingRows = document.querySelectorAll('.status-building');
+
+            if (buildingRows.length === 0) {
+                this.stop();
+                return;
+            }
+
+            // In a real implementation, this would make an AJAX call
+            // to check the actual build status
+            console.log(`Monitoring ${buildingRows.length} running builds...`);
+        }
+    };
+
+    // Start build monitor if on builds page
+    if (window.location.pathname.includes('/builds/build/')) {
+        BuildMonitor.start();
+    }
+
+    // Component Preview
+    window.previewComponent = function(componentId) {
+        const modal = document.createElement('div');
+        modal.className = 'component-preview-modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Component Preview</h3>
+                    <button onclick="this.closest('.component-preview-modal').remove()">×</button>
+                </div>
+                <div class="modal-body">
+                    <iframe src="/admin/preview/component/${componentId}/" width="100%" height="500"></iframe>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    };
+
+    // Project Validation Helper
+    window.validateProject = function(projectId) {
+        fetch(`/admin/api/validate-project/${projectId}/`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.errors.length > 0) {
+                    alert('Validation Errors:\n' + data.errors.join('\n'));
+                } else if (data.warnings.length > 0) {
+                    alert('Validation Warnings:\n' + data.warnings.join('\n'));
+                } else {
+                    alert('Project configuration is valid!');
+                }
+            })
+            .catch(error => {
+                alert('Error validating project: ' + error.message);
+            });
+    };
+
+    // Keyboard Shortcuts
+    document.addEventListener('keydown', function(e) {
+        // Ctrl/Cmd + S to save
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            const saveBtn = document.querySelector('input[name="_save"]');
+            if (saveBtn) {
+                saveBtn.click();
+            }
+        }
+
+        // Ctrl/Cmd + Shift + F to format JSON
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F') {
+            e.preventDefault();
+            const activeElement = document.activeElement;
+            if (activeElement.classList.contains('json-editor')) {
+                formatJSON(activeElement.name);
+            }
+        }
+    });
+
+    // Enhanced Django Admin Features
+    django.jQuery(document).ready(function($) {
+        // Add tooltips to help text
+        $('.help').each(function() {
+            $(this).attr('title', $(this).text());
+        });
+
+        // Enhance inline formsets
+        $('.inline-group').each(function() {
+            const $group = $(this);
+            const $addButton = $group.find('.add-row a');
+
+            // Style the add button
+            $addButton.addClass('button button-small');
+
+            // Add collapse functionality
+            const $h2 = $group.find('h2');
+            $h2.css('cursor', 'pointer').on('click', function() {
+                $group.find('.inline-related').slideToggle();
+            });
+        });
+
+        // Add search functionality to select fields with many options
+        $('select').each(function() {
+            if (this.options.length > 20) {
+                $(this).select2({
+                    width: '100%',
+                    placeholder: 'Select an option...'
+                });
+            }
+        });
+
+        // Enhance file upload fields
+        $('input[type="file"]').each(function() {
+            const $input = $(this);
+            const $wrapper = $('<div class="file-upload-wrapper"></div>');
+            const $button = $('<button type="button" class="button button-small">Choose File</button>');
+            const $filename = $('<span class="filename">No file chosen</span>');
+
+            $input.wrap($wrapper);
+            $input.before($button);
+            $input.before($filename);
+            $input.hide();
+
+            $button.on('click', function() {
+                $input.click();
+            });
+
+            $input.on('change', function() {
+                const filename = this.files[0]?.name || 'No file chosen';
+                $filename.text(filename);
+            });
+        });
+    });
+
+})();
