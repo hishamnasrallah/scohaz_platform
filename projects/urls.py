@@ -1,13 +1,27 @@
-# File: projects/urls.py - Updated with enhanced endpoints
+# File: projects/urls.py
 
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import FlutterProjectViewSet, ComponentTemplateViewSet, ScreenViewSet
+from .views import (
+    FlutterProjectViewSet,
+    ComponentTemplateViewSet,
+    ScreenViewSet,
+    CanvasStateViewSet,
+    ValidationViewSet,
+    ProjectAssetViewSet,
+    WidgetTemplateViewSet,
+    StylePresetViewSet
+)
 
 router = DefaultRouter()
 router.register(r'flutter-projects', FlutterProjectViewSet, basename='flutter-project')
 router.register(r'component-templates', ComponentTemplateViewSet, basename='component-template')
 router.register(r'screens', ScreenViewSet, basename='screen')
+router.register(r'canvas-states', CanvasStateViewSet, basename='canvas-state')
+router.register(r'validation', ValidationViewSet, basename='validation')
+router.register(r'assets', ProjectAssetViewSet, basename='project-asset')
+router.register(r'widget-templates', WidgetTemplateViewSet, basename='widget-template')
+router.register(r'style-presets', StylePresetViewSet, basename='style-preset')
 
 urlpatterns = [
     path('', include(router.urls)),

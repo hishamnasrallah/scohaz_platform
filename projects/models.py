@@ -153,3 +153,162 @@ class Screen(models.Model):
 
         if 'type' not in self.ui_structure:
             raise ValidationError('UI structure must have a type')
+
+
+class CanvasState(models.Model):
+    """Stores canvas state for each screen including history"""
+
+    screen = models.OneToOneField(
+        Screen,
+        on_delete=models.CASCADE,
+        related_name='canvas_state'
+    )
+
+    # Selection and UI state
+    selected_widget_ids = models.JSONField(default=list)
+    expanded_tree_nodes = models.JSONField(default=list)
+
+    # Undo/Redo history
+    history_stack = models.JSONField(
+        default=list,
+        help_text="Stack of previous UI structures for undo"
+    )
+    history_index = models.IntegerField(default=-1)
+    max_history_size = models.IntegerField(default=50)
+
+    # Drag state (for recovery)
+    last_drag_state = models.JSONField(
+        default=dict,
+        help_text="Last drag operation for recovery"
+    )
+
+    # View settings
+    zoom_level = models.IntegerField(default=100)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['screen']),
+        ]
+
+    def push_history(self, ui_structure):
+        """Add current state to history for undo"""
+        # Remove any history after current index
+        self.history_stack = self.history_stack[:self.history_index + 1]
+
+        # Add new state
+        self.history_stack.append(ui_structure)
+
+        # Limit history size
+        if len(self.history_stack) > self.max_history_size:
+            self.history_stack.pop(0)
+        else:
+            self.history_index += 1
+
+        self.save()
+
+    def undo(self):
+        """Get previous state from history"""
+        if self.history_index > 0:
+            self.history_index -= 1
+            self.save()
+            return self.history_stack[self.history_index]
+        return None
+
+    def redo(self):
+        """Get next state from history"""
+        if self.history_index < len(self.history_stack) - 1:
+            self.history_index += 1
+            self.save()
+            return self.history_stack[self.history_index]
+        return None
+
+
+class ProjectAsset(models.Model):
+    """Assets (images, fonts, etc.) for a project"""
+
+    ASSET_TYPES = [
+        ('image', 'Image'),
+        ('font', 'Font'),
+        ('icon', 'Icon'),
+        ('other', 'Other')
+    ]
+
+    project = models.ForeignKey(
+        FlutterProject,
+        on_delete=models.CASCADE,
+        related_name='assets'
+    )
+    name = models.CharField(max_length=255)
+    asset_type = models.CharField(max_length=20, choices=ASSET_TYPES)
+    file = models.FileField(upload_to='project_assets/')
+    url = models.URLField(blank=True)  # For CDN/external assets
+    metadata = models.JSONField(default=dict)  # Size, format, etc.
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['project', 'name']
+        indexes = [
+            models.Index(fields=['project', 'asset_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.project.name} - {self.name}"
+
+
+class WidgetTemplate(models.Model):
+    """Reusable widget templates/presets"""
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='widget_templates'
+    )
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    category = models.CharField(max_length=50)
+
+    # The widget structure
+    structure = models.JSONField()
+
+    # Thumbnail for visual preview
+    thumbnail = models.ImageField(
+        upload_to='template_thumbnails/',
+        blank=True,
+        null=True
+    )
+
+    is_public = models.BooleanField(default=False)
+    tags = models.JSONField(default=list)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'category']),
+            models.Index(fields=['is_public']),
+        ]
+
+
+class StylePreset(models.Model):
+    """Reusable style presets"""
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='style_presets'
+    )
+    name = models.CharField(max_length=100)
+    widget_type = models.CharField(max_length=50)
+    properties = models.JSONField()
+
+    is_public = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['user', 'name', 'widget_type']

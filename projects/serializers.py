@@ -1,7 +1,10 @@
-# File: projects/serializers.py - Add these enhanced serializers
+# File: projects/serializers.py
 
 from rest_framework import serializers
-from .models import FlutterProject, ComponentTemplate, Screen
+from .models import (
+    FlutterProject, ComponentTemplate, Screen,
+    CanvasState, ProjectAsset, WidgetTemplate, StylePreset
+)
 from authentication.models import CustomUser
 from version.apis.serializers import LocalVersionSerializer
 from version.models import LocalVersion
@@ -113,3 +116,38 @@ class ScreenSerializer(serializers.ModelSerializer):
 
         # Recursive validation could be added here
         return value
+
+
+class CanvasStateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CanvasState
+        fields = '__all__'
+
+
+class ProjectAssetSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectAsset
+        fields = '__all__'
+
+    def get_file_url(self, obj):
+        if obj.file:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+        return obj.url
+
+
+class WidgetTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WidgetTemplate
+        fields = '__all__'
+        read_only_fields = ['user']
+
+
+class StylePresetSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StylePreset
+        fields = '__all__'
+        read_only_fields = ['user']
