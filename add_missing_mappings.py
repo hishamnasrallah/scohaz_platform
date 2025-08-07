@@ -1314,7 +1314,138 @@ all_widget_mappings = [
         },
         'import_statements': "import 'package:flutter/material.dart';\nimport 'dart:ui';",
         'can_have_children': True,
-    },
+    }
+]
+
+from django.core.management.base import BaseCommand
+from builder.models import WidgetMapping
+
+
+class Command(BaseCommand):
+    help = 'Add missing widget mappings including Scaffold'
+
+    def handle(self, *args, **options):
+        mappings = [
+            {
+                'ui_type': 'scaffold',
+                'flutter_widget': 'Scaffold',
+                'properties_mapping': {
+                    'backgroundColor': 'backgroundColor: {{value}}',
+                    'title': 'appBar: AppBar(title: Text({{value}}))',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': True,
+            },
+            {
+                'ui_type': 'appbar',
+                'flutter_widget': 'AppBar',
+                'properties_mapping': {
+                    'title': 'title: Text({{value}})',
+                    'backgroundColor': 'backgroundColor: {{value}}',
+                    'elevation': 'elevation: {{value}}',
+                    'centerTitle': 'centerTitle: {{value}}',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': False,
+            },
+            {
+                'ui_type': 'expanded',
+                'flutter_widget': 'Expanded',
+                'properties_mapping': {
+                    'flex': 'flex: {{value}}',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': True,
+            },
+            {
+                'ui_type': 'flexible',
+                'flutter_widget': 'Flexible',
+                'properties_mapping': {
+                    'flex': 'flex: {{value}}',
+                    'fit': 'fit: FlexFit.{{value}}',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': True,
+            },
+            {
+                'ui_type': 'listview',
+                'flutter_widget': 'ListView',
+                'properties_mapping': {
+                    'scrollDirection': 'scrollDirection: Axis.{{value}}',
+                    'shrinkWrap': 'shrinkWrap: {{value}}',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': True,
+            },
+            {
+                'ui_type': 'positioned',
+                'flutter_widget': 'Positioned',
+                'properties_mapping': {
+                    'top': 'top: {{value}}',
+                    'bottom': 'bottom: {{value}}',
+                    'left': 'left: {{value}}',
+                    'right': 'right: {{value}}',
+                    'width': 'width: {{value}}',
+                    'height': 'height: {{value}}',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': True,
+            },
+            {
+                'ui_type': 'sizedbox',
+                'flutter_widget': 'SizedBox',
+                'properties_mapping': {
+                    'width': 'width: {{value}}',
+                    'height': 'height: {{value}}',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': True,
+            },
+            {
+                'ui_type': 'center',
+                'flutter_widget': 'Center',
+                'properties_mapping': {},
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': True,
+            },
+            {
+                'ui_type': 'padding',
+                'flutter_widget': 'Padding',
+                'properties_mapping': {
+                    'padding': 'padding: {{value}}',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': True,
+            },
+            {
+                'ui_type': 'grid',
+                'flutter_widget': 'GridView.count',
+                'properties_mapping': {
+                    'crossAxisCount': 'crossAxisCount: {{value}}',
+                    'mainAxisSpacing': 'mainAxisSpacing: {{value}}',
+                    'crossAxisSpacing': 'crossAxisSpacing: {{value}}',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': True,
+            },
+            {
+                'ui_type': 'scrollable',
+                'flutter_widget': 'SingleChildScrollView',
+                'properties_mapping': {
+                    'scrollDirection': 'scrollDirection: Axis.{{value}}',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': True,
+            },
+            {
+                'ui_type': 'spacer',
+                'flutter_widget': 'Spacer',
+                'properties_mapping': {
+                    'flex': 'flex: {{value}}',
+                },
+                'import_statements': "import 'package:flutter/material.dart';",
+                'can_have_children': False,
+            },
 ]
 
 print("Adding all widget mappings...\n")

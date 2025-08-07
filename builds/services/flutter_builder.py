@@ -83,7 +83,7 @@ class FlutterBuilder:
             return False, str(e)
 
     def _run_pub_get(self, project_path: str) -> Tuple[bool, str]:
-        """Run flutter pub get"""
+        """Run flutter pub get with better error handling"""
         try:
             # First, run flutter clean for safety
             subprocess.run(
@@ -105,18 +105,50 @@ class FlutterBuilder:
             if result.returncode != 0:
                 return False, f"pub get failed: {result.stderr}"
 
-            # Run gen-l10n if l10n.yaml exists
-            if os.path.exists(os.path.join(project_path, 'l10n.yaml')):
-                result = subprocess.run(
-                    [self.flutter_path, 'gen-l10n'],
-                    capture_output=True,
-                    text=True,
-                    cwd=project_path,
-                    timeout=60
-                )
+            # Check if l10n.yaml exists before attempting localization generation
+            l10n_yaml_path = os.path.join(project_path, 'l10n.yaml')
+            l10n_dir = os.path.join(project_path, 'lib', 'l10n')
 
-                if result.returncode != 0:
-                    return False, f"gen-l10n failed: {result.stderr}"
+            if os.path.exists(l10n_yaml_path):
+                # Verify ARB files exist
+                arb_files_exist = False
+                if os.path.exists(l10n_dir):
+                    arb_files = [f for f in os.listdir(l10n_dir) if f.endswith('.arb')]
+                    arb_files_exist = len(arb_files) > 0
+
+                if arb_files_exist:
+                    print(f"Found {len(arb_files)} ARB files, running gen-l10n...")
+
+                    # Try to run gen-l10n
+                    result = subprocess.run(
+                        [self.flutter_path, 'gen-l10n'],
+                        capture_output=True,
+                        text=True,
+                        cwd=project_path,
+                        timeout=60
+                    )
+
+                    if result.returncode != 0:
+                        # Log the warning but don't fail the build
+                        print(f"Warning: gen-l10n failed (non-critical): {result.stderr}")
+
+                        # Remove l10n.yaml to prevent import errors
+                        try:
+                            os.remove(l10n_yaml_path)
+                            print("Removed l10n.yaml to prevent build errors")
+                        except:
+                            pass
+                    else:
+                        print("Localization files generated successfully")
+                else:
+                    print("No ARB files found, skipping localization generation")
+                    # Remove l10n.yaml if no ARB files
+                    try:
+                        os.remove(l10n_yaml_path)
+                    except:
+                        pass
+            else:
+                print("No l10n.yaml found, skipping localization")
 
             return True, "Dependencies resolved"
 

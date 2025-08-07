@@ -17,33 +17,36 @@ class WidgetGenerator:
         if not widget_data:
             return self._generate_empty_container(indent)
 
-        widget_type = widget_data.get('type')
+        widget_type = widget_data.get('type', '')
+        # NORMALIZE TO LOWERCASE for matching
+        widget_type_normalized = widget_type.lower() if widget_type else ''
+
         properties = widget_data.get('properties', {})
         children = widget_data.get('children', [])
 
         # Handle navigatable widgets
-        if widget_type and widget_type.startswith('navigatable_'):
-            return self._generate_navigatable_widget(widget_type, properties, children, indent)
+        if widget_type_normalized and widget_type_normalized.startswith('navigatable_'):
+            return self._generate_navigatable_widget(widget_type_normalized, properties, children, indent)
 
-        # Get widget mapping
-        try:
-            mapping = WidgetMapping.objects.get(ui_type=widget_type, is_active=True)
-        except WidgetMapping.DoesNotExist:
-            # Fallback for unknown widgets
-            return self._generate_unknown_widget(widget_type, indent)
-
-        # Add imports
-        if mapping.import_statements:
-            for imp in mapping.import_statements.split('\n'):
-                if imp.strip():
-                    self.imports.add(imp.strip())
-
-        # Generate widget based on type
-        method_name = f'_generate_{widget_type}'
+        # Check if we have a specific method for this widget type (using lowercase)
+        method_name = f'_generate_{widget_type_normalized}'
         if hasattr(self, method_name):
             return getattr(self, method_name)(properties, children, indent)
-        else:
+
+        # Try to get widget mapping from database (using lowercase)
+        try:
+            mapping = WidgetMapping.objects.get(ui_type=widget_type_normalized, is_active=True)
+            # Add imports
+            if mapping.import_statements:
+                for imp in mapping.import_statements.split('\n'):
+                    if imp.strip():
+                        self.imports.add(imp.strip())
             return self._generate_generic_widget(mapping, properties, children, indent)
+        except WidgetMapping.DoesNotExist:
+            pass
+
+        # Fallback for unknown widgets
+        return self._generate_unknown_widget(widget_type, indent)
 
     def _generate_navigatable_widget(self, widget_type: str, properties: Dict, children: List, indent: int) -> str:
         """Generate navigatable widgets with onTap/onPressed handlers"""
@@ -421,10 +424,10 @@ class WidgetGenerator:
         else:
             return f"{spaces}{flutter_widget}()"
 
-    def _generate_unknown_widget(self, widget_type: str, indent: int) -> str:
-        """Fallback for unknown widget types"""
-        spaces = '  ' * indent
-        return f"{spaces}Container(\n{spaces}  child: Center(\n{spaces}    child: Text('Unknown widget: {widget_type}'),\n{spaces}  ),\n{spaces})"
+    # def _generate_unknown_widget(self, widget_type: str, indent: int) -> str:
+    #     """Fallback for unknown widget types"""
+    #     spaces = '  ' * indent
+    #     return f"{spaces}Container(\n{spaces}  child: Center(\n{spaces}    child: Text('Unknown widget: {widget_type}'),\n{spaces}  ),\n{spaces})"
 
     # Add this method to the WidgetGenerator class if it doesn't exist
     def _generate_center(self, properties: Dict, children: List, indent: int) -> str:
@@ -528,3 +531,389 @@ class WidgetGenerator:
             return f"{spaces}Spacer(flex: {flex})"
         else:
             return f"{spaces}Spacer()"
+
+
+
+    def _generate_scaffold(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate Scaffold widget"""
+        spaces = '  ' * indent
+        props = []
+
+        # Background color
+        if properties.get('backgroundColor'):
+            color = self.property_mapper.map_color(properties['backgroundColor'])
+            if color != 'null':
+                props.append(f"backgroundColor: {color}")
+
+        # AppBar
+        if properties.get('appBar'):
+            # Generate AppBar from properties
+            app_bar_props = []
+
+            if properties.get('title'):
+                title_text = self.property_mapper.map_value(properties.get('title', 'App'))
+                app_bar_props.append(f"title: Text({title_text})")
+
+            if properties.get('appBarColor'):
+                color = self.property_mapper.map_color(properties['appBarColor'])
+                if color != 'null':
+                    app_bar_props.append(f"backgroundColor: {color}")
+
+            if app_bar_props:
+                app_bar_str = f",\n{spaces}    ".join(app_bar_props)
+                props.append(f"appBar: AppBar(\n{spaces}    {app_bar_str},\n{spaces}  )")
+
+        # Body - handle children
+        if children and len(children) > 0:
+            body_code = self.generate_widget(children[0], indent + 1)
+            props.append(f"body:\n{body_code}")
+        else:
+            # Default body if no children
+            props.append("body: Center(child: Text('Empty Scaffold'))")
+
+        # Build the scaffold
+        if props:
+            props_str = f",\n{spaces}  ".join(props)
+            return f"{spaces}Scaffold(\n{spaces}  {props_str},\n{spaces})"
+        else:
+            return f"{spaces}Scaffold()"
+
+
+    def _generate_appbar(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate AppBar widget"""
+        spaces = '  ' * indent
+        props = []
+
+        # Title
+        if properties.get('title'):
+            title_text = self.property_mapper.map_value(properties.get('title', 'App'))
+            props.append(f"title: Text({title_text})")
+
+        # Background color
+        if properties.get('backgroundColor'):
+            color = self.property_mapper.map_color(properties['backgroundColor'])
+            if color != 'null':
+                props.append(f"backgroundColor: {color}")
+
+        # Elevation
+        if properties.get('elevation') is not None:
+            props.append(f"elevation: {properties['elevation']}.0")
+
+        # Center title
+        if properties.get('centerTitle') is not None:
+            props.append(f"centerTitle: {str(properties['centerTitle']).lower()}")
+
+        # Actions
+        if properties.get('actions'):
+            # Handle action buttons
+            action_widgets = []
+            for action in properties['actions']:
+                if isinstance(action, dict):
+                    action_widget = self.generate_widget(action, indent + 2)
+                    action_widgets.append(action_widget)
+
+            if action_widgets:
+                actions_str = ',\n'.join(action_widgets)
+                props.append(f"actions: [\n{actions_str},\n{spaces}  ]")
+
+        # Build the AppBar
+        if props:
+            props_str = f",\n{spaces}  ".join(props)
+            return f"{spaces}AppBar(\n{spaces}  {props_str},\n{spaces})"
+        else:
+            return f"{spaces}AppBar()"
+
+
+    def _generate_expanded(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate Expanded widget"""
+        spaces = '  ' * indent
+        props = []
+
+        # Flex factor
+        if properties.get('flex'):
+            props.append(f"flex: {properties['flex']}")
+
+        # Child
+        if children and len(children) > 0:
+            child_code = self.generate_widget(children[0], indent + 1)
+            props.append(f"child:\n{child_code}")
+
+        if props:
+            props_str = f",\n{spaces}  ".join(props)
+            return f"{spaces}Expanded(\n{spaces}  {props_str},\n{spaces})"
+        else:
+            return f"{spaces}Expanded(child: Container())"
+
+
+    def _generate_flexible(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate Flexible widget"""
+        spaces = '  ' * indent
+        props = []
+
+        # Flex factor
+        if properties.get('flex'):
+            props.append(f"flex: {properties['flex']}")
+
+        # Fit
+        if properties.get('fit'):
+            fit_map = {
+                'tight': 'FlexFit.tight',
+                'loose': 'FlexFit.loose',
+            }
+            props.append(f"fit: {fit_map.get(properties['fit'], 'FlexFit.loose')}")
+
+        # Child
+        if children and len(children) > 0:
+            child_code = self.generate_widget(children[0], indent + 1)
+            props.append(f"child:\n{child_code}")
+
+        if props:
+            props_str = f",\n{spaces}  ".join(props)
+            return f"{spaces}Flexible(\n{spaces}  {props_str},\n{spaces})"
+        else:
+            return f"{spaces}Flexible(child: Container())"
+
+
+    def _generate_listview(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate ListView widget"""
+        spaces = '  ' * indent
+        props = []
+
+        # Scroll direction
+        if properties.get('scrollDirection'):
+            axis = self.property_mapper.map_axis(properties['scrollDirection'])
+            props.append(f"scrollDirection: {axis}")
+
+        # Shrink wrap for nested scrollables
+        props.append("shrinkWrap: true")
+
+        # Physics
+        if properties.get('physics'):
+            physics_map = {
+                'never': 'NeverScrollableScrollPhysics()',
+                'always': 'AlwaysScrollableScrollPhysics()',
+                'bouncing': 'BouncingScrollPhysics()',
+                'clamping': 'ClampingScrollPhysics()',
+            }
+            props.append(f"physics: {physics_map.get(properties['physics'], 'AlwaysScrollableScrollPhysics()')}")
+
+        # Padding
+        if properties.get('padding'):
+            padding = self.property_mapper.map_edge_insets(properties['padding'])
+            props.append(f"padding: {padding}")
+
+        # Children
+        if children and len(children) > 0:
+            children_code = []
+            for child in children:
+                children_code.append(self.generate_widget(child, indent + 2))
+            children_str = ',\n'.join(children_code)
+            props.append(f"children: [\n{children_str},\n{spaces}  ]")
+        else:
+            props.append("children: <Widget>[]")
+
+        props_str = f",\n{spaces}  ".join(props)
+        return f"{spaces}ListView(\n{spaces}  {props_str},\n{spaces})"
+
+
+    def _generate_card(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate Card widget"""
+        spaces = '  ' * indent
+        props = []
+
+        # Elevation
+        if properties.get('elevation') is not None:
+            props.append(f"elevation: {properties['elevation']}.0")
+
+        # Color
+        if properties.get('color'):
+            color = self.property_mapper.map_color(properties['color'])
+            if color != 'null':
+                props.append(f"color: {color}")
+
+        # Shape
+        if properties.get('borderRadius'):
+            props.append(
+                f"shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular({properties['borderRadius']}.0))")
+
+        # Margin
+        if properties.get('margin'):
+            margin = self.property_mapper.map_edge_insets(properties['margin'])
+            props.append(f"margin: {margin}")
+
+        # Child
+        if children and len(children) > 0:
+            child_code = self.generate_widget(children[0], indent + 1)
+            props.append(f"child:\n{child_code}")
+
+        if props:
+            props_str = f",\n{spaces}  ".join(props)
+            return f"{spaces}Card(\n{spaces}  {props_str},\n{spaces})"
+        else:
+            return f"{spaces}Card()"
+
+
+    def _generate_image(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate Image widget"""
+        spaces = '  ' * indent
+
+        # Get image source
+        source = properties.get('source', '')
+        image_type = properties.get('imageType', 'network')  # network, asset, or file
+
+        props = []
+
+        # Width and Height
+        if properties.get('width'):
+            props.append(f"width: {properties['width']}.0")
+        if properties.get('height'):
+            props.append(f"height: {properties['height']}.0")
+
+        # Fit
+        if properties.get('fit'):
+            fit_map = {
+                'fill': 'BoxFit.fill',
+                'contain': 'BoxFit.contain',
+                'cover': 'BoxFit.cover',
+                'fitWidth': 'BoxFit.fitWidth',
+                'fitHeight': 'BoxFit.fitHeight',
+                'none': 'BoxFit.none',
+                'scaleDown': 'BoxFit.scaleDown',
+            }
+            props.append(f"fit: {fit_map.get(properties['fit'], 'BoxFit.contain')}")
+
+        # Build image based on type
+        if image_type == 'asset':
+            image_constructor = f"Image.asset('{source}'"
+        elif image_type == 'file':
+            image_constructor = f"Image.file(File('{source}')"
+        else:  # network
+            image_constructor = f"Image.network('{source}'"
+
+        if props:
+            props_str = f", {', '.join(props)}"
+            return f"{spaces}{image_constructor}{props_str})"
+        else:
+            return f"{spaces}{image_constructor})"
+
+
+    def _generate_stack(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate Stack widget"""
+        spaces = '  ' * indent
+        props = []
+
+        # Alignment
+        if properties.get('alignment'):
+            alignment = self.property_mapper.map_alignment(properties['alignment'])
+            props.append(f"alignment: {alignment}")
+
+        # Fit
+        if properties.get('fit'):
+            fit_map = {
+                'loose': 'StackFit.loose',
+                'expand': 'StackFit.expand',
+                'passthrough': 'StackFit.passthrough',
+            }
+            props.append(f"fit: {fit_map.get(properties['fit'], 'StackFit.loose')}")
+
+        # Children
+        if children and len(children) > 0:
+            children_code = []
+            for child in children:
+                children_code.append(self.generate_widget(child, indent + 2))
+            children_str = ',\n'.join(children_code)
+            props.append(f"children: [\n{children_str},\n{spaces}  ]")
+        else:
+            props.append("children: <Widget>[]")
+
+        props_str = f",\n{spaces}  ".join(props)
+        return f"{spaces}Stack(\n{spaces}  {props_str},\n{spaces})"
+
+
+    def _generate_positioned(self, properties: Dict, children: List, indent: int) -> str:
+        """Generate Positioned widget for use in Stack"""
+        spaces = '  ' * indent
+        props = []
+
+        # Position properties
+        if properties.get('top') is not None:
+            props.append(f"top: {properties['top']}.0")
+        if properties.get('bottom') is not None:
+            props.append(f"bottom: {properties['bottom']}.0")
+        if properties.get('left') is not None:
+            props.append(f"left: {properties['left']}.0")
+        if properties.get('right') is not None:
+            props.append(f"right: {properties['right']}.0")
+
+        # Width and Height
+        if properties.get('width'):
+            props.append(f"width: {properties['width']}.0")
+        if properties.get('height'):
+            props.append(f"height: {properties['height']}.0")
+
+        # Child
+        if children and len(children) > 0:
+            child_code = self.generate_widget(children[0], indent + 1)
+            props.append(f"child:\n{child_code}")
+
+        if props:
+            props_str = f",\n{spaces}  ".join(props)
+            return f"{spaces}Positioned(\n{spaces}  {props_str},\n{spaces})"
+        else:
+            return f"{spaces}Positioned(child: Container())"
+
+    def _generate_unknown_widget(self, widget_type: str, indent: int) -> str:
+        """Fallback for unknown widget types with better error handling"""
+        spaces = '  ' * indent
+
+        # Common widget type corrections
+        widget_corrections = {
+            'scafold': 'scaffold',  # Common typo
+            'scaffolds': 'scaffold',
+            'col': 'column',
+            'btn': 'button',
+            'txt': 'text',
+            'img': 'image',
+            'list': 'listview',
+        }
+
+        # Check if it's a typo
+        corrected_type = widget_corrections.get(widget_type.lower())
+
+        if corrected_type:
+            # Log the correction
+            print(f"Warning: Widget type '{widget_type}' might be a typo. Did you mean '{corrected_type}'?")
+
+            # Try to generate with the corrected type
+            method_name = f'_generate_{corrected_type}'
+            if hasattr(self, method_name):
+                # Create a simple widget structure for the corrected type
+                return getattr(self, method_name)({}, [], indent)
+
+        # Return a more helpful error widget
+        return f"""{spaces}Container(
+    {spaces}  decoration: BoxDecoration(
+    {spaces}    color: Colors.red[100],
+    {spaces}    border: Border.all(color: Colors.red, width: 2),
+    {spaces}    borderRadius: BorderRadius.circular(8),
+    {spaces}  ),
+    {spaces}  padding: EdgeInsets.all(16),
+    {spaces}  child: Column(
+    {spaces}    mainAxisSize: MainAxisSize.min,
+    {spaces}    children: [
+    {spaces}      Icon(Icons.error, color: Colors.red, size: 48),
+    {spaces}      SizedBox(height: 8),
+    {spaces}      Text(
+    {spaces}        'Unknown widget: {widget_type}',
+    {spaces}        style: TextStyle(
+    {spaces}          color: Colors.red[900],
+    {spaces}          fontWeight: FontWeight.bold,
+    {spaces}        ),
+    {spaces}      ),
+    {spaces}      Text(
+    {spaces}        'Please check the widget type',
+    {spaces}        style: TextStyle(color: Colors.red[700]),
+    {spaces}      ),
+    {spaces}    ],
+    {spaces}  ),
+    {spaces})"""
