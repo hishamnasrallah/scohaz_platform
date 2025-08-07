@@ -15,6 +15,19 @@ class FlutterGenerator:
         self.project = project
         self.widget_generator = WidgetGenerator()
         self.generated_files = {}
+        # Fix: More robust check for localization
+        self.has_localizations = self._check_has_localizations()
+
+    def _check_has_localizations(self) -> bool:
+        """Check if project actually needs localization"""
+        # Check if there are any supported languages AND they're not empty
+        try:
+            return (
+                    self.project.supported_languages.exists() and
+                    self.project.supported_languages.count() > 0
+            )
+        except:
+            return False
 
     def generate_project(self) -> Dict[str, str]:
         """Generate all project files"""
@@ -36,7 +49,7 @@ class FlutterGenerator:
         self._generate_pubspec()
 
         # Generate localization files ONLY if languages are configured
-        if self.project.supported_languages.exists() and self.project.supported_languages.count() > 0:
+        if self.has_localizations:
             self._generate_localization()
 
         return self.generated_files
@@ -50,9 +63,6 @@ class FlutterGenerator:
         if not home_screen and screens.exists():
             home_screen = screens.first()
 
-        # Check if we have localizations
-        has_localizations = self.project.supported_languages.exists() and self.project.supported_languages.count() > 0
-
         imports = [
             "import 'package:flutter/material.dart';",
             "import 'theme/app_theme.dart';",
@@ -63,7 +73,7 @@ class FlutterGenerator:
             imports.append(f"import 'screens/{self._to_snake_case(screen.name)}.dart';")
 
         # Add localization imports ONLY if needed
-        if has_localizations:
+        if self.has_localizations:
             imports.extend([
                 "import 'package:flutter_localizations/flutter_localizations.dart';",
                 "import 'package:flutter_gen/gen_l10n/app_localizations.dart';",
@@ -77,7 +87,7 @@ class FlutterGenerator:
 
         # Build MaterialApp with conditional localization
         localization_props = ""
-        if has_localizations:
+        if self.has_localizations:
             localization_props = """      localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
 """
@@ -123,7 +133,6 @@ class MyApp extends StatelessWidget {{
     def _generate_screens(self):
         """Generate screen files"""
         screens = Screen.objects.filter(project=self.project)
-        has_localizations = self.project.supported_languages.exists() and self.project.supported_languages.count() > 0
 
         for screen in screens:
             self.widget_generator = WidgetGenerator()  # Reset imports for each screen
@@ -141,7 +150,7 @@ class MyApp extends StatelessWidget {{
                 imports.insert(0, "import 'package:flutter/material.dart';")
 
             # Only add localization import if actually needed
-            if has_localizations:
+            if self.has_localizations:
                 imports.append("import 'package:flutter_gen/gen_l10n/app_localizations.dart';")
 
             screen_class = self._to_pascal_case(screen.name)
@@ -187,7 +196,7 @@ class AppTheme {{
   static ThemeData get lightTheme {{
     final primaryColor = Color(0x{primary_color.replace('#', 'FF')});
     final secondaryColor = Color(0x{secondary_color.replace('#', 'FF')});
-    
+
     return ThemeData(
       primarySwatch: MaterialColor(
         primaryColor.value,
@@ -227,11 +236,11 @@ class AppTheme {{
       ),
     );
   }}
-  
+
   static ThemeData get darkTheme {{
     final primaryColor = Color(0x{primary_color.replace('#', 'FF')});
     final secondaryColor = Color(0x{secondary_color.replace('#', 'FF')});
-    
+
     return ThemeData(
       brightness: Brightness.dark,
       primaryColor: primaryColor,
@@ -280,8 +289,7 @@ class AppConstants {{
         }
 
         # Only add localization dependencies if languages are configured
-        has_localizations = self.project.supported_languages.exists() and self.project.supported_languages.count() > 0
-        if has_localizations:
+        if self.has_localizations:
             dependencies['flutter_localizations'] = {'sdk': 'flutter'}
             dependencies['intl'] = 'any'  # Let Flutter resolve the version
 
@@ -289,6 +297,9 @@ class AppConstants {{
         app_name = self.project.package_name.split('.')[-1]
         # Ensure it's a valid Dart package name
         app_name = app_name.lower().replace('-', '_').replace(' ', '_')
+        # Ensure it starts with a letter
+        if app_name and app_name[0].isdigit():
+            app_name = 'app_' + app_name
 
         pubspec_content = f"""
 name: {app_name}
@@ -308,14 +319,14 @@ dev_dependencies:
   flutter_lints: ^2.0.0
 
 flutter:
-  uses-material-design: true{chr(10) + '  generate: true' if has_localizations else ''}
+  uses-material-design: true{chr(10) + '  generate: true' if self.has_localizations else ''}
 """
         self.generated_files['pubspec.yaml'] = pubspec_content.strip()
 
     def _generate_localization(self):
         """Generate localization files"""
         # Double-check we actually have languages
-        if not self.project.supported_languages.exists() or self.project.supported_languages.count() == 0:
+        if not self.has_localizations:
             return
 
         # Generate l10n.yaml
@@ -365,6 +376,8 @@ output-localization-file: app_localizations.dart
         result = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
         # Remove duplicate underscores
         result = re.sub('_+', '_', result)
+        # Remove leading/trailing underscores
+        result = result.strip('_')
         return result
 
     def _to_pascal_case(self, text: str) -> str:
