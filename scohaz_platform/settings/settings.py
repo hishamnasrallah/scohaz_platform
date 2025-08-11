@@ -48,9 +48,6 @@ INSTALLED_APPS += [
     "django_celery_beat",
     "django_celery_results",
     "django_filters",
-    'projects',
-    'builder',
-    'builds',
 
 
 ]
@@ -77,7 +74,14 @@ INSTALLED_APPS += CUSTOM_APPS + [
     "reporting_templates",
     "simple_reporting",
     "mockapi",
-    "inquiry"
+    "inquiry",
+    'projects',
+    'builder',
+    'builds',
+
+    'simple_project',
+    'simple_builder',
+    'simple_builds',
     # "lowcode",
 ]
 

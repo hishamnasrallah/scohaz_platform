@@ -82,6 +82,10 @@ urlpatterns = [
     path('api/projects/', include('projects.urls')),
     path('api/builder/', include('builder.urls')),
     path('api/builds/', include('builds.urls')),
+
+    path('api/simple-projects/', include('simple_project.urls')),
+    path('api/simple-builder/', include('simple_builder.urls')),
+    path('api/simple-builds/', include('simple_builds.urls')),
 ]
 
 # Dynamically register app URLs
